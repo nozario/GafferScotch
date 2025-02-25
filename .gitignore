@@ -1,0 +1,49 @@
+# Ignore instructions folder
+/instructions/
+
+# Ignore Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Ignore environment setup
+/setenv.bat
+
+# Ignore CMake build directory
+/cmake-build-default/
+/cmake-build-*/
+
+# Ignore compiled files
+*.dll
+*.lib
+*.exe
+*.out
+*.app
+*.o
+*.obj
+*.a
+*.la
+*.lo
+
+# Ignore build artifacts
+/build/
+/dist/
+*.pyd
+
+# IDE files
+.idea/
+.vscode/
+.cursor/
+.cursorrules/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db 
