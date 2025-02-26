@@ -191,7 +191,7 @@ IE_CORE_DEFINERUNTIMETYPED(PointDeform);
 size_t PointDeform::g_firstPlugIndex = 0;
 
 PointDeform::PointDeform(const std::string &name)
-    : SceneElementProcessor(name, IECore::PathMatcher::NoMatch)
+    : Deformer(name)
 {
     storeIndexOfNextChild(g_firstPlugIndex);
 
@@ -206,11 +206,6 @@ PointDeform::PointDeform(const std::string &name)
 
     // Add cleanup attributes parameter
     addChild(new BoolPlug("cleanupAttributes", Plug::In, true));
-
-    // Fast pass-throughs for things we don't modify
-    outPlug()->attributesPlug()->setInput(inPlug()->attributesPlug());
-    outPlug()->transformPlug()->setInput(inPlug()->transformPlug());
-    outPlug()->boundPlug()->setInput(inPlug()->boundPlug());
 }
 
 ScenePlug *PointDeform::staticDeformerPlug()
@@ -255,7 +250,7 @@ const BoolPlug *PointDeform::cleanupAttributesPlug() const
 
 void PointDeform::affects(const Plug *input, AffectedPlugsContainer &outputs) const
 {
-    SceneElementProcessor::affects(input, outputs);
+    Deformer::affects(input, outputs);
 
     if (input == staticDeformerPlug()->objectPlug() ||
         input == animatedDeformerPlug()->objectPlug() ||
@@ -266,15 +261,16 @@ void PointDeform::affects(const Plug *input, AffectedPlugsContainer &outputs) co
     }
 }
 
-bool PointDeform::processesObject() const
+bool PointDeform::affectsProcessedObject(const Plug *input) const
 {
-    return true;
+    return input == staticDeformerPlug()->objectPlug() ||
+           input == animatedDeformerPlug()->objectPlug() ||
+           input == deformerPathPlug() ||
+           input == cleanupAttributesPlug();
 }
 
 void PointDeform::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
 {
-    SceneElementProcessor::hashProcessedObject(path, context, h);
-
     // Get source path and objects
     const ScenePath deformerPath = makeScenePath(deformerPathPlug()->getValue());
     ConstObjectPtr inputObject = inPlug()->object(path);
@@ -307,6 +303,30 @@ void PointDeform::hashProcessedObject(const ScenePath &path, const Gaffer::Conte
         deformerPathPlug()->hash(h);
         cleanupAttributesPlug()->hash(h);
     }
+}
+
+bool PointDeform::affectsProcessedObjectBound(const Plug *input) const
+{
+    return input == staticDeformerPlug()->objectPlug() ||
+           input == animatedDeformerPlug()->objectPlug() ||
+           input == deformerPathPlug();
+}
+
+void PointDeform::hashProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
+{
+    // We use the same hash as the processed object since the bound depends on the deformed positions
+    const ScenePath deformerPath = makeScenePath(deformerPathPlug()->getValue());
+    h.append(inPlug()->objectHash(path));
+    h.append(staticDeformerPlug()->objectHash(deformerPath));
+    h.append(animatedDeformerPlug()->objectHash(deformerPath));
+    deformerPathPlug()->hash(h);
+}
+
+Imath::Box3f PointDeform::computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const
+{
+    // We'll let the base class compute the bound from the processed object
+    // This is less efficient but ensures correctness
+    return Deformer::computeProcessedObjectBound(path, context);
 }
 
 IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::ConstObjectPtr inputObject) const
