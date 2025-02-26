@@ -328,7 +328,7 @@ void PointDeform::hashProcessedObject(const ScenePath &path, const Gaffer::Conte
         hashPositions(animatedDeformerPrimitive, h);
 
         // Hash influences and weights from input
-        hashInfluences(inputPrimitive, h);
+        h.append(inPlug()->objectHash(path));
 
         // Hash the cleanup parameter as it affects the output
         cleanupAttributesPlug()->hash(h);
