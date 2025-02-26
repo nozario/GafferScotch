@@ -116,21 +116,22 @@ namespace
         outTotalWeight += weight;
     }
 
-    // Add these new helper functions for hashing
-    void hashPositions(const Primitive *primitive, MurmurHash &h)
+    // Simplified hashing for primitives - only hash what matters
+    void hashPrimitiveForDeformation(const Primitive *primitive, MurmurHash &h)
     {
         if (!primitive)
             return;
 
-        auto it = primitive->variables.find("P");
-        if (it == primitive->variables.end())
+        // For deformation, we only care about positions
+        auto pIt = primitive->variables.find("P");
+        if (pIt == primitive->variables.end())
             return;
 
-        const V3fVectorData *positions = runTimeCast<const V3fVectorData>(it->second.data.get());
+        const V3fVectorData *positions = runTimeCast<const V3fVectorData>(pIt->second.data.get());
         if (!positions)
             return;
 
-        // Hash only the number of vertices and position data
+        // Hash the position data efficiently
         const std::vector<V3f> &pos = positions->readable();
         h.append(pos.size());
         if (!pos.empty())
@@ -139,7 +140,8 @@ namespace
         }
     }
 
-    void hashInfluences(const Primitive *primitive, MurmurHash &h)
+    // Hash only the capture data that affects deformation
+    void hashCaptureData(const Primitive *primitive, MurmurHash &h)
     {
         if (!primitive)
             return;
@@ -157,6 +159,11 @@ namespace
         int maxInfluences = 0;
         for (int numInf : influences->readable())
             maxInfluences = std::max(maxInfluences, numInf);
+
+        h.append(maxInfluences);
+        h.append(influences->readable().size());
+        if (!influences->readable().empty())
+            h.append(&influences->readable()[0], influences->readable().size());
 
         // Hash influence data
         for (int i = 1; i <= maxInfluences; ++i)
@@ -271,55 +278,48 @@ bool PointDeform::affectsProcessedObject(const Plug *input) const
 
 void PointDeform::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
 {
-    // Get source path and objects
+    // Get the deformer path
     const ScenePath deformerPath = makeScenePath(deformerPathPlug()->getValue());
+    
+    // Get input object
     ConstObjectPtr inputObject = inPlug()->object(path);
+    const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
+    
+    if (!inputPrimitive)
+    {
+        // If not a primitive, just pass through
+        h = inputObject->hash();
+        return;
+    }
+    
+    // Hash the capture data from input (this contains all the influence information)
+    hashCaptureData(inputPrimitive, h);
+    
+    // Hash the static and animated deformer positions (these affect the deformation)
     ConstObjectPtr staticDeformerObject = staticDeformerPlug()->object(deformerPath);
     ConstObjectPtr animatedDeformerObject = animatedDeformerPlug()->object(deformerPath);
-
-    // Cast to primitives
-    const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
+    
     const Primitive *staticDeformerPrimitive = runTimeCast<const Primitive>(staticDeformerObject.get());
     const Primitive *animatedDeformerPrimitive = runTimeCast<const Primitive>(animatedDeformerObject.get());
-
-    if (inputPrimitive && staticDeformerPrimitive && animatedDeformerPrimitive)
-    {
-        // Hash only the positions from deformers
-        hashPositions(staticDeformerPrimitive, h);
-        hashPositions(animatedDeformerPrimitive, h);
-
-        // Hash influences and weights from input
-        hashInfluences(inputPrimitive, h);
-
-        // Hash the cleanup parameter as it affects the output
-        cleanupAttributesPlug()->hash(h);
-    }
+    
+    if (staticDeformerPrimitive)
+        hashPrimitiveForDeformation(staticDeformerPrimitive, h);
     else
-    {
-        // If we don't have valid primitives, hash the entire objects
-        h.append(inPlug()->objectHash(path));
         h.append(staticDeformerPlug()->objectHash(deformerPath));
+        
+    if (animatedDeformerPrimitive)
+        hashPrimitiveForDeformation(animatedDeformerPrimitive, h);
+    else
         h.append(animatedDeformerPlug()->objectHash(deformerPath));
-        deformerPathPlug()->hash(h);
-        cleanupAttributesPlug()->hash(h);
-    }
-}
-
-bool PointDeform::affectsProcessedObjectBound(const Plug *input) const
-{
-    return input == staticDeformerPlug()->objectPlug() ||
-           input == animatedDeformerPlug()->objectPlug() ||
-           input == deformerPathPlug();
+    
+    // Hash the cleanup parameter as it affects the output
+    cleanupAttributesPlug()->hash(h);
 }
 
 void PointDeform::hashProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
 {
-    // We use the same hash as the processed object since the bound depends on the deformed positions
-    const ScenePath deformerPath = makeScenePath(deformerPathPlug()->getValue());
-    h.append(inPlug()->objectHash(path));
-    h.append(staticDeformerPlug()->objectHash(deformerPath));
-    h.append(animatedDeformerPlug()->objectHash(deformerPath));
-    deformerPathPlug()->hash(h);
+    // For bounds, we need the same dependencies as the object itself
+    hashProcessedObject(path, context, h);
 }
 
 Imath::Box3f PointDeform::computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const
