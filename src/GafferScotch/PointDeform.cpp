@@ -329,10 +329,10 @@ Imath::Box3f PointDeform::computeProcessedObjectBound(const ScenePath &path, con
     return Deformer::computeProcessedObjectBound(path, context);
 }
 
-IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::ConstObjectPtr inputObject) const
+IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
 {
     // Early out if we don't have a valid input object
-    const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
+    const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject);
     if (!inputPrimitive)
         return inputObject;
 

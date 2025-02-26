@@ -40,10 +40,10 @@ namespace GafferScotch
         void affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const override;
 
     protected:
-        // Override Deformer methods
+        // Override ObjectProcessor methods
         bool affectsProcessedObject(const Gaffer::Plug *input) const override;
         void hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const override;
-        IECore::ConstObjectPtr computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::ConstObjectPtr inputObject) const override;
+        IECore::ConstObjectPtr computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const override;
         
         // Override for bounds computation
         bool affectsProcessedObjectBound(const Gaffer::Plug *input) const override;
