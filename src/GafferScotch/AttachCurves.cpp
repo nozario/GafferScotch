@@ -147,7 +147,7 @@ IE_CORE_DEFINERUNTIMETYPED(GafferScotch::AttachCurves);
 size_t GafferScotch::AttachCurves::g_firstPlugIndex = 0;
 
 AttachCurves::AttachCurves(const std::string &name)
-    : SceneElementProcessor(name, IECore::PathMatcher::NoMatch)
+    : Deformer(name)
 {
     storeIndexOfNextChild(g_firstPlugIndex);
 
@@ -235,7 +235,7 @@ const StringPlug *AttachCurves::bindRootAttributePlug() const
 
 void AttachCurves::affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const
 {
-    SceneElementProcessor::affects(input, outputs);
+    Deformer::affects(input, outputs);
 
     if (
         input == restMeshPlug()->objectPlug() ||
@@ -251,7 +251,7 @@ void AttachCurves::affects(const Gaffer::Plug *input, AffectedPlugsContainer &ou
 
 bool AttachCurves::acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plug *inputPlug) const
 {
-    if (!SceneElementProcessor::acceptsInput(plug, inputPlug))
+    if (!Deformer::acceptsInput(plug, inputPlug))
     {
         return false;
     }
@@ -259,15 +259,18 @@ bool AttachCurves::acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plug *in
     return true;
 }
 
-bool AttachCurves::processesObject() const
+bool AttachCurves::affectsProcessedObject(const Gaffer::Plug *input) const
 {
-    return true;
+    return input == restMeshPlug()->objectPlug() ||
+           input == animatedMeshPlug()->objectPlug() ||
+           input == rootAttributeNamePlug() ||
+           input == rootPathPlug() ||
+           input == bindRootAttributePlug() ||
+           input == useBindRootAttributePlug();
 }
 
 void AttachCurves::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
 {
-    SceneElementProcessor::hashProcessedObject(path, context, h);
-
     // Get the target path for mesh inputs
     const std::string rootPathStr = rootPathPlug()->getValue();
     const ScenePath restPath = makeScenePath(rootPathStr);
@@ -320,6 +323,36 @@ void AttachCurves::hashProcessedObject(const ScenePath &path, const Gaffer::Cont
     rootPathPlug()->hash(h);
     bindRootAttributePlug()->hash(h);
     useBindRootAttributePlug()->hash(h);
+}
+
+bool AttachCurves::affectsProcessedObjectBound(const Gaffer::Plug *input) const
+{
+    return input == restMeshPlug()->objectPlug() ||
+           input == animatedMeshPlug()->objectPlug() ||
+           input == rootPathPlug() ||
+           input == bindRootAttributePlug() ||
+           input == useBindRootAttributePlug();
+}
+
+void AttachCurves::hashProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
+{
+    // We use the same hash as the processed object since the bound depends on the deformed positions
+    const std::string rootPathStr = rootPathPlug()->getValue();
+    const ScenePath restPath = makeScenePath(rootPathStr);
+    
+    h.append(inPlug()->objectHash(path));
+    h.append(restMeshPlug()->objectHash(restPath));
+    h.append(animatedMeshPlug()->objectHash(restPath));
+    rootPathPlug()->hash(h);
+    bindRootAttributePlug()->hash(h);
+    useBindRootAttributePlug()->hash(h);
+}
+
+Imath::Box3f AttachCurves::computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const
+{
+    // We'll let the base class compute the bound from the processed object
+    // This is less efficient but ensures correctness
+    return Deformer::computeProcessedObjectBound(path, context);
 }
 
 void AttachCurves::updateRestCache(const MeshPrimitive *restMesh,
@@ -610,10 +643,10 @@ void AttachCurves::applyDeformation(const MeshPrimitive *animatedMesh,
                  });
 }
 
-IECore::ConstObjectPtr AttachCurves::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::ConstObjectPtr inputObject) const
+IECore::ConstObjectPtr AttachCurves::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
 {
     // Early out if we don't have a valid input object
-    const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>(inputObject.get());
+    const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>(inputObject);
     if (!curves)
     {
         return inputObject;

@@ -142,7 +142,7 @@ IE_CORE_DEFINERUNTIMETYPED(RigidDeformCurves);
 size_t RigidDeformCurves::g_firstPlugIndex = 0;
 
 RigidDeformCurves::RigidDeformCurves(const std::string &name)
-    : SceneElementProcessor(name, IECore::PathMatcher::NoMatch)
+    : Deformer(name)
 {
     storeIndexOfNextChild(g_firstPlugIndex);
 
@@ -217,7 +217,7 @@ const StringPlug *RigidDeformCurves::bindAttrPlug() const
 
 void RigidDeformCurves::affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const
 {
-    SceneElementProcessor::affects(input, outputs);
+    Deformer::affects(input, outputs);
 
     if (input == restMeshPlug()->objectPlug() ||
         input == animatedMeshPlug()->objectPlug() ||
@@ -231,7 +231,7 @@ void RigidDeformCurves::affects(const Gaffer::Plug *input, AffectedPlugsContaine
 
 bool RigidDeformCurves::acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plug *inputPlug) const
 {
-    if (!SceneElementProcessor::acceptsInput(plug, inputPlug))
+    if (!Deformer::acceptsInput(plug, inputPlug))
     {
         return false;
     }
@@ -239,15 +239,17 @@ bool RigidDeformCurves::acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plu
     return true;
 }
 
-bool RigidDeformCurves::processesObject() const
+bool RigidDeformCurves::affectsProcessedObject(const Gaffer::Plug *input) const
 {
-    return true;
+    return input == restMeshPlug()->objectPlug() ||
+           input == animatedMeshPlug()->objectPlug() ||
+           input == useBindAttrPlug() ||
+           input == bindPathPlug() ||
+           input == bindAttrPlug();
 }
 
 void RigidDeformCurves::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
 {
-    SceneElementProcessor::hashProcessedObject(path, context, h);
-
     // Get objects
     ConstObjectPtr inputObject = inPlug()->object(path);
     const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>(inputObject.get());
@@ -319,6 +321,54 @@ void RigidDeformCurves::hashProcessedObject(const ScenePath &path, const Gaffer:
     useBindAttrPlug()->hash(h);
     bindPathPlug()->hash(h);
     bindAttrPlug()->hash(h);
+}
+
+bool RigidDeformCurves::affectsProcessedObjectBound(const Gaffer::Plug *input) const
+{
+    return input == restMeshPlug()->objectPlug() ||
+           input == animatedMeshPlug()->objectPlug() ||
+           input == useBindAttrPlug() ||
+           input == bindPathPlug() ||
+           input == bindAttrPlug();
+}
+
+void RigidDeformCurves::hashProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
+{
+    // We use the same hash as the processed object since the bound depends on the deformed positions
+    ConstObjectPtr inputObject = inPlug()->object(path);
+    const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>(inputObject.get());
+    
+    if (!curves)
+    {
+        h = inputObject->hash();
+        return;
+    }
+    
+    // Get the target path based on mode
+    ScenePath meshPath;
+    if (useBindAttrPlug()->getValue())
+    {
+        // Use first path for hashing
+        meshPath = makeScenePath(bindPathPlug()->getValue());
+    }
+    else
+    {
+        meshPath = makeScenePath(bindPathPlug()->getValue());
+    }
+    
+    h.append(inPlug()->objectHash(path));
+    h.append(restMeshPlug()->objectHash(meshPath));
+    h.append(animatedMeshPlug()->objectHash(meshPath));
+    useBindAttrPlug()->hash(h);
+    bindPathPlug()->hash(h);
+    bindAttrPlug()->hash(h);
+}
+
+Imath::Box3f RigidDeformCurves::computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const
+{
+    // We'll let the base class compute the bound from the processed object
+    // This is less efficient but ensures correctness
+    return Deformer::computeProcessedObjectBound(path, context);
 }
 
 void RigidDeformCurves::computeDeformedFrame(
@@ -639,10 +689,10 @@ void RigidDeformCurves::deformCurves(
     outputCurves->variables["P"] = PrimitiveVariable(PrimitiveVariable::Vertex, outputPointsData);
 }
 
-IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::ConstObjectPtr inputObject) const
+IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
 {
     // Early out if we don't have a valid input object
-    const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>(inputObject.get());
+    const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>(inputObject);
     if (!curves)
     {
         return inputObject;
