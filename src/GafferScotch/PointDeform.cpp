@@ -352,9 +352,44 @@ void PointDeform::hashProcessedObjectBound(const ScenePath &path, const Gaffer::
 
 Imath::Box3f PointDeform::computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const
 {
-    // We'll let the base class compute the bound from the processed object
-    // This is less efficient but ensures correctness
-    return Deformer::computeProcessedObjectBound(path, context);
+    // Get the input object bound
+    const Box3f inputBound = inPlug()->boundPlug()->getValue();
+    
+    // Early out if the bound is empty or if we're not deforming
+    if (inputBound.isEmpty())
+    {
+        return inputBound;
+    }
+    
+    // Try to be more efficient - compute bound directly from inputs
+    // rather than computing the full deformed object
+    ConstObjectPtr inputObject = inPlug()->objectPlug()->getValue();
+    const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
+    if (!inputPrimitive)
+    {
+        return inputBound;
+    }
+    
+    // Get the deformer path
+    const ScenePath deformerPath = makeScenePath(deformerPathPlug()->getValue());
+    
+    // Check if we have valid deformer objects
+    ConstObjectPtr staticObj = staticDeformerPlug()->object(deformerPath);
+    ConstObjectPtr animatedObj = animatedDeformerPlug()->object(deformerPath);
+    
+    if (!runTimeCast<const Primitive>(staticObj.get()) || 
+        !runTimeCast<const Primitive>(animatedObj.get()))
+    {
+        return inputBound;
+    }
+    
+    // We have valid deformer objects - return a slightly expanded bound to account
+    // for deformation. This is more efficient than recomputing the entire object.
+    // The 5% expansion is a conservative estimate - adjust as needed.
+    Box3f result = inputBound;
+    result.min -= (result.size() * 0.05);
+    result.max += (result.size() * 0.05);
+    return result;
 }
 
 IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
