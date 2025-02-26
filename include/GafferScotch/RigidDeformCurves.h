@@ -5,7 +5,7 @@
 #include "GafferScotch/TypeIds.h"
 #include "GafferScotch/AttachCurvesDataStructures.h"
 
-#include "GafferScene/SceneElementProcessor.h"
+#include "GafferScene/Deformer.h"
 #include "GafferScene/ScenePlug.h"
 
 #include "Gaffer/StringPlug.h"
@@ -23,13 +23,13 @@ namespace GafferScotch
         T primVar(const IECoreScene::PrimitiveVariable &pv, const float *barycentrics, unsigned int triangleIdx, const Imath::V3i &vertexIds);
     }
 
-    class GAFFERSCOTCH_API RigidDeformCurves : public GafferScene::SceneElementProcessor
+    class GAFFERSCOTCH_API RigidDeformCurves : public GafferScene::Deformer
     {
     public:
         RigidDeformCurves(const std::string &name = defaultName<RigidDeformCurves>());
         ~RigidDeformCurves() override;
 
-        IE_CORE_DECLARERUNTIMETYPEDEXTENSION(GafferScotch::RigidDeformCurves, GafferScotch::TypeId::RigidDeformCurvesTypeId, GafferScene::SceneElementProcessor);
+        IE_CORE_DECLARERUNTIMETYPEDEXTENSION(GafferScotch::RigidDeformCurves, GafferScotch::TypeId::RigidDeformCurvesTypeId, GafferScene::Deformer);
 
         // Rest mesh input (for reference)
         GafferScene::ScenePlug *restMeshPlug();
@@ -54,9 +54,15 @@ namespace GafferScotch
         void affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const override;
 
     protected:
-        bool processesObject() const override;
+        // Override ObjectProcessor methods
+        bool affectsProcessedObject(const Gaffer::Plug *input) const override;
         void hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const override;
-        IECore::ConstObjectPtr computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::ConstObjectPtr inputObject) const override;
+        IECore::ConstObjectPtr computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const override;
+        
+        // Override for bounds computation
+        bool affectsProcessedObjectBound(const Gaffer::Plug *input) const override;
+        void hashProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const override;
+        Imath::Box3f computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const override;
 
         bool acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plug *inputPlug) const override;
 

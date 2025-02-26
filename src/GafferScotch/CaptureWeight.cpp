@@ -241,43 +241,6 @@ namespace
 
         return runTimeCast<const V3fVectorData>(it->second.data.get());
     }
-
-    // Helper to get hash for positions only
-    void hashPositions(const Primitive *primitive, MurmurHash &h)
-    {
-        if (!primitive)
-            return;
-
-        auto it = primitive->variables.find("P");
-        if (it == primitive->variables.end())
-            return;
-
-        const V3fVectorData *positions = runTimeCast<const V3fVectorData>(it->second.data.get());
-        if (!positions)
-            return;
-
-        // Hash only the number of vertices and position data
-        const std::vector<V3f> &pos = positions->readable();
-        h.append(pos.size());
-        if (!pos.empty())
-        {
-            h.append(&pos[0], pos.size());
-        }
-    }
-
-    // Helper to get hash for piece attribute
-    void hashPieceAttribute(const Primitive *primitive, const std::string &attrName, MurmurHash &h)
-    {
-        if (!primitive || attrName.empty())
-            return;
-
-        auto it = primitive->variables.find(attrName);
-        if (it == primitive->variables.end())
-            return;
-
-        // Hash the attribute data by appending to the provided hash
-        it->second.data->hash(h);
-    }
 } // namespace
 
 IE_CORE_DEFINERUNTIMETYPED(CaptureWeight);
@@ -285,26 +248,21 @@ IE_CORE_DEFINERUNTIMETYPED(CaptureWeight);
 size_t CaptureWeight::g_firstPlugIndex = 0;
 
 CaptureWeight::CaptureWeight(const std::string &name)
-    : SceneElementProcessor(name, IECore::PathMatcher::NoMatch)
+    : ObjectProcessor(name)
 {
     storeIndexOfNextChild(g_firstPlugIndex);
 
     // Add source points input
-    addChild(new ScenePlug("source"));
+    addChild(new ScenePlug("source", Plug::In));
 
     // Add source path
     addChild(new StringPlug("sourcePath", Plug::In, ""));
 
-    // Add parameter plugs
+    // Add parameters
     addChild(new FloatPlug("radius", Plug::In, 1.0f, 0.0f));
-    addChild(new IntPlug("maxPoints", Plug::In, 10, 1));
+    addChild(new IntPlug("maxPoints", Plug::In, 4, 1));
     addChild(new IntPlug("minPoints", Plug::In, 1, 1));
     addChild(new StringPlug("pieceAttribute", Plug::In, ""));
-
-    // Fast pass-throughs for things we don't modify
-    outPlug()->attributesPlug()->setInput(inPlug()->attributesPlug());
-    outPlug()->transformPlug()->setInput(inPlug()->transformPlug());
-    outPlug()->boundPlug()->setInput(inPlug()->boundPlug());
 }
 
 ScenePlug *CaptureWeight::sourcePlug()
@@ -369,76 +327,108 @@ const StringPlug *CaptureWeight::pieceAttributePlug() const
 
 void CaptureWeight::affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const
 {
-    SceneElementProcessor::affects(input, outputs);
+    ObjectProcessor::affects(input, outputs);
 
-    const ScenePlug *sp = sourcePlug();
-    const ScenePlug *op = outPlug();
-    if (input == sp->objectPlug() ||
+    if (input == sourcePlug()->objectPlug() ||
         input == sourcePathPlug() ||
         input == radiusPlug() ||
         input == maxPointsPlug() ||
         input == minPointsPlug() ||
         input == pieceAttributePlug())
     {
-        outputs.push_back(op->objectPlug());
+        outputs.push_back(outPlug()->objectPlug());
     }
 }
 
-bool CaptureWeight::processesObject() const
+bool CaptureWeight::affectsProcessedObject(const Gaffer::Plug *input) const
 {
-    return true;
+    return input == sourcePlug()->objectPlug() ||
+           input == sourcePathPlug() ||
+           input == radiusPlug() ||
+           input == maxPointsPlug() ||
+           input == minPointsPlug() ||
+           input == pieceAttributePlug();
+}
+
+void CaptureWeight::hashPositions(const IECoreScene::Primitive *primitive, IECore::MurmurHash &h) const
+{
+    if (!primitive)
+        return;
+
+    auto it = primitive->variables.find("P");
+    if (it == primitive->variables.end())
+        return;
+
+    const IECore::V3fVectorData *positions = IECore::runTimeCast<const IECore::V3fVectorData>(it->second.data.get());
+    if (!positions)
+        return;
+
+    // Hash only the number of vertices and position data
+    const std::vector<Imath::V3f> &pos = positions->readable();
+    h.append(pos.size());
+    if (!pos.empty())
+    {
+        h.append(&pos[0], pos.size());
+    }
+}
+
+void CaptureWeight::hashPieceAttribute(const IECoreScene::Primitive *primitive, const std::string &attrName, IECore::MurmurHash &h) const
+{
+    if (!primitive || attrName.empty())
+        return;
+
+    auto it = primitive->variables.find(attrName);
+    if (it == primitive->variables.end())
+        return;
+
+    // Hash the attribute data by appending to the provided hash
+    it->second.data->hash(h);
 }
 
 void CaptureWeight::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
 {
-    SceneElementProcessor::hashProcessedObject(path, context, h);
+    // Get source path
+    const std::string sourcePathStr = sourcePathPlug()->getValue();
+    ScenePath sourcePath;
+    IECore::StringAlgo::tokenize<IECore::InternedString>(sourcePathStr, '/', std::back_inserter(sourcePath));
 
-    // Get source path and objects
-    const ScenePath sourcePath = makeScenePath(sourcePathPlug()->getValue());
-    ConstObjectPtr sourceObject = sourcePlug()->object(sourcePath);
-    ConstObjectPtr inputObject = inPlug()->object(path);
-
-    // Cast to primitives
-    const Primitive *sourcePrimitive = runTimeCast<const Primitive>(sourceObject.get());
-    const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
-
-    if (sourcePrimitive && inputPrimitive)
-    {
-        // Hash only the positions from both primitives
-        hashPositions(sourcePrimitive, h);
-        hashPositions(inputPrimitive, h);
-
-        // Hash the piece attribute if specified
-        const std::string pieceAttr = pieceAttributePlug()->getValue();
-        if (!pieceAttr.empty())
-        {
-            h.append(pieceAttr);
-            hashPieceAttribute(sourcePrimitive, pieceAttr, h);
-            hashPieceAttribute(inputPrimitive, pieceAttr, h);
-        }
-
-        // Hash the parameters that affect the computation
-        radiusPlug()->hash(h);
-        maxPointsPlug()->hash(h);
-        minPointsPlug()->hash(h);
+    // Get objects
+    ConstObjectPtr sourceObj = sourcePlug()->object(sourcePath);
+    ConstObjectPtr inputObj = inPlug()->object(path);
+    
+    // Cast to primitives for more efficient hashing
+    const IECoreScene::Primitive *sourcePrimitive = IECore::runTimeCast<const IECoreScene::Primitive>(sourceObj.get());
+    const IECoreScene::Primitive *inputPrimitive = IECore::runTimeCast<const IECoreScene::Primitive>(inputObj.get());
+    
+    if (!sourcePrimitive || !inputPrimitive) {
+        // If not valid primitives, just pass through
+        h = inputObj->hash();
+        return;
     }
-    else
+    
+    // Hash only the positions from both primitives (more efficient)
+    hashPositions(sourcePrimitive, h);
+    hashPositions(inputPrimitive, h);
+    
+    // Hash the piece attribute if specified
+    const std::string pieceAttr = pieceAttributePlug()->getValue();
+    if (!pieceAttr.empty())
     {
-        // If we don't have valid primitives, hash the entire objects
-        h.append(sourcePlug()->objectHash(sourcePath));
-        h.append(inPlug()->objectHash(path));
-        sourcePathPlug()->hash(h);
-        radiusPlug()->hash(h);
-        maxPointsPlug()->hash(h);
-        minPointsPlug()->hash(h);
-        pieceAttributePlug()->hash(h);
+        h.append(pieceAttr);
+        hashPieceAttribute(sourcePrimitive, pieceAttr, h);
+        hashPieceAttribute(inputPrimitive, pieceAttr, h);
     }
+    
+    // Hash parameters
+    radiusPlug()->hash(h);
+    maxPointsPlug()->hash(h);
+    minPointsPlug()->hash(h);
 }
 
-IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::ConstObjectPtr inputObject) const
+IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
 {
     // Early out if we don't have a valid input object
-    const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
+    const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject);
     if (!inputPrimitive)
     {
         return inputObject;

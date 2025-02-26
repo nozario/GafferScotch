@@ -125,7 +125,7 @@ IE_CORE_DEFINERUNTIMETYPED(RigidAttachCurves);
 size_t RigidAttachCurves::g_firstPlugIndex = 0;
 
 RigidAttachCurves::RigidAttachCurves(const std::string &name)
-    : SceneElementProcessor(name, IECore::PathMatcher::NoMatch)
+    : ObjectProcessor(name)
 {
     storeIndexOfNextChild(g_firstPlugIndex);
 
@@ -133,7 +133,7 @@ RigidAttachCurves::RigidAttachCurves(const std::string &name)
     addChild(new ScenePlug("restMesh", Plug::In));
 
     // Root finding
-    addChild(new StringPlug("rootAttr", Plug::In, "")); // Empty by default = use first point
+    addChild(new StringPlug("rootAttr", Plug::In, ""));
 
     // Binding mode
     addChild(new BoolPlug("useBindAttr", Plug::In, false));
@@ -202,7 +202,7 @@ const StringPlug *RigidAttachCurves::bindAttrPlug() const
 
 void RigidAttachCurves::affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const
 {
-    SceneElementProcessor::affects(input, outputs);
+    ObjectProcessor::affects(input, outputs);
 
     if (input == restMeshPlug()->objectPlug() ||
         input == rootAttrPlug() ||
@@ -216,7 +216,7 @@ void RigidAttachCurves::affects(const Gaffer::Plug *input, AffectedPlugsContaine
 
 bool RigidAttachCurves::acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plug *inputPlug) const
 {
-    if (!SceneElementProcessor::acceptsInput(plug, inputPlug))
+    if (!ObjectProcessor::acceptsInput(plug, inputPlug))
     {
         return false;
     }
@@ -224,55 +224,67 @@ bool RigidAttachCurves::acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plu
     return true;
 }
 
-bool RigidAttachCurves::processesObject() const
+bool RigidAttachCurves::affectsProcessedObject(const Gaffer::Plug *input) const
 {
-    return true;
+    return input == restMeshPlug()->objectPlug() ||
+           input == rootAttrPlug() ||
+           input == useBindAttrPlug() ||
+           input == bindPathPlug() ||
+           input == bindAttrPlug();
 }
 
 void RigidAttachCurves::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
 {
-    SceneElementProcessor::hashProcessedObject(path, context, h);
-
-    // Get the target path for mesh inputs
-    const std::string rootPathStr = rootAttrPlug()->getValue();
-    const ScenePath restPath = makeScenePath(rootPathStr);
-
     // Get objects
-    ConstObjectPtr restMeshObj = restMeshPlug()->object(restPath);
     ConstObjectPtr inputObject = inPlug()->object(path);
-
-    // Cast to primitives
-    const MeshPrimitive *restMesh = runTimeCast<const MeshPrimitive>(restMeshObj.get());
     const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>(inputObject.get());
 
-    if (restMesh && curves)
+    if (!curves)
     {
-        // Hash only the positions from all primitives
-        hashPositions(restMesh, h);
-        hashPositions(curves, h);
+        h = inputObject->hash();
+        return;
+    }
 
-        // Hash mesh topology
-        hashTopology(restMesh, h);
-
-        // Hash curve topology
-        const std::vector<int> &vertsPerCurve = curves->verticesPerCurve()->readable();
-        h.append(vertsPerCurve.size());
-        if (!vertsPerCurve.empty())
+    // Get the target path based on mode
+    ScenePath restPath;
+    const bool useBindAttr = useBindAttrPlug()->getValue();
+    if (useBindAttr)
+    {
+        // Try to get path from attribute
+        const std::string bindAttrName = bindAttrPlug()->getValue();
+        if (!bindAttrName.empty())
         {
-            h.append(&vertsPerCurve[0], vertsPerCurve.size());
+            auto it = curves->variables.find(bindAttrName);
+            if (it != curves->variables.end())
+            {
+                if (const StringData *pathData = runTimeCast<const StringData>(it->second.data.get()))
+                {
+                    restPath = makeScenePath(pathData->readable());
+                }
+                else if (const StringVectorData *pathVectorData = runTimeCast<const StringVectorData>(it->second.data.get()))
+                {
+                    const std::vector<std::string> &paths = pathVectorData->readable();
+                    if (!paths.empty())
+                    {
+                        restPath = makeScenePath(paths[0]); // Use first path for now
+                    }
+                }
+            }
         }
-
-        // Hash normals for mesh
-        hashNormals(restMesh, h);
     }
     else
     {
-        // If we don't have valid primitives, hash the entire objects
-        h.append(restMeshPlug()->objectHash(restPath));
-        h.append(inPlug()->objectHash(path));
+        // Use path from plug
+        restPath = makeScenePath(bindPathPlug()->getValue());
     }
 
-    // Hash the control plugs
+    // Hash rest mesh
+    h.append(restMeshPlug()->objectHash(restPath));
+
+    // Hash input curves
+    h.append(inPlug()->objectHash(path));
+
+    // Hash parameters
     rootAttrPlug()->hash(h);
     useBindAttrPlug()->hash(h);
     bindPathPlug()->hash(h);
@@ -557,10 +569,10 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
     m_restCache.bindingCache.valid = true;
 }
 
-IECore::ConstObjectPtr RigidAttachCurves::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::ConstObjectPtr inputObject) const
+IECore::ConstObjectPtr RigidAttachCurves::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
 {
     // Early out if we don't have a valid input object
-    const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>(inputObject.get());
+    const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>(inputObject);
     if (!curves)
     {
         return inputObject;

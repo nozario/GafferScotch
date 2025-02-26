@@ -5,7 +5,7 @@
 #include "GafferScotch/TypeIds.h"
 #include "GafferScotch/AttachCurvesDataStructures.h"
 
-#include "GafferScene/SceneElementProcessor.h"
+#include "GafferScene/ObjectProcessor.h"
 #include "GafferScene/ScenePlug.h"
 
 #include "Gaffer/StringPlug.h"
@@ -18,13 +18,13 @@
 namespace GafferScotch
 {
 
-    class GAFFERSCOTCH_API RigidAttachCurves : public GafferScene::SceneElementProcessor
+    class GAFFERSCOTCH_API RigidAttachCurves : public GafferScene::ObjectProcessor
     {
     public:
         RigidAttachCurves(const std::string &name = defaultName<RigidAttachCurves>());
         ~RigidAttachCurves() override;
 
-        IE_CORE_DECLARERUNTIMETYPEDEXTENSION(GafferScotch::RigidAttachCurves, GafferScotch::TypeId::RigidAttachCurvesTypeId, GafferScene::SceneElementProcessor);
+        IE_CORE_DECLARERUNTIMETYPEDEXTENSION(GafferScotch::RigidAttachCurves, GafferScotch::TypeId::RigidAttachCurvesTypeId, GafferScene::ObjectProcessor);
 
         // Rest mesh input
         GafferScene::ScenePlug *restMeshPlug();
@@ -49,9 +49,10 @@ namespace GafferScotch
         void affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const override;
 
     protected:
-        bool processesObject() const override;
+        // Override ObjectProcessor methods
+        bool affectsProcessedObject(const Gaffer::Plug *input) const override;
         void hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const override;
-        IECore::ConstObjectPtr computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::ConstObjectPtr inputObject) const override;
+        IECore::ConstObjectPtr computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const override;
 
         bool acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plug *inputPlug) const override;
 
