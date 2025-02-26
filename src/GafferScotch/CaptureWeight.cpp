@@ -359,12 +359,12 @@ void CaptureWeight::hashPositions(const IECoreScene::Primitive *primitive, IECor
     if (it == primitive->variables.end())
         return;
 
-    const V3fVectorData *positions = runTimeCast<const V3fVectorData>(it->second.data.get());
+    const IECore::V3fVectorData *positions = IECore::runTimeCast<const IECore::V3fVectorData>(it->second.data.get());
     if (!positions)
         return;
 
     // Hash only the number of vertices and position data
-    const std::vector<V3f> &pos = positions->readable();
+    const std::vector<Imath::V3f> &pos = positions->readable();
     h.append(pos.size());
     if (!pos.empty())
     {
