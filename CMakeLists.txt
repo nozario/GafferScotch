@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 4.0)
 project(GafferScotch)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -17,13 +17,13 @@ endif(APPLE)
 file( GLOB GafferScotchSrc src/GafferScotch/*.cpp )
 link_directories( GafferScotch ${GAFFER_ROOT}/lib ${GAFFER_ROOT}/libs )
 add_library( GafferScotch SHARED ${GafferScotchSrc} )
-target_compile_definitions( GafferScotch PRIVATE 
-    BOOST_SIGNALS_NO_DEPRECATION_WARNING=1 
+target_compile_definitions( GafferScotch PRIVATE
+    BOOST_SIGNALS_NO_DEPRECATION_WARNING=1
     -D_GLIBCXX_USE_CXX11_ABI=0
     GafferScotch_EXPORTS
 )
-target_include_directories( GafferScotch PRIVATE 
-    include 
+target_include_directories( GafferScotch PRIVATE
+    include
     ${GAFFER_ROOT}/include
     ${GAFFER_ROOT}/include/Imath
     ${GAFFER_ROOT}/include/OpenEXR
@@ -33,44 +33,45 @@ target_include_directories( GafferScotch PRIVATE
 )
 target_link_libraries( GafferScotch Gaffer GafferScene IECore IECoreScene fmt)
 install( TARGETS GafferScotch DESTINATION lib)
-string(REPLACE "." "" PYTHON_VERSION_STRIPPED ${PYTHON_VERSION})
-# Convert Python version format from "3.10" to "310" for library names
-string(REGEX REPLACE "([0-9]+)[.]([0-9]+)" "\\1\\2" PYTHON_LIB_VERSION ${PYTHON_VERSION})
 
+
+string(REPLACE "." "" PYTHON_VERSION_STRIPPED ${PYTHON_VERSION})
+wa
+string(REGEX REPLACE "([0-9]+)[.]([0-9]+)" "\\1\\2" PYTHON_LIB_VERSION ${PYTHON_VERSION})
 # build the python bindings
 file( GLOB GafferScotchModuleSrc src/GafferScotchModule/*.cpp )
 add_library( GafferScotchModule SHARED ${GafferScotchModuleSrc} )
 
 target_compile_definitions( GafferScotchModule PRIVATE BOOST_SIGNALS_NO_DEPRECATION_WARNING=1 -D_GLIBCXX_USE_CXX11_ABI=0 BOOST_ALL_NO_LIB=1)
-target_include_directories( GafferScotchModule PRIVATE 
-    include 
+target_include_directories( GafferScotchModule PRIVATE
+    include
     ${GAFFER_ROOT}/include
     ${GAFFER_ROOT}/include/boost
     ${GAFFER_ROOT}/include/Imath
 )
 
 if(MSVC)
-    target_link_libraries( GafferScotchModule 
-        GafferScotch 
-        GafferBindings 
-        IECorePython 
-        boost_python${PYTHON_VERSION_STRIPPED} 
+    target_link_libraries( GafferScotchModule
+        GafferScotch
+        GafferBindings
+        IECorePython
+        boost_python${PYTHON_VERSION_STRIPPED}
         python${PYTHON_LIB_VERSION}
-        Gaffer 
-        GafferScene 
-        IECore 
+        Gaffer
+        GafferScene
+        IECore
         IECoreScene
     )
 else()
-    target_link_libraries( GafferScotchModule 
-        GafferScotch 
-        GafferBindings 
-        IECorePython 
-        boost_python${PYTHON_VERSION_STRIPPED} 
+    target_link_libraries( GafferScotchModule
+        GafferScotch
+        GafferBindings
+        IECorePython
+        boost_python${PYTHON_VERSION_STRIPPED}
         python${PYTHON_LIB_VERSION}
-        Gaffer 
-        GafferScene 
-        IECore 
+        Gaffer
+        GafferScene
+        IECore
         IECoreScene
     )
 endif()
