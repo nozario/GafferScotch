@@ -397,8 +397,8 @@ void CaptureWeight::hashProcessedObject(const ScenePath &path, const Gaffer::Con
     ConstObjectPtr inputObj = inPlug()->object(path);
     
     // Cast to primitives for more efficient hashing
-    const Primitive *sourcePrimitive = runTimeCast<const Primitive>(sourceObj.get());
-    const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObj.get());
+    const IECoreScene::Primitive *sourcePrimitive = IECore::runTimeCast<const IECoreScene::Primitive>(sourceObj.get());
+    const IECoreScene::Primitive *inputPrimitive = IECore::runTimeCast<const IECoreScene::Primitive>(inputObj.get());
     
     if (!sourcePrimitive || !inputPrimitive) {
         // If not valid primitives, just pass through
