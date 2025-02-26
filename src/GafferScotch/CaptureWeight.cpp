@@ -241,43 +241,6 @@ namespace
 
         return runTimeCast<const V3fVectorData>(it->second.data.get());
     }
-
-    // Helper to get hash for positions only
-    void hashPositions(const Primitive *primitive, MurmurHash &h)
-    {
-        if (!primitive)
-            return;
-
-        auto it = primitive->variables.find("P");
-        if (it == primitive->variables.end())
-            return;
-
-        const V3fVectorData *positions = runTimeCast<const V3fVectorData>(it->second.data.get());
-        if (!positions)
-            return;
-
-        // Hash only the number of vertices and position data
-        const std::vector<V3f> &pos = positions->readable();
-        h.append(pos.size());
-        if (!pos.empty())
-        {
-            h.append(&pos[0], pos.size());
-        }
-    }
-
-    // Helper to get hash for piece attribute
-    void hashPieceAttribute(const Primitive *primitive, const std::string &attrName, MurmurHash &h)
-    {
-        if (!primitive || attrName.empty())
-            return;
-
-        auto it = primitive->variables.find(attrName);
-        if (it == primitive->variables.end())
-            return;
-
-        // Hash the attribute data by appending to the provided hash
-        it->second.data->hash(h);
-    }
 } // namespace
 
 IE_CORE_DEFINERUNTIMETYPED(CaptureWeight);
@@ -387,6 +350,41 @@ bool CaptureWeight::affectsProcessedObject(const Gaffer::Plug *input) const
            input == pieceAttributePlug();
 }
 
+void CaptureWeight::hashPositions(const IECoreScene::Primitive *primitive, IECore::MurmurHash &h) const
+{
+    if (!primitive)
+        return;
+
+    auto it = primitive->variables.find("P");
+    if (it == primitive->variables.end())
+        return;
+
+    const V3fVectorData *positions = runTimeCast<const V3fVectorData>(it->second.data.get());
+    if (!positions)
+        return;
+
+    // Hash only the number of vertices and position data
+    const std::vector<V3f> &pos = positions->readable();
+    h.append(pos.size());
+    if (!pos.empty())
+    {
+        h.append(&pos[0], pos.size());
+    }
+}
+
+void CaptureWeight::hashPieceAttribute(const IECoreScene::Primitive *primitive, const std::string &attrName, IECore::MurmurHash &h) const
+{
+    if (!primitive || attrName.empty())
+        return;
+
+    auto it = primitive->variables.find(attrName);
+    if (it == primitive->variables.end())
+        return;
+
+    // Hash the attribute data by appending to the provided hash
+    it->second.data->hash(h);
+}
+
 void CaptureWeight::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
 {
     // Get source path
@@ -394,17 +392,37 @@ void CaptureWeight::hashProcessedObject(const ScenePath &path, const Gaffer::Con
     ScenePath sourcePath;
     IECore::StringAlgo::tokenize<IECore::InternedString>(sourcePathStr, '/', std::back_inserter(sourcePath));
 
-    // Get source object
+    // Get objects
     ConstObjectPtr sourceObj = sourcePlug()->object(sourcePath);
-
-    // Hash source object
-    h.append(sourceObj->hash());
-
+    ConstObjectPtr inputObj = inPlug()->object(path);
+    
+    // Cast to primitives for more efficient hashing
+    const Primitive *sourcePrimitive = runTimeCast<const Primitive>(sourceObj.get());
+    const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObj.get());
+    
+    if (!sourcePrimitive || !inputPrimitive) {
+        // If not valid primitives, just pass through
+        h = inputObj->hash();
+        return;
+    }
+    
+    // Hash only the positions from both primitives (more efficient)
+    hashPositions(sourcePrimitive, h);
+    hashPositions(inputPrimitive, h);
+    
+    // Hash the piece attribute if specified
+    const std::string pieceAttr = pieceAttributePlug()->getValue();
+    if (!pieceAttr.empty())
+    {
+        h.append(pieceAttr);
+        hashPieceAttribute(sourcePrimitive, pieceAttr, h);
+        hashPieceAttribute(inputPrimitive, pieceAttr, h);
+    }
+    
     // Hash parameters
     radiusPlug()->hash(h);
     maxPointsPlug()->hash(h);
     minPointsPlug()->hash(h);
-    pieceAttributePlug()->hash(h);
 }
 
 IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const

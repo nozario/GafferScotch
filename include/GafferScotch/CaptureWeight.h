@@ -51,6 +51,10 @@ namespace GafferScotch
         IECore::ConstObjectPtr computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const override;
 
     private:
+        // Helper methods for efficient hashing
+        void hashPositions(const IECoreScene::Primitive *primitive, IECore::MurmurHash &h) const;
+        void hashPieceAttribute(const IECoreScene::Primitive *primitive, const std::string &attrName, IECore::MurmurHash &h) const;
+        
         static size_t g_firstPlugIndex;
     };
 
