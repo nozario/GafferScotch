@@ -285,26 +285,21 @@ IE_CORE_DEFINERUNTIMETYPED(CaptureWeight);
 size_t CaptureWeight::g_firstPlugIndex = 0;
 
 CaptureWeight::CaptureWeight(const std::string &name)
-    : SceneElementProcessor(name, IECore::PathMatcher::NoMatch)
+    : AttributeProcessor(name)
 {
     storeIndexOfNextChild(g_firstPlugIndex);
 
     // Add source points input
-    addChild(new ScenePlug("source"));
+    addChild(new ScenePlug("source", Plug::In));
 
     // Add source path
     addChild(new StringPlug("sourcePath", Plug::In, ""));
 
-    // Add parameter plugs
+    // Add parameters
     addChild(new FloatPlug("radius", Plug::In, 1.0f, 0.0f));
-    addChild(new IntPlug("maxPoints", Plug::In, 10, 1));
+    addChild(new IntPlug("maxPoints", Plug::In, 4, 1));
     addChild(new IntPlug("minPoints", Plug::In, 1, 1));
     addChild(new StringPlug("pieceAttribute", Plug::In, ""));
-
-    // Fast pass-throughs for things we don't modify
-    outPlug()->attributesPlug()->setInput(inPlug()->attributesPlug());
-    outPlug()->transformPlug()->setInput(inPlug()->transformPlug());
-    outPlug()->boundPlug()->setInput(inPlug()->boundPlug());
 }
 
 ScenePlug *CaptureWeight::sourcePlug()
@@ -369,65 +364,56 @@ const StringPlug *CaptureWeight::pieceAttributePlug() const
 
 void CaptureWeight::affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const
 {
-    SceneElementProcessor::affects(input, outputs);
+    AttributeProcessor::affects(input, outputs);
 
-    const ScenePlug *sp = sourcePlug();
-    const ScenePlug *op = outPlug();
-    if (input == sp->objectPlug() ||
+    if (input == sourcePlug()->objectPlug() ||
         input == sourcePathPlug() ||
         input == radiusPlug() ||
         input == maxPointsPlug() ||
         input == minPointsPlug() ||
         input == pieceAttributePlug())
     {
-        outputs.push_back(op->objectPlug());
+        outputs.push_back(outPlug()->objectPlug());
     }
 }
 
-bool CaptureWeight::processesObject() const
+bool CaptureWeight::affectsProcessedAttributes(const Gaffer::Plug *input) const
 {
-    return true;
+    // We don't actually modify attributes, so return false
+    return false;
 }
 
-void CaptureWeight::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
+void CaptureWeight::hashProcessedAttributes(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
 {
-    SceneElementProcessor::hashProcessedObject(path, context, h);
+    // We don't modify attributes, so just pass through the input hash
+    h = inPlug()->attributesPlug()->hash();
+}
 
-    // Get source path and objects
-    const ScenePath sourcePath = makeScenePath(sourcePathPlug()->getValue());
-    ConstObjectPtr sourceObject = sourcePlug()->object(sourcePath);
-    ConstObjectPtr inputObject = inPlug()->object(path);
+IECore::ConstCompoundObjectPtr CaptureWeight::computeProcessedAttributes(const ScenePath &path, const Gaffer::Context *context, const IECore::CompoundObject *inputAttributes) const
+{
+    // We don't modify attributes, so just return the input
+    return inputAttributes;
+}
 
-    // Cast to primitives
-    const Primitive *sourcePrimitive = runTimeCast<const Primitive>(sourceObject.get());
-    const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
-
-    if (sourcePrimitive && inputPrimitive)
+void CaptureWeight::hashObject(const ScenePath &path, const Gaffer::Context *context, const GafferScene::ScenePlug *parent, IECore::MurmurHash &h) const
+{
+    FilteredSceneProcessor::hashObject(path, context, parent, h);
+    
+    // Only hash if the filter matches
+    const PathMatcher &filter = filterPlug()->getValue();
+    if (filter.match(path) & Filter::ExactMatch)
     {
-        // Hash only the positions from both primitives
-        hashPositions(sourcePrimitive, h);
-        hashPositions(inputPrimitive, h);
-
-        // Hash the piece attribute if specified
-        const std::string pieceAttr = pieceAttributePlug()->getValue();
-        if (!pieceAttr.empty())
-        {
-            h.append(pieceAttr);
-            hashPieceAttribute(sourcePrimitive, pieceAttr, h);
-            hashPieceAttribute(inputPrimitive, pieceAttr, h);
-        }
-
-        // Hash the parameters that affect the computation
-        radiusPlug()->hash(h);
-        maxPointsPlug()->hash(h);
-        minPointsPlug()->hash(h);
-    }
-    else
-    {
-        // If we don't have valid primitives, hash the entire objects
-        h.append(sourcePlug()->objectHash(sourcePath));
+        // Hash all inputs that affect the object
         h.append(inPlug()->objectHash(path));
-        sourcePathPlug()->hash(h);
+        
+        const std::string sourcePath = sourcePathPlug()->getValue();
+        if (!sourcePath.empty())
+        {
+            ScenePlug::ScenePath sourceScenePath;
+            ScenePlug::stringToPath(sourcePath, sourceScenePath);
+            h.append(sourcePlug()->objectHash(sourceScenePath));
+        }
+        
         radiusPlug()->hash(h);
         maxPointsPlug()->hash(h);
         minPointsPlug()->hash(h);
@@ -435,49 +421,71 @@ void CaptureWeight::hashProcessedObject(const ScenePath &path, const Gaffer::Con
     }
 }
 
-IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::ConstObjectPtr inputObject) const
+IECore::ConstObjectPtr CaptureWeight::computeObject(const ScenePath &path, const Gaffer::Context *context, const GafferScene::ScenePlug *parent) const
 {
-    // Early out if we don't have a valid input object
+    // Only process if the filter matches
+    const PathMatcher &filter = filterPlug()->getValue();
+    if (!(filter.match(path) & Filter::ExactMatch))
+    {
+        return inPlug()->objectPlug()->getValue();
+    }
+    
+    // Get input object
+    ConstObjectPtr inputObject = inPlug()->object(path);
     const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
     if (!inputPrimitive)
     {
         return inputObject;
     }
-
-    // Get the source path
-    const ScenePath sourcePath = makeScenePath(sourcePathPlug()->getValue());
-
-    // Get source points
-    ConstObjectPtr sourceObject = sourcePlug()->object(sourcePath);
+    
+    // Get source object
+    const std::string sourcePath = sourcePathPlug()->getValue();
+    if (sourcePath.empty())
+    {
+        return inputObject;
+    }
+    
+    ScenePlug::ScenePath sourceScenePath;
+    ScenePlug::stringToPath(sourcePath, sourceScenePath);
+    ConstObjectPtr sourceObject = sourcePlug()->object(sourceScenePath);
     const Primitive *sourcePrimitive = runTimeCast<const Primitive>(sourceObject.get());
     if (!sourcePrimitive)
     {
         return inputObject;
     }
+    
+    // Compute capture weights
+    return computeCaptureWeights(inputPrimitive, sourcePrimitive);
+}
 
-    // Cache parameter values to avoid repeated plug evaluations
-    const float radius = radiusPlug()->getValue();
-    const float radius2 = radius * radius;
-    const int maxPoints = maxPointsPlug()->getValue();
-    const int minPoints = minPointsPlug()->getValue();
-    const std::string pieceAttr = pieceAttributePlug()->getValue();
+IECore::PrimitivePtr CaptureWeight::computeCaptureWeights(const IECoreScene::Primitive *inputPrimitive, const IECoreScene::Primitive *sourcePrimitive) const
+{
+    // Early out if we don't have a valid input object
+    if (!inputPrimitive)
+    {
+        return inputPrimitive->copy();
+    }
+
+    // Get the source path
+    const ScenePath sourcePath = makeScenePath(sourcePathPlug()->getValue());
 
     // Get position data from source primitive
     const V3fVectorData *sourcePositions = getPositions(sourcePrimitive);
     if (!sourcePositions)
     {
-        return inputObject;
+        return inputPrimitive->copy();
     }
 
     // Get position data from target primitive
     const V3fVectorData *targetPositions = getPositions(inputPrimitive);
     if (!targetPositions)
     {
-        return inputObject;
+        return inputPrimitive->copy();
     }
 
     // Get piece attributes if specified
     const PrimitiveVariable *sourcePiece = nullptr;
+    const std::string pieceAttr = pieceAttributePlug()->getValue();
     if (!pieceAttr.empty())
     {
         auto it = sourcePrimitive->variables.find(pieceAttr);
@@ -509,7 +517,7 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
     results.reserve(numVertices);
     for (size_t i = 0; i < numVertices; ++i)
     {
-        results.emplace_back(maxPoints);
+        results.emplace_back(maxPointsPlug()->getValue());
     }
 
     // Process vertices in parallel
@@ -520,9 +528,9 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
                      std::vector<V3fTree::Neighbour> neighbours;
                      std::vector<std::pair<float, int>> validNeighbours;
                      std::vector<float> vertexWeights;
-                     neighbours.reserve(maxPoints * 4);
-                     validNeighbours.reserve(maxPoints * 4);
-                     vertexWeights.reserve(maxPoints);
+                     neighbours.reserve(maxPointsPlug()->getValue() * 4);
+                     validNeighbours.reserve(maxPointsPlug()->getValue() * 4);
+                     vertexWeights.reserve(maxPointsPlug()->getValue());
 
                      for (size_t i = range.begin(); i != range.end(); ++i)
                      {
@@ -530,7 +538,7 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
 
                          // Find nearest points using KDTree
                          neighbours.clear();
-                         unsigned int found = tree.nearestNNeighbours(targetPos, maxPoints, neighbours);
+                         unsigned int found = tree.nearestNNeighbours(targetPos, maxPointsPlug()->getValue(), neighbours);
 
                          // Filter by piece attribute and radius
                          validNeighbours.clear();
@@ -538,13 +546,13 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
                          std::vector<std::pair<float, int>> fallbackNeighbours;
                          fallbackNeighbours.reserve(found);
 
-                         float maxDistSquared = radius2;
+                         float maxDistSquared = radiusPlug()->getValue() * radiusPlug()->getValue();
                          for (size_t j = 0; j < found; ++j)
                          {
                              const int sourceIndex = neighbours[j].point - sourcePoints.begin();
 
                              // Store all points within radius as fallback
-                             if (neighbours[j].distSquared <= radius2)
+                             if (neighbours[j].distSquared <= maxDistSquared)
                              {
                                  fallbackNeighbours.emplace_back(neighbours[j].distSquared, sourceIndex);
                              }
@@ -556,20 +564,20 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
                              }
 
                              // Check radius
-                             if (neighbours[j].distSquared <= radius2)
+                             if (neighbours[j].distSquared <= maxDistSquared)
                              {
                                  validNeighbours.emplace_back(neighbours[j].distSquared, sourceIndex);
                              }
                          }
 
                          // If we found too few points with matching pieces, try expanding search radius
-                         if (validNeighbours.size() < static_cast<size_t>(minPoints))
+                         if (validNeighbours.size() < static_cast<size_t>(minPointsPlug()->getValue()))
                          {
                              validNeighbours.clear();
                              neighbours.clear();
 
                              // Use a larger number of neighbors to ensure we find enough valid ones
-                             unsigned int extraFound = tree.nearestNNeighbours(targetPos, maxPoints * 4, neighbours);
+                             unsigned int extraFound = tree.nearestNNeighbours(targetPos, maxPointsPlug()->getValue() * 4, neighbours);
 
                              for (size_t j = 0; j < extraFound; ++j)
                              {
@@ -586,7 +594,7 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
                                  validNeighbours.emplace_back(neighbours[j].distSquared, sourceIndex);
                                  maxDistSquared = std::max(maxDistSquared, neighbours[j].distSquared);
 
-                                 if (validNeighbours.size() >= static_cast<size_t>(minPoints))
+                                 if (validNeighbours.size() >= static_cast<size_t>(minPointsPlug()->getValue()))
                                  {
                                      break;
                                  }
@@ -594,13 +602,13 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
                          }
 
                          // If we still don't have enough points, use fallback points (ignoring piece matching)
-                         if (validNeighbours.size() < static_cast<size_t>(minPoints))
+                         if (validNeighbours.size() < static_cast<size_t>(minPointsPlug()->getValue()))
                          {
                              // Sort fallback points by distance
                              std::sort(fallbackNeighbours.begin(), fallbackNeighbours.end());
 
                              // Take the closest points up to minPoints
-                             size_t numNeeded = static_cast<size_t>(minPoints) - validNeighbours.size();
+                             size_t numNeeded = static_cast<size_t>(minPointsPlug()->getValue()) - validNeighbours.size();
                              size_t numAvailable = std::min(numNeeded, fallbackNeighbours.size());
 
                              for (size_t j = 0; j < numAvailable; ++j)
@@ -611,9 +619,9 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
                          }
 
                          // Limit to maxPoints
-                         if (validNeighbours.size() > static_cast<size_t>(maxPoints))
+                         if (validNeighbours.size() > static_cast<size_t>(maxPointsPlug()->getValue()))
                          {
-                             validNeighbours.resize(maxPoints);
+                             validNeighbours.resize(maxPointsPlug()->getValue());
                          }
 
                          // Calculate weights
@@ -633,7 +641,7 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
                          VertexResult &result = results[i];
                          result.numInfluences = validNeighbours.size();
 
-                         for (int j = 0; j < maxPoints; ++j)
+                         for (int j = 0; j < maxPointsPlug()->getValue(); ++j)
                          {
                              if (j < validNeighbours.size())
                              {
@@ -656,7 +664,7 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
 
     captureInfluences->writable().reserve(numVertices);
 
-    for (int i = 0; i < maxPoints; ++i)
+    for (int i = 0; i < maxPointsPlug()->getValue(); ++i)
     {
         captureIndices.push_back(new IntVectorData);
         captureWeights.push_back(new FloatVectorData);
@@ -671,7 +679,7 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
         const VertexResult &result = results[i];
         captureInfluences->writable().push_back(result.numInfluences);
 
-        for (int j = 0; j < maxPoints; ++j)
+        for (int j = 0; j < maxPointsPlug()->getValue(); ++j)
         {
             captureIndices[j]->writable().push_back(result.indices[j]);
             captureWeights[j]->writable().push_back(result.weights[j]);
@@ -685,7 +693,7 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
     resultPrimitive->variables["captureInfluences"] = PrimitiveVariable(PrimitiveVariable::Vertex, captureInfluences);
 
     // Add per-influence primitive variables
-    for (int i = 0; i < maxPoints; ++i)
+    for (int i = 0; i < maxPointsPlug()->getValue(); ++i)
     {
         std::string indexName = "captureIndex" + std::to_string(i + 1);
         std::string weightName = "captureWeight" + std::to_string(i + 1);
