@@ -10,6 +10,8 @@
 #include "Gaffer/NumericPlug.h"
 #include "Gaffer/StringPlug.h"
 
+#include "IECoreScene/Primitive.h"
+
 namespace GafferScotch
 {
 
