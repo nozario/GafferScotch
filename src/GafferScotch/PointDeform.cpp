@@ -140,8 +140,31 @@ namespace
         }
     }
 
-    // Hash only the capture data that affects deformation
-    void hashCaptureData(const Primitive *primitive, MurmurHash &h)
+    // Helper function to hash only the positions from a primitive
+    void hashPositions(const IECoreScene::Primitive *primitive, IECore::MurmurHash &h)
+    {
+        if (!primitive)
+            return;
+
+        auto pIt = primitive->variables.find("P");
+        if (pIt == primitive->variables.end())
+            return;
+
+        const V3fVectorData *positions = runTimeCast<const V3fVectorData>(pIt->second.data.get());
+        if (!positions)
+            return;
+
+        // Hash the position data efficiently
+        const std::vector<V3f> &pos = positions->readable();
+        h.append(pos.size());
+        if (!pos.empty())
+        {
+            h.append(&pos[0], pos.size());
+        }
+    }
+
+    // Helper function to hash influence data
+    void hashInfluences(const IECoreScene::Primitive *primitive, IECore::MurmurHash &h)
     {
         if (!primitive)
             return;
@@ -268,7 +291,6 @@ void PointDeform::affects(const Plug *input, AffectedPlugsContainer &outputs) co
     }
 }
 
-// Implement affectsProcessedObjectBound
 bool PointDeform::affectsProcessedObjectBound(const Plug *input) const
 {
     return input == staticDeformerPlug()->objectPlug() ||
@@ -286,42 +308,40 @@ bool PointDeform::affectsProcessedObject(const Plug *input) const
 
 void PointDeform::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
 {
-    // Get the deformer path
+    Deformer::hashProcessedObject(path, context, h);
+
+    // Get source path and objects
     const ScenePath deformerPath = makeScenePath(deformerPathPlug()->getValue());
-    
-    // Get input object
     ConstObjectPtr inputObject = inPlug()->object(path);
-    const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
-    
-    if (!inputPrimitive)
-    {
-        // If not a primitive, just pass through
-        h = inputObject->hash();
-        return;
-    }
-    
-    // Hash the capture data from input (this contains all the influence information)
-    hashCaptureData(inputPrimitive, h);
-    
-    // Hash the static and animated deformer positions (these affect the deformation)
     ConstObjectPtr staticDeformerObject = staticDeformerPlug()->object(deformerPath);
     ConstObjectPtr animatedDeformerObject = animatedDeformerPlug()->object(deformerPath);
-    
+
+    // Cast to primitives
+    const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
     const Primitive *staticDeformerPrimitive = runTimeCast<const Primitive>(staticDeformerObject.get());
     const Primitive *animatedDeformerPrimitive = runTimeCast<const Primitive>(animatedDeformerObject.get());
-    
-    if (staticDeformerPrimitive)
-        hashPrimitiveForDeformation(staticDeformerPrimitive, h);
+
+    if (inputPrimitive && staticDeformerPrimitive && animatedDeformerPrimitive)
+    {
+        // Hash only the positions from deformers
+        hashPositions(staticDeformerPrimitive, h);
+        hashPositions(animatedDeformerPrimitive, h);
+
+        // Hash influences and weights from input
+        hashInfluences(inputPrimitive, h);
+
+        // Hash the cleanup parameter as it affects the output
+        cleanupAttributesPlug()->hash(h);
+    }
     else
+    {
+        // If we don't have valid primitives, hash the entire objects
+        h.append(inPlug()->objectHash(path));
         h.append(staticDeformerPlug()->objectHash(deformerPath));
-        
-    if (animatedDeformerPrimitive)
-        hashPrimitiveForDeformation(animatedDeformerPrimitive, h);
-    else
         h.append(animatedDeformerPlug()->objectHash(deformerPath));
-    
-    // Hash the cleanup parameter as it affects the output
-    cleanupAttributesPlug()->hash(h);
+        deformerPathPlug()->hash(h);
+        cleanupAttributesPlug()->hash(h);
+    }
 }
 
 void PointDeform::hashProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
