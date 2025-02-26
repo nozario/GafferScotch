@@ -268,6 +268,14 @@ void PointDeform::affects(const Plug *input, AffectedPlugsContainer &outputs) co
     }
 }
 
+// Implement affectsProcessedObjectBound
+bool PointDeform::affectsProcessedObjectBound(const Plug *input) const
+{
+    return input == staticDeformerPlug()->objectPlug() ||
+           input == animatedDeformerPlug()->objectPlug() ||
+           input == deformerPathPlug();
+}
+
 bool PointDeform::affectsProcessedObject(const Plug *input) const
 {
     return input == staticDeformerPlug()->objectPlug() ||
