@@ -379,6 +379,41 @@ namespace
                         }
                     }
                     
+                    // If we still don't have enough points after radius expansion, use nearest points regardless of piece
+                    if (tls.validNeighbours.size() < static_cast<size_t>(minPoints))
+                    {
+                        // Clear previous search results
+                        tls.neighbours.clear();
+                        
+                        // Find the closest points regardless of piece attribute
+                        unsigned int closestFound = tree.nearestNNeighbours(targetPos, minPoints, tls.neighbours);
+                        
+                        // Add these points to valid neighbors
+                        for (size_t j = 0; j < closestFound && tls.validNeighbours.size() < static_cast<size_t>(minPoints); ++j)
+                        {
+                            const V3fTree::Neighbour& neighbour = tls.neighbours[j];
+                            const int sourceIndex = neighbour.point - sourcePoints.begin();
+                            
+                            // Check if this point is already in our valid neighbors
+                            bool alreadyAdded = false;
+                            for (const auto& existing : tls.validNeighbours)
+                            {
+                                if (existing.second == sourceIndex)
+                                {
+                                    alreadyAdded = true;
+                                    break;
+                                }
+                            }
+                            
+                            // Only add if not already present
+                            if (!alreadyAdded)
+                            {
+                                tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
+                                maxDistSquared = std::max<float>(maxDistSquared, neighbour.distSquared);
+                            }
+                        }
+                    }
+                    
                     std::sort(tls.validNeighbours.begin(), tls.validNeighbours.end());
                     
                     if (tls.validNeighbours.size() > static_cast<size_t>(maxPoints))
