@@ -395,7 +395,7 @@ namespace
                                 continue;
                             
                             tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
-                            maxDistSquared = std::max(maxDistSquared, neighbour.distSquared);
+                            maxDistSquared = std::max<float>(maxDistSquared, neighbour.distSquared);
                             
                             if (tls.validNeighbours.size() >= static_cast<size_t>(minPoints))
                                 break;
@@ -410,12 +410,12 @@ namespace
                         
                         // Take the closest points up to minPoints
                         size_t numNeeded = static_cast<size_t>(minPoints) - tls.validNeighbours.size();
-                        size_t numAvailable = std::min(numNeeded, tls.fallbackNeighbours.size());
+                        size_t numAvailable = std::min<size_t>(numNeeded, tls.fallbackNeighbours.size());
                         
                         for (size_t j = 0; j < numAvailable; ++j)
                         {
                             tls.validNeighbours.push_back(tls.fallbackNeighbours[j]);
-                            maxDistSquared = std::max(maxDistSquared, tls.fallbackNeighbours[j].first);
+                            maxDistSquared = std::max<float>(maxDistSquared, tls.fallbackNeighbours[j].first);
                         }
                     }
                     
