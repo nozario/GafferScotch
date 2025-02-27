@@ -23,13 +23,13 @@ namespace GafferScotch
 
         IE_CORE_DECLARERUNTIMETYPEDEXTENSION(GafferScotch::CaptureWeight, GafferScotch::TypeId::CaptureWeightTypeId, GafferScene::ObjectProcessor);
 
-        // Source points input
-        GafferScene::ScenePlug *sourcePlug();
-        const GafferScene::ScenePlug *sourcePlug() const;
+        // Static deformer input
+        GafferScene::ScenePlug *staticDeformerPlug();
+        const GafferScene::ScenePlug *staticDeformerPlug() const;
 
-        // Source points path
-        Gaffer::StringPlug *sourcePathPlug();
-        const Gaffer::StringPlug *sourcePathPlug() const;
+        // Deformer path
+        Gaffer::StringPlug *deformerPathPlug();
+        const Gaffer::StringPlug *deformerPathPlug() const;
 
         // Parameters
         Gaffer::FloatPlug *radiusPlug();

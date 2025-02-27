@@ -280,11 +280,11 @@ CaptureWeight::CaptureWeight(const std::string &name)
 {
     storeIndexOfNextChild(g_firstPlugIndex);
 
-    // Add source points input
-    addChild(new ScenePlug("source", Plug::In));
+    // Add static deformer input
+    addChild(new ScenePlug("staticDeformer", Plug::In));
 
-    // Add source path
-    addChild(new StringPlug("sourcePath", Plug::In, ""));
+    // Add deformer path
+    addChild(new StringPlug("deformerPath", Plug::In, ""));
 
     // Add parameters
     addChild(new FloatPlug("radius", Plug::In, 1.0f, 0.0f));
@@ -293,22 +293,22 @@ CaptureWeight::CaptureWeight(const std::string &name)
     addChild(new StringPlug("pieceAttribute", Plug::In, ""));
 }
 
-ScenePlug *CaptureWeight::sourcePlug()
+ScenePlug *CaptureWeight::staticDeformerPlug()
 {
     return getChild<ScenePlug>(g_firstPlugIndex);
 }
 
-const ScenePlug *CaptureWeight::sourcePlug() const
+const ScenePlug *CaptureWeight::staticDeformerPlug() const
 {
     return getChild<ScenePlug>(g_firstPlugIndex);
 }
 
-StringPlug *CaptureWeight::sourcePathPlug()
+StringPlug *CaptureWeight::deformerPathPlug()
 {
     return getChild<StringPlug>(g_firstPlugIndex + 1);
 }
 
-const StringPlug *CaptureWeight::sourcePathPlug() const
+const StringPlug *CaptureWeight::deformerPathPlug() const
 {
     return getChild<StringPlug>(g_firstPlugIndex + 1);
 }
@@ -357,8 +357,8 @@ void CaptureWeight::affects(const Gaffer::Plug *input, AffectedPlugsContainer &o
 {
     ObjectProcessor::affects(input, outputs);
 
-    if (input == sourcePlug()->objectPlug() ||
-        input == sourcePathPlug() ||
+    if (input == staticDeformerPlug()->objectPlug() ||
+        input == deformerPathPlug() ||
         input == radiusPlug() ||
         input == maxPointsPlug() ||
         input == minPointsPlug() ||
@@ -370,8 +370,8 @@ void CaptureWeight::affects(const Gaffer::Plug *input, AffectedPlugsContainer &o
 
 bool CaptureWeight::affectsProcessedObject(const Gaffer::Plug *input) const
 {
-    return input == sourcePlug()->objectPlug() ||
-           input == sourcePathPlug() ||
+    return input == staticDeformerPlug()->objectPlug() ||
+           input == deformerPathPlug() ||
            input == radiusPlug() ||
            input == maxPointsPlug() ||
            input == minPointsPlug() ||
@@ -415,12 +415,12 @@ void CaptureWeight::hashPieceAttribute(const IECoreScene::Primitive *primitive, 
 
 void CaptureWeight::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
 {
-    // Get source path
-    const std::string sourcePathStr = sourcePathPlug()->getValue();
-    ScenePath sourcePath = GafferScotch::makeScenePath(sourcePathStr);
+    // Get deformer path
+    const std::string deformerPathStr = deformerPathPlug()->getValue();
+    ScenePath deformerPath = GafferScotch::makeScenePath(deformerPathStr);
 
     // Get objects
-    ConstObjectPtr sourceObj = sourcePlug()->object(sourcePath);
+    ConstObjectPtr sourceObj = staticDeformerPlug()->object(deformerPath);
     ConstObjectPtr inputObj = inPlug()->object(path);
     
     // Cast to primitives for more efficient hashing
@@ -456,11 +456,11 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
         return inputObject;
     }
 
-    // Get the source path
-    const ScenePath sourcePath = GafferScotch::makeScenePath(sourcePathPlug()->getValue());
+    // Get the deformer path
+    const ScenePath deformerPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
 
     // Get source points
-    ConstObjectPtr sourceObject = sourcePlug()->object(sourcePath);
+    ConstObjectPtr sourceObject = staticDeformerPlug()->object(deformerPath);
     const Primitive *sourcePrimitive = runTimeCast<const Primitive>(sourceObject.get());
     if (!sourcePrimitive)
     {
