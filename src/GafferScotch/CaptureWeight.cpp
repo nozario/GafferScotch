@@ -346,40 +346,36 @@ namespace
                     
                     if (tls.validNeighbours.size() < static_cast<size_t>(minPoints))
                     {
-                        tls.neighbours.clear();
+                        float expandedRadius2 = radius2 * 1.5f;
+                        const float maxExpandedRadius2 = radius2 * 4.0f; // Limit expansion to 2x original radius
                         
-                        unsigned int extraFound = tree.nearestNNeighbours(targetPos, maxPoints * 4, tls.neighbours);
-                        
-                        for (size_t j = 0; j < extraFound; ++j)
+                        while (tls.validNeighbours.size() < static_cast<size_t>(minPoints) && expandedRadius2 <= maxExpandedRadius2)
                         {
-                            const V3fTree::Neighbour& neighbour = tls.neighbours[j];
-                            const int sourceIndex = neighbour.point - sourcePoints.begin();
+                            tls.neighbours.clear();
                             
-                            tls.fallbackNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
+                            unsigned int extraFound = tree.nearestNNeighbours(targetPos, maxPoints * 4, tls.neighbours);
                             
-                            if (!piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
-                                continue;
-                            
-                            tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
-                            maxDistSquared = std::max<float>(maxDistSquared, neighbour.distSquared);
-                            
-                            if (tls.validNeighbours.size() >= static_cast<size_t>(minPoints))
-                                break;
-                        }
-                    }
-                    
-                    // If we still don't have enough points, use fallback points (ignoring piece matching)
-                    if (tls.validNeighbours.size() < static_cast<size_t>(minPoints))
-                    {
-                        std::sort(tls.fallbackNeighbours.begin(), tls.fallbackNeighbours.end());
-                        
-                        size_t numNeeded = static_cast<size_t>(minPoints) - tls.validNeighbours.size();
-                        size_t numAvailable = std::min<size_t>(numNeeded, tls.fallbackNeighbours.size());
-                        
-                        for (size_t j = 0; j < numAvailable; ++j)
-                        {
-                            tls.validNeighbours.push_back(tls.fallbackNeighbours[j]);
-                            maxDistSquared = std::max<float>(maxDistSquared, tls.fallbackNeighbours[j].first);
+                            for (size_t j = 0; j < extraFound; ++j)
+                            {
+                                const V3fTree::Neighbour& neighbour = tls.neighbours[j];
+                                
+                                
+                                if (neighbour.distSquared > radius2 && neighbour.distSquared <= expandedRadius2)
+                                {
+                                    const int sourceIndex = neighbour.point - sourcePoints.begin();
+                                    
+                                    if (piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
+                                    {
+                                        tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
+                                        maxDistSquared = std::max<float>(maxDistSquared, neighbour.distSquared);
+                                    }
+                                }
+                                
+                                if (tls.validNeighbours.size() >= static_cast<size_t>(minPoints))
+                                    break;
+                            }
+
+                            expandedRadius2 *= 1.5f;
                         }
                     }
                     
