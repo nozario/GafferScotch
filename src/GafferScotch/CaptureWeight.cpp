@@ -26,7 +26,7 @@ using namespace tbb;
 namespace
 {
     // Define our own KDTree type for V3f points
-    typedef KDTree<std::vector<V3f>::const_iterator> V3fKDTree;
+    typedef IECore::KDTree<std::vector<Imath::V3f>::const_iterator, Imath::V3f, float> V3fKDTree;
 
     // Structure to hold batch results for all vertices
     struct BatchResults
