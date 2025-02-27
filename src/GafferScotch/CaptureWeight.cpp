@@ -26,7 +26,7 @@ using namespace tbb;
 namespace
 {
     // Use IECore's predefined V3fTree typedef instead of defining our own
-    typedef IECore::V3fTree V3fTree;
+    using V3fTree = IECore::V3fTree;
 
     // Structure to hold batch results for all vertices
     struct BatchResults
