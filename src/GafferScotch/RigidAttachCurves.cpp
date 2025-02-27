@@ -1,5 +1,6 @@
 #include "GafferScotch/RigidAttachCurves.h"
 #include "GafferScotch/AttachCurvesDataStructures.h"
+#include "GafferScotch/ScenePathUtil.h"
 
 #include "IECore/NullObject.h"
 #include "IECoreScene/CurvesPrimitive.h"
@@ -42,13 +43,6 @@ namespace
         // Aim for ~4 batches per thread for good load balancing
         const size_t targetBatches = numThreads * 4;
         return std::max(size_t(1), numCurves / targetBatches);
-    }
-
-    GafferScene::ScenePlug::ScenePath makeScenePath(const std::string &p)
-    {
-        GafferScene::ScenePlug::ScenePath output;
-        IECore::StringAlgo::tokenize<IECore::InternedString>(p, '/', std::back_inserter(output));
-        return output;
     }
 
     // Helper to get hash for positions only
@@ -259,14 +253,14 @@ void RigidAttachCurves::hashProcessedObject(const ScenePath &path, const Gaffer:
             {
                 if (const StringData *pathData = runTimeCast<const StringData>(it->second.data.get()))
                 {
-                    restPath = makeScenePath(pathData->readable());
+                    restPath = GafferScotch::makeScenePath(pathData->readable());
                 }
                 else if (const StringVectorData *pathVectorData = runTimeCast<const StringVectorData>(it->second.data.get()))
                 {
                     const std::vector<std::string> &paths = pathVectorData->readable();
                     if (!paths.empty())
                     {
-                        restPath = makeScenePath(paths[0]); // Use first path for now
+                        restPath = GafferScotch::makeScenePath(paths[0]); // Use first path for now
                     }
                 }
             }
@@ -275,7 +269,7 @@ void RigidAttachCurves::hashProcessedObject(const ScenePath &path, const Gaffer:
     else
     {
         // Use path from plug
-        restPath = makeScenePath(bindPathPlug()->getValue());
+        restPath = GafferScotch::makeScenePath(bindPathPlug()->getValue());
     }
 
     // Hash rest mesh
@@ -592,14 +586,14 @@ IECore::ConstObjectPtr RigidAttachCurves::computeProcessedObject(const ScenePath
             {
                 if (const StringData *pathData = runTimeCast<const StringData>(it->second.data.get()))
                 {
-                    restPath = makeScenePath(pathData->readable());
+                    restPath = GafferScotch::makeScenePath(pathData->readable());
                 }
                 else if (const StringVectorData *pathVectorData = runTimeCast<const StringVectorData>(it->second.data.get()))
                 {
                     const std::vector<std::string> &paths = pathVectorData->readable();
                     if (!paths.empty())
                     {
-                        restPath = makeScenePath(paths[0]); // Use first path for now
+                        restPath = GafferScotch::makeScenePath(paths[0]); // Use first path for now
                     }
                 }
             }
@@ -608,7 +602,7 @@ IECore::ConstObjectPtr RigidAttachCurves::computeProcessedObject(const ScenePath
     else
     {
         // Use path from plug
-        restPath = makeScenePath(bindPathPlug()->getValue());
+        restPath = GafferScotch::makeScenePath(bindPathPlug()->getValue());
     }
 
     // Get rest mesh using resolved path

@@ -11,9 +11,17 @@
 #include "Gaffer/StringPlug.h"
 
 #include "IECoreScene/Primitive.h"
+#include "IECore/KDTree.h"
 
 namespace GafferScotch
 {
+
+    /// \class CaptureWeight
+    /// A node that computes capture weights for deformation.
+    /// 
+    /// This node computes weights for each vertex in the input mesh based on
+    /// its proximity to vertices in a static deformer mesh. These weights can
+    /// then be used by the PointDeform node to deform the mesh.
 
     class GAFFERSCOTCH_API CaptureWeight : public GafferScene::ObjectProcessor
     {
@@ -23,13 +31,13 @@ namespace GafferScotch
 
         IE_CORE_DECLARERUNTIMETYPEDEXTENSION(GafferScotch::CaptureWeight, GafferScotch::TypeId::CaptureWeightTypeId, GafferScene::ObjectProcessor);
 
-        // Source points input
-        GafferScene::ScenePlug *sourcePlug();
-        const GafferScene::ScenePlug *sourcePlug() const;
+        // Static deformer input
+        GafferScene::ScenePlug *staticDeformerPlug();
+        const GafferScene::ScenePlug *staticDeformerPlug() const;
 
-        // Source points path
-        Gaffer::StringPlug *sourcePathPlug();
-        const Gaffer::StringPlug *sourcePathPlug() const;
+        // Deformer path
+        Gaffer::StringPlug *deformerPathPlug();
+        const Gaffer::StringPlug *deformerPathPlug() const;
 
         // Parameters
         Gaffer::FloatPlug *radiusPlug();

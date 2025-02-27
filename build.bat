@@ -2,8 +2,8 @@
 setlocal
 
 REM Set environment variables
-set "GAFFER_ROOT=C:\Program Files\Gaffer\1.5.6.0"
-set "GAFFERSCOTCH_INSTALL_PREFIX=C:\Users\Lucas\ActiveWork\Dev\GafferScotch"
+set "GAFFER_ROOT=C:\STIM-PLUGIN\Gaffer\1.5.2.0"
+set "GAFFERSCOTCH_INSTALL_PREFIX=C:\Users\llayeul\workspace\dev\GafferScotch"
 set "PYTHONPATH=%GAFFERSCOTCH_INSTALL_PREFIX%\python;%PYTHONPATH%"
 set "PATH=%GAFFERSCOTCH_INSTALL_PREFIX%\lib;%PATH%"
 
@@ -50,4 +50,4 @@ echo Copying module files...
 xcopy /y /i Release\python\GafferScotch\*.* "%GAFFERSCOTCH_INSTALL_PREFIX%\python\GafferScotch\"
 
 echo Build completed successfully!
-cd .. 
+cd ..

@@ -1,5 +1,6 @@
 #include "GafferScotch/RigidDeformCurves.h"
 #include "GafferScotch/AttachCurvesDataStructures.h"
+#include "GafferScotch/ScenePathUtil.h"
 
 #include "IECore/NullObject.h"
 #include "IECoreScene/CurvesPrimitive.h"
@@ -42,13 +43,6 @@ namespace
         // Aim for ~4 batches per thread for good load balancing
         const size_t targetBatches = numThreads * 4;
         return std::max(size_t(1), numCurves / targetBatches);
-    }
-
-    GafferScene::ScenePlug::ScenePath makeScenePath(const std::string &p)
-    {
-        GafferScene::ScenePlug::ScenePath output;
-        IECore::StringAlgo::tokenize<IECore::InternedString>(p, '/', std::back_inserter(output));
-        return output;
     }
 
     // Helper to get hash for positions only
