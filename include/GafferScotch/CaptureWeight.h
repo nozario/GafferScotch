@@ -11,10 +11,20 @@
 #include "Gaffer/StringPlug.h"
 
 #include "IECoreScene/Primitive.h"
+#include "IECore/KDTree.h"
 
 namespace GafferScotch
 {
 
+    /// \class CaptureWeight
+    /// A node that computes capture weights for deformation.
+    /// 
+    /// This node computes weights for each vertex in the input mesh based on
+    /// its proximity to vertices in a static deformer mesh. These weights can
+    /// then be used by the PointDeform node to deform the mesh.
+    ///
+    /// The implementation uses IECore's KDTree for efficient nearest neighbor searches
+    /// and is optimized for performance with large meshes.
     class GAFFERSCOTCH_API CaptureWeight : public GafferScene::ObjectProcessor
     {
     public:

@@ -13,6 +13,7 @@
 
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
+#include <tbb/enumerable_thread_specific.h>
 
 using namespace Gaffer;
 using namespace GafferScene;
@@ -24,20 +25,53 @@ using namespace tbb;
 
 namespace
 {
-    // Structure to hold per-vertex results to avoid thread contention
-    struct VertexResult
+    // Structure to hold batch results for all vertices
+    struct BatchResults
     {
-        std::vector<int> indices;
-        std::vector<float> weights;
-        int numInfluences;
+        std::vector<int> allIndices;       // size = numVertices * maxPoints
+        std::vector<float> allWeights;     // size = numVertices * maxPoints
+        std::vector<int> influenceCounts;  // size = numVertices
 
-        VertexResult(int maxPoints) : indices(maxPoints, 0), weights(maxPoints, 0.0f), numInfluences(0) {}
+        BatchResults(size_t numVertices, int maxPoints)
+            : allIndices(numVertices * maxPoints, 0)
+            , allWeights(numVertices * maxPoints, 0.0f)
+            , influenceCounts(numVertices, 0)
+        {
+        }
+
+        int* getIndices(size_t vertexIndex, int maxPoints)
+        {
+            return &allIndices[vertexIndex * maxPoints];
+        }
+
+        float* getWeights(size_t vertexIndex, int maxPoints)
+        {
+            return &allWeights[vertexIndex * maxPoints];
+        }
     };
 
-    // Helper function for weight calculation optimization
-    inline float calculateWeight(float distSquared, float maxDistSquared)
+    // Thread-local storage for temporary data
+    struct ThreadLocalStorage
     {
-        float normalizedDist2 = distSquared / maxDistSquared;
+        std::vector<V3fTree::Neighbour> neighbours;
+        std::vector<std::pair<float, int>> validNeighbours;
+        std::vector<std::pair<float, int>> fallbackNeighbours;
+        std::vector<float> vertexWeights;
+
+        ThreadLocalStorage(int maxPoints)
+        {
+            // Pre-allocate with sufficient capacity to avoid reallocations
+            neighbours.reserve(maxPoints * 4);
+            validNeighbours.reserve(maxPoints * 4);
+            fallbackNeighbours.reserve(maxPoints * 4);
+            vertexWeights.reserve(maxPoints);
+        }
+    };
+
+    // Optimized weight calculation function
+    inline float calculateWeight(float distSquared, float invMaxDistSquared)
+    {
+        float normalizedDist2 = distSquared * invMaxDistSquared; // Multiply instead of divide
         float weight = 1.0f - normalizedDist2;
         return weight * weight; // Square for smoother falloff
     }
@@ -269,6 +303,166 @@ namespace
             }
         }
     }
+
+    // Main function to compute capture weights using IECore's KDTree
+    void computeCaptureWeights(
+        const std::vector<V3f>& sourcePoints,
+        const std::vector<V3f>& targetPoints,
+        float radius,
+        int maxPoints,
+        int minPoints,
+        const PrimitiveVariable *sourcePiece,
+        const PrimitiveVariable *targetPiece,
+        BatchResults& results)
+    {
+        // Build KDTree for source points
+        // Use IECore's V3fTree which is a typedef for KDTree<std::vector<V3f>::const_iterator>
+        V3fTree tree(sourcePoints.begin(), sourcePoints.end(), 8); // Use 8 as maxLeafSize (tune through benchmarking)
+
+        // Pre-compute squared radius and its inverse for optimization
+        const float radius2 = radius * radius;
+        const float invRadius2 = 1.0f / radius2;
+
+        // Create thread-local storage
+        enumerable_thread_specific<ThreadLocalStorage> threadStorage(maxPoints);
+
+        // Process vertices in parallel
+        const size_t numVertices = targetPoints.size();
+        parallel_for(blocked_range<size_t>(0, numVertices, 1024), // Use 1024 as grain size
+            [&](const blocked_range<size_t>& range)
+            {
+                // Get thread-local storage
+                ThreadLocalStorage& tls = threadStorage.local();
+                
+                for (size_t i = range.begin(); i != range.end(); ++i)
+                {
+                    const V3f& targetPos = targetPoints[i];
+                    
+                    // Clear temporary vectors but maintain capacity
+                    tls.neighbours.clear();
+                    tls.validNeighbours.clear();
+                    tls.fallbackNeighbours.clear();
+                    tls.vertexWeights.clear();
+                    
+                    // Find nearest points using KDTree
+                    // This returns a vector of Neighbour objects with point (iterator) and distSquared
+                    unsigned int found = tree.nearestNNeighbours(targetPos, maxPoints * 2, tls.neighbours);
+                    
+                    // Filter by radius and piece attribute, collect valid neighbors
+                    float maxDistSquared = radius2;
+                    for (size_t j = 0; j < found; ++j)
+                    {
+                        const V3fTree::Neighbour& neighbour = tls.neighbours[j];
+                        
+                        // Skip if outside radius
+                        if (neighbour.distSquared > radius2)
+                            continue;
+                        
+                        // Calculate source index
+                        const int sourceIndex = neighbour.point - sourcePoints.begin();
+                        
+                        // Store all points within radius as fallback
+                        tls.fallbackNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
+                        
+                        // Check piece attribute match
+                        if (!piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
+                            continue;
+                        
+                        // Store valid neighbor
+                        tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
+                    }
+                    
+                    // If we found too few points with matching pieces, try expanding search radius
+                    if (tls.validNeighbours.size() < static_cast<size_t>(minPoints))
+                    {
+                        tls.neighbours.clear();
+                        
+                        // Use a larger number of neighbors
+                        unsigned int extraFound = tree.nearestNNeighbours(targetPos, maxPoints * 4, tls.neighbours);
+                        
+                        for (size_t j = 0; j < extraFound; ++j)
+                        {
+                            const V3fTree::Neighbour& neighbour = tls.neighbours[j];
+                            const int sourceIndex = neighbour.point - sourcePoints.begin();
+                            
+                            // Store all points as potential fallback
+                            tls.fallbackNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
+                            
+                            if (!piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
+                                continue;
+                            
+                            tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
+                            maxDistSquared = std::max(maxDistSquared, neighbour.distSquared);
+                            
+                            if (tls.validNeighbours.size() >= static_cast<size_t>(minPoints))
+                                break;
+                        }
+                    }
+                    
+                    // If we still don't have enough points, use fallback points (ignoring piece matching)
+                    if (tls.validNeighbours.size() < static_cast<size_t>(minPoints))
+                    {
+                        // Sort fallback points by distance
+                        std::sort(tls.fallbackNeighbours.begin(), tls.fallbackNeighbours.end());
+                        
+                        // Take the closest points up to minPoints
+                        size_t numNeeded = static_cast<size_t>(minPoints) - tls.validNeighbours.size();
+                        size_t numAvailable = std::min(numNeeded, tls.fallbackNeighbours.size());
+                        
+                        for (size_t j = 0; j < numAvailable; ++j)
+                        {
+                            tls.validNeighbours.push_back(tls.fallbackNeighbours[j]);
+                            maxDistSquared = std::max(maxDistSquared, tls.fallbackNeighbours[j].first);
+                        }
+                    }
+                    
+                    // Sort by distance
+                    std::sort(tls.validNeighbours.begin(), tls.validNeighbours.end());
+                    
+                    // Limit to maxPoints
+                    if (tls.validNeighbours.size() > static_cast<size_t>(maxPoints))
+                    {
+                        tls.validNeighbours.resize(maxPoints);
+                    }
+                    
+                    // Calculate weights
+                    float totalWeight = 0.0f;
+                    const float invMaxDistSquared = 1.0f / maxDistSquared;
+                    
+                    for (const auto& neighbour : tls.validNeighbours)
+                    {
+                        float weight = calculateWeight(neighbour.first, invMaxDistSquared);
+                        totalWeight += weight;
+                        tls.vertexWeights.push_back(weight);
+                    }
+                    
+                    // Store results
+                    results.influenceCounts[i] = tls.validNeighbours.size();
+                    
+                    // Calculate inverse total weight once
+                    const float invTotalWeight = totalWeight > 0.0f ? 1.0f / totalWeight : 0.0f;
+                    
+                    // Get pointers to result arrays for this vertex
+                    int* indices = results.getIndices(i, maxPoints);
+                    float* weights = results.getWeights(i, maxPoints);
+                    
+                    // Store normalized weights and indices
+                    for (int j = 0; j < maxPoints; ++j)
+                    {
+                        if (j < tls.validNeighbours.size())
+                        {
+                            indices[j] = tls.validNeighbours[j].second;
+                            weights[j] = tls.vertexWeights[j] * invTotalWeight;
+                        }
+                        else
+                        {
+                            indices[j] = 0;
+                            weights[j] = 0.0f;
+                        }
+                    }
+                }
+            });
+    }
 } // namespace
 
 IE_CORE_DEFINERUNTIMETYPED(CaptureWeight);
@@ -469,7 +663,6 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
 
     // Cache parameter values to avoid repeated plug evaluations
     const float radius = radiusPlug()->getValue();
-    const float radius2 = radius * radius;
     const int maxPoints = maxPointsPlug()->getValue();
     const int minPoints = minPointsPlug()->getValue();
     const std::string pieceAttr = pieceAttributePlug()->getValue();
@@ -509,189 +702,43 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
         }
     }
 
-    // Build KD tree for source points
+    // Get the source and target points
     const std::vector<V3f> &sourcePoints = sourcePositions->readable();
     const std::vector<V3f> &targetPoints = targetPositions->readable();
-    typedef V3fTree::Iterator VectorIterator;
-    V3fTree tree(sourcePoints.begin(), sourcePoints.end());
 
-    // Pre-allocate results vector for all vertices
-    const size_t numVertices = targetPoints.size();
-    std::vector<VertexResult> results;
-    results.reserve(numVertices);
-    for (size_t i = 0; i < numVertices; ++i)
-    {
-        results.emplace_back(maxPoints);
-    }
+    // Create batch results structure
+    BatchResults results(targetPoints.size(), maxPoints);
 
-    // Process vertices in parallel
-    parallel_for(blocked_range<size_t>(0, numVertices),
-                 [&](const blocked_range<size_t> &range)
-                 {
-                     // Thread-local storage for temporary data
-                     std::vector<V3fTree::Neighbour> neighbours;
-                     std::vector<std::pair<float, int>> validNeighbours;
-                     std::vector<float> vertexWeights;
-                     neighbours.reserve(maxPoints * 4);
-                     validNeighbours.reserve(maxPoints * 4);
-                     vertexWeights.reserve(maxPoints);
+    // Compute capture weights using optimized implementation
+    computeCaptureWeights(sourcePoints, targetPoints, radius, maxPoints, minPoints, 
+                          sourcePiece, targetPiece, results);
 
-                     for (size_t i = range.begin(); i != range.end(); ++i)
-                     {
-                         const V3f &targetPos = targetPoints[i];
-
-                         // Find nearest points using KDTree
-                         neighbours.clear();
-                         unsigned int found = tree.nearestNNeighbours(targetPos, maxPoints, neighbours);
-
-                         // Filter by piece attribute and radius
-                         validNeighbours.clear();
-                         validNeighbours.reserve(found);
-                         std::vector<std::pair<float, int>> fallbackNeighbours;
-                         fallbackNeighbours.reserve(found);
-
-                         float maxDistSquared = radius2;
-                         for (size_t j = 0; j < found; ++j)
-                         {
-                             const int sourceIndex = neighbours[j].point - sourcePoints.begin();
-
-                             // Store all points within radius as fallback
-                             if (neighbours[j].distSquared <= radius2)
-                             {
-                                 fallbackNeighbours.emplace_back(neighbours[j].distSquared, sourceIndex);
-                             }
-
-                             // Check piece attribute match
-                             if (!piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
-                             {
-                                 continue;
-                             }
-
-                             // Check radius
-                             if (neighbours[j].distSquared <= radius2)
-                             {
-                                 validNeighbours.emplace_back(neighbours[j].distSquared, sourceIndex);
-                             }
-                         }
-
-                         // If we found too few points with matching pieces, try expanding search radius
-                         if (validNeighbours.size() < static_cast<size_t>(minPoints))
-                         {
-                             validNeighbours.clear();
-                             neighbours.clear();
-
-                             // Use a larger number of neighbors to ensure we find enough valid ones
-                             unsigned int extraFound = tree.nearestNNeighbours(targetPos, maxPoints * 4, neighbours);
-
-                             for (size_t j = 0; j < extraFound; ++j)
-                             {
-                                 const int sourceIndex = neighbours[j].point - sourcePoints.begin();
-
-                                 // Store all points as potential fallback
-                                 fallbackNeighbours.emplace_back(neighbours[j].distSquared, sourceIndex);
-
-                                 if (!piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
-                                 {
-                                     continue;
-                                 }
-
-                                 validNeighbours.emplace_back(neighbours[j].distSquared, sourceIndex);
-                                 maxDistSquared = std::max(maxDistSquared, neighbours[j].distSquared);
-
-                                 if (validNeighbours.size() >= static_cast<size_t>(minPoints))
-                                 {
-                                     break;
-                                 }
-                             }
-                         }
-
-                         // If we still don't have enough points, use fallback points (ignoring piece matching)
-                         if (validNeighbours.size() < static_cast<size_t>(minPoints))
-                         {
-                             // Sort fallback points by distance
-                             std::sort(fallbackNeighbours.begin(), fallbackNeighbours.end());
-
-                             // Take the closest points up to minPoints
-                             size_t numNeeded = static_cast<size_t>(minPoints) - validNeighbours.size();
-                             size_t numAvailable = std::min(numNeeded, fallbackNeighbours.size());
-
-                             for (size_t j = 0; j < numAvailable; ++j)
-                             {
-                                 validNeighbours.push_back(fallbackNeighbours[j]);
-                                 maxDistSquared = std::max(maxDistSquared, fallbackNeighbours[j].first);
-                             }
-                         }
-
-                         // Limit to maxPoints
-                         if (validNeighbours.size() > static_cast<size_t>(maxPoints))
-                         {
-                             validNeighbours.resize(maxPoints);
-                         }
-
-                         // Calculate weights
-                         float totalWeight = 0.0f;
-                         vertexWeights.clear();
-                         vertexWeights.reserve(validNeighbours.size());
-
-                         // Optimize weight calculations by avoiding unnecessary sqrt operations
-                         for (const auto &neighbour : validNeighbours)
-                         {
-                             float weight = calculateWeight(neighbour.first, maxDistSquared);
-                             totalWeight += weight;
-                             vertexWeights.push_back(weight);
-                         }
-
-                         // Store results
-                         VertexResult &result = results[i];
-                         result.numInfluences = validNeighbours.size();
-
-                         for (int j = 0; j < maxPoints; ++j)
-                         {
-                             if (j < validNeighbours.size())
-                             {
-                                 result.indices[j] = validNeighbours[j].second;
-                                 result.weights[j] = totalWeight > 0.0f ? vertexWeights[j] / totalWeight : 0.0f;
-                             }
-                             else
-                             {
-                                 result.indices[j] = 0;
-                                 result.weights[j] = 0.0f;
-                             }
-                         }
-                     }
-                 });
+    // Create output primitive
+    PrimitivePtr resultPrimitive = inputPrimitive->copy();
 
     // Create output arrays
-    IntVectorDataPtr captureInfluences = new IntVectorData;
+    IntVectorDataPtr captureInfluences = new IntVectorData(results.influenceCounts);
     std::vector<IntVectorDataPtr> captureIndices;
     std::vector<FloatVectorDataPtr> captureWeights;
-
-    captureInfluences->writable().reserve(numVertices);
 
     for (int i = 0; i < maxPoints; ++i)
     {
         captureIndices.push_back(new IntVectorData);
         captureWeights.push_back(new FloatVectorData);
 
-        captureIndices[i]->writable().reserve(numVertices);
-        captureWeights[i]->writable().reserve(numVertices);
+        captureIndices[i]->writable().resize(targetPoints.size());
+        captureWeights[i]->writable().resize(targetPoints.size());
     }
 
     // Copy results to output arrays
-    for (size_t i = 0; i < numVertices; ++i)
+    for (size_t i = 0; i < targetPoints.size(); ++i)
     {
-        const VertexResult &result = results[i];
-        captureInfluences->writable().push_back(result.numInfluences);
-
         for (int j = 0; j < maxPoints; ++j)
         {
-            captureIndices[j]->writable().push_back(result.indices[j]);
-            captureWeights[j]->writable().push_back(result.weights[j]);
+            captureIndices[j]->writable()[i] = results.allIndices[i * maxPoints + j];
+            captureWeights[j]->writable()[i] = results.allWeights[i * maxPoints + j];
         }
     }
-
-    // Create output primitive
-    PrimitivePtr resultPrimitive = inputPrimitive->copy();
 
     // Add influence count
     resultPrimitive->variables["captureInfluences"] = PrimitiveVariable(PrimitiveVariable::Vertex, captureInfluences);
