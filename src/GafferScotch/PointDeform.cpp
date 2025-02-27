@@ -319,40 +319,20 @@ void PointDeform::hashProcessedObjectBound(const ScenePath &path, const Gaffer::
 Imath::Box3f PointDeform::computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const
 {
     const Box3f inputBound = inPlug()->boundPlug()->getValue();
-<<<<<<< Updated upstream
-
-    == == == =
-
-                 // Early out if the bound is empty or if we're not deforming
->>>>>>> Stashed changes
-        if (inputBound.isEmpty())
+    if (inputBound.isEmpty())
     {
         return inputBound;
     }
-<<<<<<< Updated upstream
 
-    == == == =
-
-                 // Try to be more efficient - compute bound directly from inputs
-                 // rather than computing the full deformed object
->>>>>>> Stashed changes
-        ConstObjectPtr inputObject = inPlug()->objectPlug()->getValue();
+    ConstObjectPtr inputObject = inPlug()->objectPlug()->getValue();
     const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
     if (!inputPrimitive)
     {
         return inputBound;
     }
-<<<<<<< Updated upstream
 
     const ScenePath deformerPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
 
-    == == == =
-
-                 // Get the deformer path
-        const ScenePath deformerPath = makeScenePath(deformerPathPlug()->getValue());
-
-    // Check if we have valid deformer objects
->>>>>>> Stashed changes
     ConstObjectPtr staticObj = staticDeformerPlug()->object(deformerPath);
     ConstObjectPtr animatedObj = animatedDeformerPlug()->object(deformerPath);
 
