@@ -36,7 +36,7 @@ install( TARGETS GafferScotch DESTINATION lib)
 
 
 string(REPLACE "." "" PYTHON_VERSION_STRIPPED ${PYTHON_VERSION})
-wa
+
 string(REGEX REPLACE "([0-9]+)[.]([0-9]+)" "\\1\\2" PYTHON_LIB_VERSION ${PYTHON_VERSION})
 # build the python bindings
 file( GLOB GafferScotchModuleSrc src/GafferScotchModule/*.cpp )

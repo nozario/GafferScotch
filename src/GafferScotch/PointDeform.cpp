@@ -319,30 +319,49 @@ void PointDeform::hashProcessedObjectBound(const ScenePath &path, const Gaffer::
 Imath::Box3f PointDeform::computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const
 {
     const Box3f inputBound = inPlug()->boundPlug()->getValue();
-    
-    if (inputBound.isEmpty())
+<<<<<<< Updated upstream
+
+    == == == =
+
+                 // Early out if the bound is empty or if we're not deforming
+>>>>>>> Stashed changes
+        if (inputBound.isEmpty())
     {
         return inputBound;
     }
-    
-    ConstObjectPtr inputObject = inPlug()->objectPlug()->getValue();
+<<<<<<< Updated upstream
+
+    == == == =
+
+                 // Try to be more efficient - compute bound directly from inputs
+                 // rather than computing the full deformed object
+>>>>>>> Stashed changes
+        ConstObjectPtr inputObject = inPlug()->objectPlug()->getValue();
     const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
     if (!inputPrimitive)
     {
         return inputBound;
     }
-    
+<<<<<<< Updated upstream
+
     const ScenePath deformerPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
-    
+
+    == == == =
+
+                 // Get the deformer path
+        const ScenePath deformerPath = makeScenePath(deformerPathPlug()->getValue());
+
+    // Check if we have valid deformer objects
+>>>>>>> Stashed changes
     ConstObjectPtr staticObj = staticDeformerPlug()->object(deformerPath);
     ConstObjectPtr animatedObj = animatedDeformerPlug()->object(deformerPath);
-    
-    if (!runTimeCast<const Primitive>(staticObj.get()) || 
+
+    if (!runTimeCast<const Primitive>(staticObj.get()) ||
         !runTimeCast<const Primitive>(animatedObj.get()))
     {
         return inputBound;
     }
-    
+
     // We have valid deformer objects - return a slightly expanded bound to account
     // for deformation. This is more efficient than recomputing the entire object.
     // The 5% expansion is a conservative estimate - adjust as needed.
