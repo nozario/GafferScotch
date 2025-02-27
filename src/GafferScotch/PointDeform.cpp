@@ -216,10 +216,17 @@ void PointDeform::hashProcessedObject(const ScenePath &path, const Gaffer::Conte
 
     const ScenePath deformerPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
     ConstObjectPtr inputObject = inPlug()->object(path);
+    
+    const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
+    if (!inputPrimitive)
+    {
+        h.append(inPlug()->objectHash(path));
+        return;
+    }
+    
     ConstObjectPtr staticDeformerObject = staticDeformerPlug()->object(deformerPath);
     ConstObjectPtr animatedDeformerObject = animatedDeformerPlug()->object(deformerPath);
 
-    const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
     const Primitive *staticDeformerPrimitive = runTimeCast<const Primitive>(staticDeformerObject.get());
     const Primitive *animatedDeformerPrimitive = runTimeCast<const Primitive>(animatedDeformerObject.get());
 
@@ -265,18 +272,54 @@ Imath::Box3f PointDeform::computeProcessedObjectBound(const ScenePath &path, con
     ConstObjectPtr staticObj = staticDeformerPlug()->object(deformerPath);
     ConstObjectPtr animatedObj = animatedDeformerPlug()->object(deformerPath);
     
-    if (!runTimeCast<const Primitive>(staticObj.get()) || 
-        !runTimeCast<const Primitive>(animatedObj.get()))
+    const Primitive *staticDeformerPrimitive = runTimeCast<const Primitive>(staticObj.get());
+    const Primitive *animatedDeformerPrimitive = runTimeCast<const Primitive>(animatedObj.get());
+    
+    if (!staticDeformerPrimitive || !animatedDeformerPrimitive)
     {
         return inputBound;
     }
     
-    // We have valid deformer objects - return a slightly expanded bound to account
-    // for deformation. This is more efficient than recomputing the entire object.
-    // The 5% expansion is a conservative estimate - adjust as needed.
+    // Get the positions from both deformers
+    auto staticPIt = staticDeformerPrimitive->variables.find("P");
+    auto animatedPIt = animatedDeformerPrimitive->variables.find("P");
+    
+    if (staticPIt == staticDeformerPrimitive->variables.end() || 
+        animatedPIt == animatedDeformerPrimitive->variables.end())
+    {
+        return inputBound;
+    }
+    
+    const V3fVectorData *staticPositions = runTimeCast<const V3fVectorData>(staticPIt->second.data.get());
+    const V3fVectorData *animatedPositions = runTimeCast<const V3fVectorData>(animatedPIt->second.data.get());
+    
+    if (!staticPositions || !animatedPositions)
+    {
+        return inputBound;
+    }
+    
+    const std::vector<V3f> &staticPos = staticPositions->readable();
+    const std::vector<V3f> &animatedPos = animatedPositions->readable();
+    
+    if (staticPos.size() != animatedPos.size() || staticPos.empty())
+    {
+        return inputBound;
+    }
+    
+    V3f maxDisplacement(0, 0, 0);
+    
+    for (size_t i = 0; i < staticPos.size(); ++i)
+    {
+        V3f displacement = animatedPos[i] - staticPos[i];
+        maxDisplacement.x = std::max(maxDisplacement.x, std::abs(displacement.x));
+        maxDisplacement.y = std::max(maxDisplacement.y, std::abs(displacement.y));
+        maxDisplacement.z = std::max(maxDisplacement.z, std::abs(displacement.z));
+    }
+    
     Box3f result = inputBound;
-    result.min -= (result.size() * 0.05);
-    result.max += (result.size() * 0.05);
+    result.min -= maxDisplacement;
+    result.max += maxDisplacement;
+    
     return result;
 }
 
