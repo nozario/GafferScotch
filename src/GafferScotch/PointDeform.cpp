@@ -105,27 +105,6 @@ namespace
         outTotalWeight += weight;
     }
 
-    void hashPrimitiveForDeformation(const Primitive *primitive, MurmurHash &h)
-    {
-        if (!primitive)
-            return;
-
-        auto pIt = primitive->variables.find("P");
-        if (pIt == primitive->variables.end())
-            return;
-
-        const V3fVectorData *positions = runTimeCast<const V3fVectorData>(pIt->second.data.get());
-        if (!positions)
-            return;
-
-        const std::vector<V3f> &pos = positions->readable();
-        h.append(pos.size());
-        if (!pos.empty())
-        {
-            h.append(&pos[0], pos.size());
-        }
-    }
-
     void hashPositions(const IECoreScene::Primitive *primitive, IECore::MurmurHash &h)
     {
         if (!primitive)
@@ -144,54 +123,6 @@ namespace
         if (!pos.empty())
         {
             h.append(&pos[0], pos.size());
-        }
-    }
-
-    void hashInfluences(const IECoreScene::Primitive *primitive, IECore::MurmurHash &h)
-    {
-        if (!primitive)
-            return;
-
-        auto influencesIt = primitive->variables.find("captureInfluences");
-        if (influencesIt == primitive->variables.end())
-            return;
-
-        const IntVectorData *influences = runTimeCast<const IntVectorData>(influencesIt->second.data.get());
-        if (!influences)
-            return;
-
-        int maxInfluences = 0;
-        for (int numInf : influences->readable())
-            maxInfluences = std::max(maxInfluences, numInf);
-
-        h.append(maxInfluences);
-        h.append(influences->readable().size());
-        if (!influences->readable().empty())
-            h.append(&influences->readable()[0], influences->readable().size());
-
-        for (int i = 1; i <= maxInfluences; ++i)
-        {
-            std::string indexName = "captureIndex" + std::to_string(i);
-            std::string weightName = "captureWeight" + std::to_string(i);
-
-            auto indexIt = primitive->variables.find(indexName);
-            auto weightIt = primitive->variables.find(weightName);
-
-            if (indexIt != primitive->variables.end() && weightIt != primitive->variables.end())
-            {
-                if (const IntVectorData *indices = runTimeCast<const IntVectorData>(indexIt->second.data.get()))
-                {
-                    h.append(indices->readable().size());
-                    if (!indices->readable().empty())
-                        h.append(&indices->readable()[0], indices->readable().size());
-                }
-                if (const FloatVectorData *weights = runTimeCast<const FloatVectorData>(weightIt->second.data.get()))
-                {
-                    h.append(weights->readable().size());
-                    if (!weights->readable().empty())
-                        h.append(&weights->readable()[0], weights->readable().size());
-                }
-            }
         }
     }
 }
@@ -296,9 +227,7 @@ void PointDeform::hashProcessedObject(const ScenePath &path, const Gaffer::Conte
     {
         hashPositions(staticDeformerPrimitive, h);
         hashPositions(animatedDeformerPrimitive, h);
-
         h.append(inPlug()->objectHash(path));
-
         cleanupAttributesPlug()->hash(h);
     }
     else
@@ -323,25 +252,25 @@ Imath::Box3f PointDeform::computeProcessedObjectBound(const ScenePath &path, con
     {
         return inputBound;
     }
-
+    
     ConstObjectPtr inputObject = inPlug()->objectPlug()->getValue();
     const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
     if (!inputPrimitive)
     {
         return inputBound;
     }
-
+    
     const ScenePath deformerPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
-
+    
     ConstObjectPtr staticObj = staticDeformerPlug()->object(deformerPath);
     ConstObjectPtr animatedObj = animatedDeformerPlug()->object(deformerPath);
-
-    if (!runTimeCast<const Primitive>(staticObj.get()) ||
+    
+    if (!runTimeCast<const Primitive>(staticObj.get()) || 
         !runTimeCast<const Primitive>(animatedObj.get()))
     {
         return inputBound;
     }
-
+    
     // We have valid deformer objects - return a slightly expanded bound to account
     // for deformation. This is more efficient than recomputing the entire object.
     // The 5% expansion is a conservative estimate - adjust as needed.
