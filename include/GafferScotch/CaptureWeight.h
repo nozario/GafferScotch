@@ -24,7 +24,11 @@ namespace GafferScotch
     /// then be used by the PointDeform node to deform the mesh.
     ///
     /// The implementation uses IECore's KDTree for efficient nearest neighbor searches
-    /// and is optimized for performance with large meshes.
+    /// and is optimized for performance with large meshes through:
+    /// - Efficient memory management with pre-allocated arrays
+    /// - Thread-local storage to avoid contention
+    /// - Optimized weight calculations
+    /// - Parallel processing with TBB
     class GAFFERSCOTCH_API CaptureWeight : public GafferScene::ObjectProcessor
     {
     public:

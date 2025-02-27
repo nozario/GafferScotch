@@ -25,6 +25,9 @@ using namespace tbb;
 
 namespace
 {
+    // Define our own KDTree type for V3f points
+    typedef KDTree<std::vector<V3f>::const_iterator> V3fKDTree;
+
     // Structure to hold batch results for all vertices
     struct BatchResults
     {
@@ -53,7 +56,7 @@ namespace
     // Thread-local storage for temporary data
     struct ThreadLocalStorage
     {
-        std::vector<IECore::V3fTree::Neighbour> neighbours;
+        std::vector<V3fKDTree::Neighbour> neighbours;
         std::vector<std::pair<float, int>> validNeighbours;
         std::vector<std::pair<float, int>> fallbackNeighbours;
         std::vector<float> vertexWeights;
@@ -316,8 +319,8 @@ namespace
         BatchResults& results)
     {
         // Build KDTree for source points
-        // Use IECore's V3fTree which is a typedef for KDTree<std::vector<V3f>::const_iterator>
-        IECore::V3fTree tree(sourcePoints.begin(), sourcePoints.end(), 8); // Use 8 as maxLeafSize (tune through benchmarking)
+        // Use our own V3fKDTree typedef for KDTree<std::vector<V3f>::const_iterator>
+        V3fKDTree tree(sourcePoints.begin(), sourcePoints.end(), 8); // Use 8 as maxLeafSize (tune through benchmarking)
 
         // Pre-compute squared radius and its inverse for optimization
         const float radius2 = radius * radius;
@@ -352,7 +355,7 @@ namespace
                     float maxDistSquared = radius2;
                     for (size_t j = 0; j < found; ++j)
                     {
-                        const IECore::V3fTree::Neighbour& neighbour = tls.neighbours[j];
+                        const V3fKDTree::Neighbour& neighbour = tls.neighbours[j];
                         
                         // Skip if outside radius
                         if (neighbour.distSquared > radius2)
@@ -382,7 +385,7 @@ namespace
                         
                         for (size_t j = 0; j < extraFound; ++j)
                         {
-                            const IECore::V3fTree::Neighbour& neighbour = tls.neighbours[j];
+                            const V3fKDTree::Neighbour& neighbour = tls.neighbours[j];
                             const int sourceIndex = neighbour.point - sourcePoints.begin();
                             
                             // Store all points as potential fallback
