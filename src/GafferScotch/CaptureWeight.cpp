@@ -25,10 +25,8 @@ using namespace tbb;
 
 namespace
 {
-    // Use IECore's predefined V3fTree typedef instead of defining our own
     using V3fTree = IECore::V3fTree;
 
-    // Structure to hold batch results for all vertices
     struct BatchResults
     {
         std::vector<int> allIndices;       // size = numVertices * maxPoints
@@ -53,7 +51,6 @@ namespace
         }
     };
 
-    // Thread-local storage for temporary data
     struct ThreadLocalStorage
     {
         std::vector<V3fTree::Neighbour> neighbours;
@@ -63,7 +60,6 @@ namespace
 
         ThreadLocalStorage(int maxPoints)
         {
-            // Pre-allocate with sufficient capacity to avoid reallocations
             neighbours.reserve(maxPoints * 4);
             validNeighbours.reserve(maxPoints * 4);
             fallbackNeighbours.reserve(maxPoints * 4);
@@ -71,15 +67,13 @@ namespace
         }
     };
 
-    // Optimized weight calculation function
     inline float calculateWeight(float distSquared, float invMaxDistSquared)
     {
-        float normalizedDist2 = distSquared * invMaxDistSquared; // Multiply instead of divide
+        float normalizedDist2 = distSquared * invMaxDistSquared;
         float weight = 1.0f - normalizedDist2;
-        return weight * weight; // Square for smoother falloff
+        return weight * weight;
     }
 
-    // Helper functions to get piece attribute values for specific types
     bool getPieceValueInt(const PrimitiveVariable &var, size_t index, int &value)
     {
         if (const IntData *constantData = runTimeCast<const IntData>(var.data.get()))
@@ -212,16 +206,14 @@ namespace
         return false;
     }
 
-    // Helper function to check if two points match based on piece attribute
     bool piecesMatch(const PrimitiveVariable *sourcePiece, size_t sourceIndex,
                      const PrimitiveVariable *targetPiece, size_t targetIndex)
     {
         if (!sourcePiece || !targetPiece)
         {
-            return true; // No piece filtering
+            return true;
         }
 
-        // Try integer attributes
         int sourceInt = 0, targetInt = 0;
         if (getPieceValueInt(*sourcePiece, sourceIndex, sourceInt) &&
             getPieceValueInt(*targetPiece, targetIndex, targetInt))
@@ -229,7 +221,6 @@ namespace
             return sourceInt == targetInt;
         }
 
-        // Try float attributes (with epsilon comparison)
         float sourceFloat = 0.0f, targetFloat = 0.0f;
         if (getPieceValueFloat(*sourcePiece, sourceIndex, sourceFloat) &&
             getPieceValueFloat(*targetPiece, targetIndex, targetFloat))
@@ -237,7 +228,6 @@ namespace
             return std::abs(sourceFloat - targetFloat) < 1e-6f;
         }
 
-        // Try string attributes
         std::string sourceStr, targetStr;
         if (getPieceValueString(*sourcePiece, sourceIndex, sourceStr) &&
             getPieceValueString(*targetPiece, targetIndex, targetStr))
@@ -245,7 +235,6 @@ namespace
             return sourceStr == targetStr;
         }
 
-        // Try vector attributes
         V3f sourceVec(0), targetVec(0);
         if (getPieceValueV3f(*sourcePiece, sourceIndex, sourceVec) &&
             getPieceValueV3f(*targetPiece, targetIndex, targetVec))
@@ -253,10 +242,9 @@ namespace
             return (sourceVec - targetVec).length() < 1e-6f;
         }
 
-        return false; // No matching types found
+        return false;
     }
 
-    // Helper to get position data from a primitive
     const V3fVectorData *getPositions(const Primitive *primitive)
     {
         if (!primitive)
@@ -273,13 +261,11 @@ namespace
         return runTimeCast<const V3fVectorData>(it->second.data.get());
     }
 
-    // Simplified hashing for primitives - only hash what matters for capture weights
     void hashPrimitiveForCapture(const Primitive *primitive, const std::string &pieceAttr, MurmurHash &h)
     {
         if (!primitive)
             return;
 
-        // For capture weights, we only care about positions
         auto pIt = primitive->variables.find("P");
         if (pIt == primitive->variables.end())
             return;
@@ -288,7 +274,6 @@ namespace
         if (!positions)
             return;
 
-        // Hash the position data efficiently
         const std::vector<V3f> &pos = positions->readable();
         h.append(pos.size());
         if (!pos.empty())
@@ -296,7 +281,6 @@ namespace
             h.append(&pos[0], pos.size());
         }
 
-        // Hash piece attribute if specified
         if (!pieceAttr.empty())
         {
             auto pieceIt = primitive->variables.find(pieceAttr);
@@ -307,7 +291,6 @@ namespace
         }
     }
 
-    // Main function to compute capture weights using IECore's KDTree
     void computeCaptureWeights(
         const std::vector<V3f>& sourcePoints,
         const std::vector<V3f>& targetPoints,
@@ -318,69 +301,53 @@ namespace
         const PrimitiveVariable *targetPiece,
         BatchResults& results)
     {
-        // Build KDTree for source points
-        // Use IECore's V3fTree typedef for KDTree<std::vector<V3f>::const_iterator>
-        V3fTree tree(sourcePoints.begin(), sourcePoints.end(), 8); // Use 8 as maxLeafSize (tune through benchmarking)
+        V3fTree tree(sourcePoints.begin(), sourcePoints.end(), 8);
 
-        // Pre-compute squared radius and its inverse for optimization
         const float radius2 = radius * radius;
         const float invRadius2 = 1.0f / radius2;
 
-        // Create thread-local storage
         enumerable_thread_specific<ThreadLocalStorage> threadStorage(maxPoints);
 
-        // Process vertices in parallel
         const size_t numVertices = targetPoints.size();
-        parallel_for(blocked_range<size_t>(0, numVertices, 1024), // Use 1024 as grain size
+        parallel_for(blocked_range<size_t>(0, numVertices, 1024),
             [&](const blocked_range<size_t>& range)
             {
-                // Get thread-local storage
+
                 ThreadLocalStorage& tls = threadStorage.local();
                 
                 for (size_t i = range.begin(); i != range.end(); ++i)
                 {
                     const V3f& targetPos = targetPoints[i];
                     
-                    // Clear temporary vectors but maintain capacity
                     tls.neighbours.clear();
                     tls.validNeighbours.clear();
                     tls.fallbackNeighbours.clear();
                     tls.vertexWeights.clear();
                     
-                    // Find nearest points using KDTree
-                    // This returns a vector of Neighbour objects with point (iterator) and distSquared
                     unsigned int found = tree.nearestNNeighbours(targetPos, maxPoints * 2, tls.neighbours);
                     
-                    // Filter by radius and piece attribute, collect valid neighbors
                     float maxDistSquared = radius2;
                     for (size_t j = 0; j < found; ++j)
                     {
                         const V3fTree::Neighbour& neighbour = tls.neighbours[j];
                         
-                        // Skip if outside radius
                         if (neighbour.distSquared > radius2)
                             continue;
                         
-                        // Calculate source index
                         const int sourceIndex = neighbour.point - sourcePoints.begin();
                         
-                        // Store all points within radius as fallback
                         tls.fallbackNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
                         
-                        // Check piece attribute match
                         if (!piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
                             continue;
                         
-                        // Store valid neighbor
                         tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
                     }
                     
-                    // If we found too few points with matching pieces, try expanding search radius
                     if (tls.validNeighbours.size() < static_cast<size_t>(minPoints))
                     {
                         tls.neighbours.clear();
                         
-                        // Use a larger number of neighbors
                         unsigned int extraFound = tree.nearestNNeighbours(targetPos, maxPoints * 4, tls.neighbours);
                         
                         for (size_t j = 0; j < extraFound; ++j)
@@ -388,7 +355,6 @@ namespace
                             const V3fTree::Neighbour& neighbour = tls.neighbours[j];
                             const int sourceIndex = neighbour.point - sourcePoints.begin();
                             
-                            // Store all points as potential fallback
                             tls.fallbackNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
                             
                             if (!piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
@@ -405,10 +371,8 @@ namespace
                     // If we still don't have enough points, use fallback points (ignoring piece matching)
                     if (tls.validNeighbours.size() < static_cast<size_t>(minPoints))
                     {
-                        // Sort fallback points by distance
                         std::sort(tls.fallbackNeighbours.begin(), tls.fallbackNeighbours.end());
                         
-                        // Take the closest points up to minPoints
                         size_t numNeeded = static_cast<size_t>(minPoints) - tls.validNeighbours.size();
                         size_t numAvailable = std::min<size_t>(numNeeded, tls.fallbackNeighbours.size());
                         
@@ -419,16 +383,13 @@ namespace
                         }
                     }
                     
-                    // Sort by distance
                     std::sort(tls.validNeighbours.begin(), tls.validNeighbours.end());
                     
-                    // Limit to maxPoints
                     if (tls.validNeighbours.size() > static_cast<size_t>(maxPoints))
                     {
                         tls.validNeighbours.resize(maxPoints);
                     }
                     
-                    // Calculate weights
                     float totalWeight = 0.0f;
                     const float invMaxDistSquared = 1.0f / maxDistSquared;
                     
@@ -439,17 +400,13 @@ namespace
                         tls.vertexWeights.push_back(weight);
                     }
                     
-                    // Store results
                     results.influenceCounts[i] = tls.validNeighbours.size();
                     
-                    // Calculate inverse total weight once
                     const float invTotalWeight = totalWeight > 0.0f ? 1.0f / totalWeight : 0.0f;
                     
-                    // Get pointers to result arrays for this vertex
                     int* indices = results.getIndices(i, maxPoints);
                     float* weights = results.getWeights(i, maxPoints);
                     
-                    // Store normalized weights and indices
                     for (int j = 0; j < maxPoints; ++j)
                     {
                         if (j < tls.validNeighbours.size())
@@ -466,7 +423,7 @@ namespace
                 }
             });
     }
-} // namespace
+}
 
 IE_CORE_DEFINERUNTIMETYPED(CaptureWeight);
 
@@ -477,13 +434,10 @@ CaptureWeight::CaptureWeight(const std::string &name)
 {
     storeIndexOfNextChild(g_firstPlugIndex);
 
-    // Add static deformer input
     addChild(new ScenePlug("staticDeformer", Plug::In));
 
-    // Add deformer path
     addChild(new StringPlug("deformerPath", Plug::In, ""));
 
-    // Add parameters
     addChild(new FloatPlug("radius", Plug::In, 1.0f, 0.0f));
     addChild(new IntPlug("maxPoints", Plug::In, 4, 1));
     addChild(new IntPlug("minPoints", Plug::In, 1, 1));
@@ -588,7 +542,6 @@ void CaptureWeight::hashPositions(const IECoreScene::Primitive *primitive, IECor
     if (!positions)
         return;
 
-    // Hash only the number of vertices and position data
     const std::vector<Imath::V3f> &pos = positions->readable();
     h.append(pos.size());
     if (!pos.empty())
@@ -606,38 +559,30 @@ void CaptureWeight::hashPieceAttribute(const IECoreScene::Primitive *primitive, 
     if (it == primitive->variables.end())
         return;
 
-    // Hash the attribute data by appending to the provided hash
     it->second.data->hash(h);
 }
 
 void CaptureWeight::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
 {
-    // Get deformer path
     const std::string deformerPathStr = deformerPathPlug()->getValue();
     ScenePath deformerPath = GafferScotch::makeScenePath(deformerPathStr);
 
-    // Get objects
     ConstObjectPtr sourceObj = staticDeformerPlug()->object(deformerPath);
     ConstObjectPtr inputObj = inPlug()->object(path);
     
-    // Cast to primitives for more efficient hashing
     const IECoreScene::Primitive *sourcePrimitive = IECore::runTimeCast<const IECoreScene::Primitive>(sourceObj.get());
     const IECoreScene::Primitive *inputPrimitive = IECore::runTimeCast<const IECoreScene::Primitive>(inputObj.get());
     
     if (!sourcePrimitive || !inputPrimitive) {
-        // If not valid primitives, just pass through
         h = inputObj->hash();
         return;
     }
     
-    // Get piece attribute
     const std::string pieceAttr = pieceAttributePlug()->getValue();
     
-    // Hash only the positions and piece attributes from both primitives
     hashPrimitiveForCapture(sourcePrimitive, pieceAttr, h);
     hashPrimitiveForCapture(inputPrimitive, pieceAttr, h);
     
-    // Hash parameters that affect the output
     radiusPlug()->hash(h);
     maxPointsPlug()->hash(h);
     minPointsPlug()->hash(h);
@@ -646,17 +591,14 @@ void CaptureWeight::hashProcessedObject(const ScenePath &path, const Gaffer::Con
 
 IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
 {
-    // Early out if we don't have a valid input object
     const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject);
     if (!inputPrimitive)
     {
         return inputObject;
     }
 
-    // Get the deformer path
     const ScenePath deformerPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
 
-    // Get source points
     ConstObjectPtr sourceObject = staticDeformerPlug()->object(deformerPath);
     const Primitive *sourcePrimitive = runTimeCast<const Primitive>(sourceObject.get());
     if (!sourcePrimitive)
@@ -664,27 +606,23 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
         return inputObject;
     }
 
-    // Cache parameter values to avoid repeated plug evaluations
     const float radius = radiusPlug()->getValue();
     const int maxPoints = maxPointsPlug()->getValue();
     const int minPoints = minPointsPlug()->getValue();
     const std::string pieceAttr = pieceAttributePlug()->getValue();
 
-    // Get position data from source primitive
     const V3fVectorData *sourcePositions = getPositions(sourcePrimitive);
     if (!sourcePositions)
     {
         return inputObject;
     }
 
-    // Get position data from target primitive
     const V3fVectorData *targetPositions = getPositions(inputPrimitive);
     if (!targetPositions)
     {
         return inputObject;
     }
 
-    // Get piece attributes if specified
     const PrimitiveVariable *sourcePiece = nullptr;
     if (!pieceAttr.empty())
     {
@@ -705,21 +643,16 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
         }
     }
 
-    // Get the source and target points
     const std::vector<V3f> &sourcePoints = sourcePositions->readable();
     const std::vector<V3f> &targetPoints = targetPositions->readable();
 
-    // Create batch results structure
     BatchResults results(targetPoints.size(), maxPoints);
 
-    // Compute capture weights using optimized implementation
     computeCaptureWeights(sourcePoints, targetPoints, radius, maxPoints, minPoints, 
                           sourcePiece, targetPiece, results);
 
-    // Create output primitive
     PrimitivePtr resultPrimitive = inputPrimitive->copy();
 
-    // Create output arrays
     IntVectorDataPtr captureInfluences = new IntVectorData(results.influenceCounts);
     std::vector<IntVectorDataPtr> captureIndices;
     std::vector<FloatVectorDataPtr> captureWeights;
@@ -733,7 +666,6 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
         captureWeights[i]->writable().resize(targetPoints.size());
     }
 
-    // Copy results to output arrays
     for (size_t i = 0; i < targetPoints.size(); ++i)
     {
         for (int j = 0; j < maxPoints; ++j)
@@ -743,10 +675,8 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
         }
     }
 
-    // Add influence count
     resultPrimitive->variables["captureInfluences"] = PrimitiveVariable(PrimitiveVariable::Vertex, captureInfluences);
 
-    // Add per-influence primitive variables
     for (int i = 0; i < maxPoints; ++i)
     {
         std::string indexName = "captureIndex" + std::to_string(i + 1);
