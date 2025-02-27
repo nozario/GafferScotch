@@ -1,5 +1,6 @@
 #include <math.h>
 #include "GafferScotch/CaptureWeight.h"
+#include "GafferScotch/ScenePathUtil.h"
 
 #include "IECore/NullObject.h"
 #include "IECore/KDTree.h"
@@ -23,13 +24,6 @@ using namespace tbb;
 
 namespace
 {
-    GafferScene::ScenePlug::ScenePath makeScenePath(const std::string &p)
-    {
-        GafferScene::ScenePlug::ScenePath output;
-        IECore::StringAlgo::tokenize<IECore::InternedString>(p, '/', std::back_inserter(output));
-        return output;
-    }
-
     // Structure to hold per-vertex results to avoid thread contention
     struct VertexResult
     {
@@ -423,8 +417,7 @@ void CaptureWeight::hashProcessedObject(const ScenePath &path, const Gaffer::Con
 {
     // Get source path
     const std::string sourcePathStr = sourcePathPlug()->getValue();
-    ScenePath sourcePath;
-    IECore::StringAlgo::tokenize<IECore::InternedString>(sourcePathStr, '/', std::back_inserter(sourcePath));
+    ScenePath sourcePath = GafferScotch::makeScenePath(sourcePathStr);
 
     // Get objects
     ConstObjectPtr sourceObj = sourcePlug()->object(sourcePath);
@@ -464,7 +457,7 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
     }
 
     // Get the source path
-    const ScenePath sourcePath = makeScenePath(sourcePathPlug()->getValue());
+    const ScenePath sourcePath = GafferScotch::makeScenePath(sourcePathPlug()->getValue());
 
     // Get source points
     ConstObjectPtr sourceObject = sourcePlug()->object(sourcePath);
