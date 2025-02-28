@@ -814,188 +814,54 @@ void RigidDeformCurves::deformCurves(
                                  RestFrame deformedFrame;
                                  deformedFrame.position = deformedPosition;
                                  deformedFrame.normal = deformedNormal;
-
-                                 // Ensure tangent is not parallel to normal
-                                 V3f tangentGuess = safeNormalize(deformedTangent);
-                                 if (std::abs(tangentGuess.dot(deformedNormal)) > 0.99f)
-                                 {
-                                     // If tangent is too parallel to normal, try to find a better direction
-                                     V3f alternateDir(1, 0, 0);
-                                     if (std::abs(alternateDir.dot(deformedNormal)) > 0.99f)
-                                         alternateDir = V3f(0, 1, 0);
-                                     tangentGuess = safeNormalize(alternateDir - deformedNormal * alternateDir.dot(deformedNormal));
-                                 }
-                                 deformedFrame.tangent = tangentGuess;
+                                 deformedFrame.tangent = deformedTangent;
                                  deformedFrame.orthonormalize();
 
-                                 // Check for degenerate frame with a more lenient threshold
-                                 M44f deformedMatrix = deformedFrame.toMatrix();
-                                 if (std::abs(deformedMatrix.determinant()) < 1e-6)
-                                 {
-                                     ++degenerateFrames;
-                                     IECore::msg(IECore::Msg::Warning, "RigidDeformCurves",
-                                                 (boost::format("Near-singular matrix for curve %d - using fallback deformation") % i).str());
+                                 // Build matrices exactly like VEX implementation
+                                 M44f StaticMatrix(1); // Initialize with identity
+                                 StaticMatrix[0][0] = restTangents[i].x;
+                                 StaticMatrix[0][1] = restTangents[i].y;
+                                 StaticMatrix[0][2] = restTangents[i].z;
 
-                                     // Fallback: Use simple translation + normal-aligned rotation
-                                     const size_t startIdx = vertexOffsets[i];
-                                     const size_t endIdx = (i + 1 < vertexOffsets.size()) ? vertexOffsets[i + 1] : positions.size();
+                                 StaticMatrix[1][0] = restBitangents[i].x;
+                                 StaticMatrix[1][1] = restBitangents[i].y;
+                                 StaticMatrix[1][2] = restBitangents[i].z;
 
-                                     // Get rest and deformed data
-                                     const V3f restPos = restPositions[i];
-                                     const V3f restNorm = safeNormalize(restNormals[i]);
-                                     const V3f deformedPos = deformedPosition;
-                                     const V3f deformedNorm = deformedNormal;
+                                 StaticMatrix[2][0] = restNormals[i].x;
+                                 StaticMatrix[2][1] = restNormals[i].y;
+                                 StaticMatrix[2][2] = restNormals[i].z;
 
-                                     // Calculate rotation between normals
-                                     V3f rotAxis;
-                                     float rotAngle;
+                                 StaticMatrix[3][0] = restPositions[i].x;
+                                 StaticMatrix[3][1] = restPositions[i].y;
+                                 StaticMatrix[3][2] = restPositions[i].z;
 
-                                     if (restNorm.dot(deformedNorm) > -0.99f) // Not completely flipped
-                                     {
-                                         rotAxis = restNorm.cross(deformedNorm);
-                                         if (rotAxis.length() > 1e-6)
-                                         {
-                                             rotAxis.normalize();
-                                             rotAngle = Imath::Math<float>::acos(Imath::clamp(restNorm.dot(deformedNorm), -1.0f, 1.0f));
-                                         }
-                                         else
-                                         {
-                                             // Parallel normals, no rotation needed
-                                             rotAxis = V3f(0, 1, 0);
-                                             rotAngle = 0;
-                                         }
-                                     }
-                                     else
-                                     {
-                                         // Normals are opposite, rotate 180° around perpendicular axis
-                                         if (std::abs(restNorm.y) < 0.9f)
-                                             rotAxis = V3f(0, 1, 0).cross(restNorm).normalized();
-                                         else
-                                             rotAxis = V3f(1, 0, 0).cross(restNorm).normalized();
-                                         rotAngle = 3.14159265358979323846f;
-                                     }
+                                 M44f AnimMatrix(1); // Initialize with identity
+                                 AnimMatrix[0][0] = deformedFrame.tangent.x;
+                                 AnimMatrix[0][1] = deformedFrame.tangent.y;
+                                 AnimMatrix[0][2] = deformedFrame.tangent.z;
 
-                                     // Build fallback transform
-                                     M44f fallbackTransform;
-                                     fallbackTransform.setAxisAngle(rotAxis, rotAngle);
+                                 AnimMatrix[1][0] = deformedFrame.bitangent.x;
+                                 AnimMatrix[1][1] = deformedFrame.bitangent.y;
+                                 AnimMatrix[1][2] = deformedFrame.bitangent.z;
 
-                                     // Transform points
-                                     const V3f translation = deformedPos - restPos;
-                                     for (size_t j = startIdx; j < endIdx; ++j)
-                                     {
-                                         // Get point in rest-local space
-                                         V3f localPos = positions[j] - restPos;
+                                 AnimMatrix[2][0] = deformedFrame.normal.x;
+                                 AnimMatrix[2][1] = deformedFrame.normal.y;
+                                 AnimMatrix[2][2] = deformedFrame.normal.z;
 
-                                         // Apply rotation
-                                         V3f rotatedPos;
-                                         fallbackTransform.multDirMatrix(localPos, rotatedPos);
+                                 AnimMatrix[3][0] = deformedFrame.position.x;
+                                 AnimMatrix[3][1] = deformedFrame.position.y;
+                                 AnimMatrix[3][2] = deformedFrame.position.z;
 
-                                         // Apply translation
-                                         positions[j] = rotatedPos + deformedPos;
-                                     }
+                                 // Calculate transform exactly like VEX
+                                 M44f Transform = StaticMatrix.inverse() * AnimMatrix;
 
-                                     ++processedCurves;
-                                     continue;
-                                 }
-
-                                 // Get rest frame
-                                 RestFrame restFrame;
-                                 restFrame.position = restPositions[i];
-                                 restFrame.normal = restNormals[i];
-                                 restFrame.tangent = restTangents[i];
-                                 restFrame.bitangent = restBitangents[i];
-                                 restFrame.orthonormalize();
-
-                                 // Check rest frame is valid
-                                 M44f restMatrix = restFrame.toMatrix();
-                                 if (std::abs(restMatrix.determinant()) < 1e-6)
-                                 {
-                                     ++degenerateFrames;
-                                     IECore::msg(IECore::Msg::Warning, "RigidDeformCurves",
-                                                 (boost::format("Near-singular rest matrix for curve %d - using fallback deformation") % i).str());
-
-                                     // Use same fallback as above
-                                     const size_t startIdx = vertexOffsets[i];
-                                     const size_t endIdx = (i + 1 < vertexOffsets.size()) ? vertexOffsets[i + 1] : positions.size();
-
-                                     // Get rest and deformed data
-                                     const V3f restPos = restPositions[i];
-                                     const V3f restNorm = safeNormalize(restNormals[i]);
-                                     const V3f deformedPos = deformedPosition;
-                                     const V3f deformedNorm = deformedNormal;
-
-                                     // Calculate rotation between normals
-                                     V3f rotAxis;
-                                     float rotAngle;
-
-                                     if (restNorm.dot(deformedNorm) > -0.99f) // Not completely flipped
-                                     {
-                                         rotAxis = restNorm.cross(deformedNorm);
-                                         if (rotAxis.length() > 1e-6)
-                                         {
-                                             rotAxis.normalize();
-                                             rotAngle = Imath::Math<float>::acos(Imath::clamp(restNorm.dot(deformedNorm), -1.0f, 1.0f));
-                                         }
-                                         else
-                                         {
-                                             // Parallel normals, no rotation needed
-                                             rotAxis = V3f(0, 1, 0);
-                                             rotAngle = 0;
-                                         }
-                                     }
-                                     else
-                                     {
-                                         // Normals are opposite, rotate 180° around perpendicular axis
-                                         if (std::abs(restNorm.y) < 0.9f)
-                                             rotAxis = V3f(0, 1, 0).cross(restNorm).normalized();
-                                         else
-                                             rotAxis = V3f(1, 0, 0).cross(restNorm).normalized();
-                                         rotAngle = 3.14159265358979323846f;
-                                     }
-
-                                     // Build fallback transform
-                                     M44f fallbackTransform;
-                                     fallbackTransform.setAxisAngle(rotAxis, rotAngle);
-
-                                     // Transform points
-                                     const V3f translation = deformedPos - restPos;
-                                     for (size_t j = startIdx; j < endIdx; ++j)
-                                     {
-                                         V3f localPos = positions[j] - restPos;
-                                         V3f rotatedPos;
-                                         fallbackTransform.multDirMatrix(localPos, rotatedPos);
-                                         positions[j] = rotatedPos + deformedPos;
-                                     }
-
-                                     ++processedCurves;
-                                     continue;
-                                 }
-
-                                 // Original transformation code continues here...
-                                 // Calculate the relative transform from rest position to curve points
+                                 // Transform points
                                  const size_t startIdx = vertexOffsets[i];
                                  const size_t endIdx = (i + 1 < vertexOffsets.size()) ? vertexOffsets[i + 1] : positions.size();
 
-                                 // Store relative positions in rest space
-                                 std::vector<V3f> relativePositions;
-                                 relativePositions.reserve(endIdx - startIdx);
-
-                                 M44f worldToRest = restMatrix.inverse();
                                  for (size_t j = startIdx; j < endIdx; ++j)
                                  {
-                                     // Transform to rest space
-                                     V3f localPos = positions[j] - restFrame.position;
-                                     V3f restSpacePos;
-                                     worldToRest.multDirMatrix(localPos, restSpacePos);
-                                     relativePositions.push_back(restSpacePos);
-                                 }
-
-                                 // Now transform these relative positions using the deformed frame
-                                 for (size_t j = 0; j < relativePositions.size(); ++j)
-                                 {
-                                     V3f worldSpacePos;
-                                     deformedMatrix.multDirMatrix(relativePositions[j], worldSpacePos);
-                                     positions[startIdx + j] = worldSpacePos + deformedFrame.position;
+                                     Transform.multVecMatrix(positions[j], positions[j]);
                                  }
 
                                  ++processedCurves;
