@@ -924,16 +924,38 @@ void RigidDeformCurves::deformCurves(
 
                                      // Calculate rotation between rest and deformed frames
                                      M44f restFrame;
-                                     restFrame.setTranslation(restPositions[i]);
-                                     restFrame[0].setValue(restTangents[i].x, restTangents[i].y, restTangents[i].z, 0);
-                                     restFrame[1].setValue(restBitangents[i].x, restBitangents[i].y, restBitangents[i].z, 0);
-                                     restFrame[2].setValue(restNormals[i].x, restNormals[i].y, restNormals[i].z, 0);
+                                     restFrame.makeIdentity();
+                                     // Set rotation part
+                                     restFrame[0][0] = restTangents[i].x;
+                                     restFrame[0][1] = restTangents[i].y;
+                                     restFrame[0][2] = restTangents[i].z;
+                                     restFrame[1][0] = restBitangents[i].x;
+                                     restFrame[1][1] = restBitangents[i].y;
+                                     restFrame[1][2] = restBitangents[i].z;
+                                     restFrame[2][0] = restNormals[i].x;
+                                     restFrame[2][1] = restNormals[i].y;
+                                     restFrame[2][2] = restNormals[i].z;
+                                     // Set translation
+                                     restFrame[3][0] = restPositions[i].x;
+                                     restFrame[3][1] = restPositions[i].y;
+                                     restFrame[3][2] = restPositions[i].z;
 
                                      M44f deformedFrameMtx;
-                                     deformedFrameMtx.setTranslation(deformedFrame.position);
-                                     deformedFrameMtx[0].setValue(deformedFrame.tangent.x, deformedFrame.tangent.y, deformedFrame.tangent.z, 0);
-                                     deformedFrameMtx[1].setValue(deformedFrame.bitangent.x, deformedFrame.bitangent.y, deformedFrame.bitangent.z, 0);
-                                     deformedFrameMtx[2].setValue(deformedFrame.normal.x, deformedFrame.normal.y, deformedFrame.normal.z, 0);
+                                     deformedFrameMtx.makeIdentity();
+                                     // Set rotation part
+                                     deformedFrameMtx[0][0] = deformedFrame.tangent.x;
+                                     deformedFrameMtx[0][1] = deformedFrame.tangent.y;
+                                     deformedFrameMtx[0][2] = deformedFrame.tangent.z;
+                                     deformedFrameMtx[1][0] = deformedFrame.bitangent.x;
+                                     deformedFrameMtx[1][1] = deformedFrame.bitangent.y;
+                                     deformedFrameMtx[1][2] = deformedFrame.bitangent.z;
+                                     deformedFrameMtx[2][0] = deformedFrame.normal.x;
+                                     deformedFrameMtx[2][1] = deformedFrame.normal.y;
+                                     deformedFrameMtx[2][2] = deformedFrame.normal.z;
+                                     // Set translation
+                                     deformedFrameMtx[3][0] = deformedFrame.position.x;
+                                     deformedFrameMtx[3][1] = deformedFrame.position.y;
+                                     deformedFrameMtx[3][2] = deformedFrame.position.z;
 
                                      // Calculate stable transformation
                                      M44f stableTransform = restFrame.inverse() * deformedFrameMtx;
