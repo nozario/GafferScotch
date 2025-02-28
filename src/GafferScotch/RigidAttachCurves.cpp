@@ -483,15 +483,6 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
                          const PrimitiveVariable &tangentPrimVar = restTangents.first;
                          const PrimitiveVariable &bitangentPrimVar = restTangents.second;
 
-                         const V3fVectorData *tangentData = runTimeCast<const V3fVectorData>(tangentPrimVar.data.get());
-                         const V3fVectorData *bitangentData = runTimeCast<const V3fVectorData>(bitangentPrimVar.data.get());
-
-                         if (!tangentData || !bitangentData)
-                         {
-                             binding.valid = false;
-                             continue;
-                         }
-
                          binding.restFrame.tangent = Detail::primVar<V3f>(tangentPrimVar,
                                                                           &binding.baryCoords[0],
                                                                           binding.triangleIndex,
