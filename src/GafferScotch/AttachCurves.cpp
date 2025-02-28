@@ -578,6 +578,7 @@ void AttachCurves::applyDeformation(const MeshPrimitive *animatedMesh,
                          const CurveBinding &binding = m_restCache.bindingCache.bindings.get(i);
                          if (!binding.valid)
                          {
+                             // Keep original points for invalid bindings - they were already copied
                              continue;
                          }
 
@@ -712,7 +713,7 @@ IECore::ConstObjectPtr AttachCurves::computeProcessedObject(const ScenePath &pat
 
     // Get output points for modification
     V3fVectorDataPtr outPoints = new V3fVectorData;
-    outPoints->writable().resize(m_restCache.curveData.totalVerts);
+    outPoints->writable() = curves->variableData<V3fVectorData>("P")->readable(); // Initialize with original positions
     outputCurves->variables["P"] = PrimitiveVariable(PrimitiveVariable::Vertex, outPoints);
 
     // Apply deformation using cached bindings
