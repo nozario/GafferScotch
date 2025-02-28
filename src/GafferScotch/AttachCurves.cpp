@@ -575,7 +575,7 @@ void AttachCurves::applyDeformation(const MeshPrimitive *animatedMesh,
                      // Process curves in this range
                      for (size_t i = range.begin(); i != range.end(); ++i)
                      {
-                         const CurveBinding &binding = m_restCache.bindingCache.bindings[i];
+                         const CurveBinding &binding = m_restCache.bindingCache.bindings.get(i);
                          if (!binding.valid)
                          {
                              continue;

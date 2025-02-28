@@ -87,15 +87,15 @@ namespace GafferScotch
         // Frame cache for mesh points
         struct AlignedFrame
         {
-            Imath::V3f normal;
-            Imath::V3f tangent;
-            Imath::V3f bitangent;
-            Imath::V3f position;
+            mutable Imath::V3f normal;
+            mutable Imath::V3f tangent;
+            mutable Imath::V3f bitangent;
+            mutable Imath::V3f position;
 
             void buildFromMeshData(const struct MeshData &data, size_t index);
 
             // Ensure the frame is perfectly orthonormal
-            void orthonormalize()
+            void orthonormalize() const
             {
                 // Start with normal as primary direction
                 normal.normalize();
@@ -179,12 +179,12 @@ namespace GafferScotch
         // Cached binding data for a single curve root point
         struct CurveBinding
         {
-            unsigned int triangleIndex; // Triangle index in the rest mesh
-            Imath::V3f baryCoords;      // Barycentric coordinates
-            Imath::V2f uvCoords;        // UV coordinates for faster lookup
-            AlignedFrame restFrame;     // Cached rest space frame
-            Imath::V3f rootPointOffset; // Offset from mesh surface to root point
-            bool valid;                 // Whether this binding is valid
+            mutable unsigned int triangleIndex; // Triangle index in the rest mesh
+            mutable Imath::V3f baryCoords;      // Barycentric coordinates
+            mutable Imath::V2f uvCoords;        // UV coordinates for faster lookup
+            mutable AlignedFrame restFrame;     // Cached rest space frame
+            mutable Imath::V3f rootPointOffset; // Offset from mesh surface to root point
+            mutable bool valid;                 // Whether this binding is valid
 
             CurveBinding() : triangleIndex(0), valid(false) {}
         };
