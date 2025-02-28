@@ -137,6 +137,24 @@ namespace GafferScotch
             {
                 mutable std::shared_mutex mutex;
                 AlignedVector<Imath::V3f> offsets;
+
+                void resize(size_t size)
+                {
+                    std::unique_lock<std::shared_mutex> lock(mutex);
+                    offsets.resize(size);
+                }
+
+                const Imath::V3f &get(size_t index) const
+                {
+                    std::shared_lock<std::shared_mutex> lock(mutex);
+                    return offsets[index];
+                }
+
+                void set(size_t index, const Imath::V3f &value)
+                {
+                    std::unique_lock<std::shared_mutex> lock(mutex);
+                    offsets[index] = value;
+                }
             };
             mutable ThreadSafeOffsets restSpaceOffsets;
 
@@ -149,8 +167,12 @@ namespace GafferScotch
             // Helper to safely access offsets
             const Imath::V3f &getRestSpaceOffset(size_t index) const
             {
-                std::shared_lock<std::shared_mutex> lock(restSpaceOffsets.mutex);
-                return restSpaceOffsets.offsets[index];
+                return restSpaceOffsets.get(index);
+            }
+
+            void setRestSpaceOffset(size_t index, const Imath::V3f &value) const
+            {
+                restSpaceOffsets.set(index, value);
             }
         };
 

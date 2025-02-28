@@ -123,16 +123,17 @@ namespace GafferScotch
             const size_t vertOffset = vertexOffsets[curveIndex];
             const int numVerts = vertsPerCurve[curveIndex];
 
+            // Transform points to rest space
             for (int i = 0; i < numVerts; ++i)
             {
-                const size_t idx = vertOffset + i;
-                const V3f &localOffset = localOffsets[idx];
+                const size_t pointIndex = vertOffset + i;
+                const V3f localOffset = localOffsets[pointIndex];
 
-                // Transform offset to rest space
-                restSpaceOffsets[idx] = V3f(
-                    localOffset.dot(restFrame.tangent),
-                    localOffset.dot(restFrame.bitangent),
-                    localOffset.dot(restFrame.normal));
+                // Write to thread-safe storage
+                setRestSpaceOffset(pointIndex, V3f(
+                                                   localOffset.dot(restFrame.tangent),
+                                                   localOffset.dot(restFrame.bitangent),
+                                                   localOffset.dot(restFrame.normal)));
             }
         }
 
