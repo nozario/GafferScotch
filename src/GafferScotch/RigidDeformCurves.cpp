@@ -432,15 +432,19 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
 
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Mesh objects validated");
 
+        // Triangulate meshes to match RigidAttachCurves behavior
+        MeshPrimitivePtr triangulatedRestMesh = MeshAlgo::triangulate(restMesh);
+        MeshPrimitivePtr triangulatedAnimatedMesh = MeshAlgo::triangulate(animatedMesh);
+
         // Validate mesh topology
-        if (!restMesh->vertexIds() || !animatedMesh->vertexIds())
+        if (!triangulatedRestMesh->vertexIds() || !triangulatedAnimatedMesh->vertexIds())
         {
             IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Missing vertex IDs");
             return inputObject;
         }
 
-        if (!restMesh->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex) ||
-            !animatedMesh->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex))
+        if (!triangulatedRestMesh->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex) ||
+            !triangulatedAnimatedMesh->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex))
         {
             IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Missing position data");
             return inputObject;
@@ -463,7 +467,7 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
         // Deform curves
         try
         {
-            deformCurves(curves, restMesh, animatedMesh, outputCurves.get());
+            deformCurves(curves, triangulatedRestMesh.get(), triangulatedAnimatedMesh.get(), outputCurves.get());
         }
         catch (const std::exception &e)
         {
