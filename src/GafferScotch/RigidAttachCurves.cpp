@@ -512,7 +512,7 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
                          binding.restFrame.bitangent = origBitangent;
                      }
                  });
-
+    // YOUPI
     // Store binding data as primitive variables
     V3fVectorDataPtr restPositionsData = new V3fVectorData;
     V3fVectorDataPtr restNormalsData = new V3fVectorData;
