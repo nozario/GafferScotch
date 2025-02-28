@@ -6,8 +6,6 @@
 #include "Gaffer/StringPlug.h"
 
 #include "GafferScene/SceneAlgo.h"
-#include "IECore/PathMatcher.h"
-#include "GafferScene/PathFilter.h"
 
 #include "IECore/NullObject.h"
 #include "IECore/StringAlgo.h"
@@ -40,27 +38,12 @@ IE_CORE_DEFINERUNTIMETYPED( AttachCurves );
 size_t AttachCurves::g_firstPlugIndex = 0;
 
 AttachCurves::AttachCurves( const std::string &name )
-	:	FilteredSceneProcessor( name, IECore::PathMatcher::NoMatch )
+	:	Deformer( name )
 {
 	storeIndexOfNextChild( g_firstPlugIndex );
-
-	// Add the static deformer input
 	addChild( new ScenePlug( "staticDeformer" ) );
-	
-	// Add the animated deformer input
 	addChild( new ScenePlug( "animatedDeformer" ) );
-	
-	// Add the deformer path plug
 	addChild( new StringPlug( "deformerPath", Plug::In, "" ) );
-	
-	// Set up the filter to only filter on input curves
-	GafferScene::FilterPlug *filter = filterPlug();
-	GafferScene::PathFilter *pathFilter = new GafferScene::PathFilter();
-	filter->setInput( pathFilter );
-	
-	// Set up the output to match the input
-	GafferScene::ScenePlug *out = outPlug();
-	out->setInput( inPlug() );
 }
 
 AttachCurves::~AttachCurves()
@@ -99,7 +82,7 @@ const StringPlug *AttachCurves::deformerPathPlug() const
 
 void AttachCurves::affects( const Plug *input, AffectedPlugsContainer &outputs ) const
 {
-	FilteredSceneProcessor::affects( input, outputs );
+	Deformer::affects( input, outputs );
 
 	if(
 		input == staticDeformerPlug()->objectPlug() ||
@@ -111,9 +94,16 @@ void AttachCurves::affects( const Plug *input, AffectedPlugsContainer &outputs )
 	}
 }
 
+bool AttachCurves::affectsProcessedObject( const Plug *input ) const
+{
+	return input == staticDeformerPlug()->objectPlug() ||
+		   input == animatedDeformerPlug()->objectPlug() ||
+		   input == deformerPathPlug();
+}
+
 void AttachCurves::hashProcessedObject( const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const
 {
-	FilteredSceneProcessor::hashProcessedObject( path, context, h );
+	Deformer::hashProcessedObject( path, context, h );
 	
 	// Hash the deformer path
 	deformerPathPlug()->hash( h );
