@@ -604,34 +604,21 @@ Imath::Box3f RigidDeformCurves::computeProcessedObjectBound(const ScenePath &pat
         meshPath = GafferScotch::makeScenePath(bindPathPlug()->getValue());
     }
 
-    // Get meshes using resolved path
-    ConstObjectPtr restMeshObj = restMeshPlug()->object(meshPath);
-    const MeshPrimitive *restMesh = runTimeCast<const MeshPrimitive>(restMeshObj.get());
-
+    // Get animated mesh using resolved path
     ConstObjectPtr animatedMeshObj = animatedMeshPlug()->object(meshPath);
-    const MeshPrimitive *animatedMesh = runTimeCast<const MeshPrimitive>(animatedMeshObj.get());
-
-    if (!restMesh || !animatedMesh)
+    if (!animatedMeshObj)
     {
         return inPlug()->bound(path);
     }
 
-    // Create output curves with same topology
-    CurvesPrimitivePtr outputCurves = new CurvesPrimitive(
-        curves->verticesPerCurve(),
-        curves->basis(),
-        curves->periodic());
-
-    // Copy primitive variables
-    for (const auto &primVar : curves->variables)
+    const MeshPrimitive *animatedMesh = runTimeCast<const MeshPrimitive>(animatedMeshObj.get());
+    if (!animatedMesh)
     {
-        outputCurves->variables[primVar.first] = primVar.second;
+        return inPlug()->bound(path);
     }
 
-    // Deform curves to get accurate bounds
-    deformCurves(curves, restMesh, animatedMesh, outputCurves.get());
-
-    return outputCurves->bound();
+    // Use the animated mesh's bounds directly since curves are bound to its surface
+    return animatedMesh->bound();
 }
 
 void RigidDeformCurves::deformCurves(
