@@ -509,11 +509,11 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
     V3fVectorDataPtr restBitangentsData = new V3fVectorData;
     V3fVectorDataPtr rootPointsData = new V3fVectorData;
 
-    std::vector<V3f> &restPositions = restPositionsData->writable();
-    std::vector<V3f> &restNormals = restNormalsData->writable();
-    std::vector<V3f> &restTangents = restTangentsData->writable();
-    std::vector<V3f> &restBitangents = restBitangentsData->writable();
-    std::vector<V3f> &rootPoints = rootPointsData->writable();
+    auto &restPositions = restPositionsData->writable();
+    auto &restNormals = restNormalsData->writable();
+    auto &restTangents = restTangentsData->writable();
+    auto &restBitangents = restBitangentsData->writable();
+    auto &rootPoints = rootPointsData->writable();
 
     // Pre-allocate arrays
     restPositions.resize(numCurves);
