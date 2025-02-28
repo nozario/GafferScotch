@@ -6,6 +6,7 @@
 #include "Gaffer/StringPlug.h"
 
 #include "GafferScene/SceneAlgo.h"
+#include "GafferScene/ScenePlug.h"
 
 #include "IECore/NullObject.h"
 #include "IECore/StringAlgo.h"
@@ -41,9 +42,12 @@ AttachCurves::AttachCurves( const std::string &name )
 	:	Deformer( name )
 {
 	storeIndexOfNextChild( g_firstPlugIndex );
-	addChild( new ScenePlug( "staticDeformer" ) );
-	addChild( new ScenePlug( "animatedDeformer" ) );
-	addChild( new StringPlug( "deformerPath", Plug::In, "" ) );
+	ScenePlug *staticDeformer = new ScenePlug( "staticDeformer" );
+	ScenePlug *animatedDeformer = new ScenePlug( "animatedDeformer" );
+	StringPlug *deformerPath = new StringPlug( "deformerPath", Plug::In, "" );
+	addChild( staticDeformer );
+	addChild( animatedDeformer );
+	addChild( deformerPath );
 }
 
 AttachCurves::~AttachCurves()
@@ -52,42 +56,46 @@ AttachCurves::~AttachCurves()
 
 ScenePlug *AttachCurves::staticDeformerPlug()
 {
-	return getChild<ScenePlug>( g_firstPlugIndex );
+	return this->template getChild<ScenePlug>( g_firstPlugIndex );
 }
 
 const ScenePlug *AttachCurves::staticDeformerPlug() const
 {
-	return getChild<ScenePlug>( g_firstPlugIndex );
+	return this->template getChild<ScenePlug>( g_firstPlugIndex );
 }
 
 ScenePlug *AttachCurves::animatedDeformerPlug()
 {
-	return getChild<ScenePlug>( g_firstPlugIndex + 1 );
+	return this->template getChild<ScenePlug>( g_firstPlugIndex + 1 );
 }
 
 const ScenePlug *AttachCurves::animatedDeformerPlug() const
 {
-	return getChild<ScenePlug>( g_firstPlugIndex + 1 );
+	return this->template getChild<ScenePlug>( g_firstPlugIndex + 1 );
 }
 
 StringPlug *AttachCurves::deformerPathPlug()
 {
-	return getChild<StringPlug>( g_firstPlugIndex + 2 );
+	return this->template getChild<StringPlug>( g_firstPlugIndex + 2 );
 }
 
 const StringPlug *AttachCurves::deformerPathPlug() const
 {
-	return getChild<StringPlug>( g_firstPlugIndex + 2 );
+	return this->template getChild<StringPlug>( g_firstPlugIndex + 2 );
 }
 
 void AttachCurves::affects( const Plug *input, AffectedPlugsContainer &outputs ) const
 {
 	Deformer::affects( input, outputs );
 
+	const ScenePlug *staticDeformer = staticDeformerPlug();
+	const ScenePlug *animatedDeformer = animatedDeformerPlug();
+	const StringPlug *deformerPath = deformerPathPlug();
+
 	if(
-		input == staticDeformerPlug()->objectPlug() ||
-		input == animatedDeformerPlug()->objectPlug() ||
-		input == deformerPathPlug()
+		input == staticDeformer->objectPlug() ||
+		input == animatedDeformer->objectPlug() ||
+		input == deformerPath
 	)
 	{
 		outputs.push_back( outPlug()->objectPlug() );
