@@ -543,7 +543,9 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
                          deformedTangent = Detail::primVar<V3f>(animatedTangents.first,
                                                                 &baryCoord[0],
                                                                 triangleIndex,
-                                                                triangleVertices);
+                                                                V3i(triangleVertices[0],
+                                                                    triangleVertices[1],
+                                                                    triangleVertices[2]));
 
                          // Build deformed frame
                          RestFrame deformedFrame;

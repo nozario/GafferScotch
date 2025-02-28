@@ -479,7 +479,9 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
                          binding.restFrame.tangent = Detail::primVar<V3f>(restTangents.first,
                                                                           &binding.baryCoords[0],
                                                                           binding.triangleIndex,
-                                                                          meshResult->vertexIds());
+                                                                          V3i(meshResult->vertexIds()[0],
+                                                                              meshResult->vertexIds()[1],
+                                                                              meshResult->vertexIds()[2]));
 
                          binding.restFrame.orthonormalize();
                          binding.valid = true;
