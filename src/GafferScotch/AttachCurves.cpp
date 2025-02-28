@@ -6,6 +6,8 @@
 #include "Gaffer/StringPlug.h"
 
 #include "GafferScene/SceneAlgo.h"
+#include "GafferScene/PathMatcher.h"
+#include "GafferScene/PathFilter.h"
 
 #include "IECore/NullObject.h"
 #include "IECore/StringAlgo.h"
@@ -38,7 +40,7 @@ IE_CORE_DEFINERUNTIMETYPED( AttachCurves );
 size_t AttachCurves::g_firstPlugIndex = 0;
 
 AttachCurves::AttachCurves( const std::string &name )
-	:	FilteredSceneProcessor( name, Filter::NoMatch )
+	:	FilteredSceneProcessor( name, IECore::PathMatcher::NoMatch )
 {
 	storeIndexOfNextChild( g_firstPlugIndex );
 
@@ -52,10 +54,13 @@ AttachCurves::AttachCurves( const std::string &name )
 	addChild( new StringPlug( "deformerPath", Plug::In, "" ) );
 	
 	// Set up the filter to only filter on input curves
-	filterPlug()->setInput( new Filter::TypedObjectMatcher( "curves" ) );
+	GafferScene::FilterPlug *filter = filterPlug();
+	GafferScene::PathFilter *pathFilter = new GafferScene::PathFilter();
+	filter->setInput( pathFilter );
 	
 	// Set up the output to match the input
-	outPlug()->setInput( inPlug() );
+	GafferScene::ScenePlug *out = outPlug();
+	out->setInput( inPlug() );
 }
 
 AttachCurves::~AttachCurves()
