@@ -675,12 +675,6 @@ void RigidDeformCurves::deformCurves(
             throw IECore::Exception("Missing binding data");
         }
 
-        IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Validating binding data sizes");
-
-        // Log binding data sizes
-        IECore::msg(IECore::Msg::Info, "RigidDeformCurves",
-                    (boost::format("Binding data sizes - Rest positions: %d, Normals: %d, Tangents: %d, Bitangents: %d, Triangle indices: %d, Barycentric coords: %d") % restPositionsData->readable().size() % restNormalsData->readable().size() % restTangentsData->readable().size() % restBitangentsData->readable().size() % triangleIndicesData->readable().size() % barycentricCoordsData->readable().size()).str());
-
         const std::vector<V3f> &restPositions = restPositionsData->readable();
         const std::vector<V3f> &restNormals = restNormalsData->readable();
         const std::vector<V3f> &restTangents = restTangentsData->readable();
@@ -716,57 +710,8 @@ void RigidDeformCurves::deformCurves(
         const size_t numTriangles = vertexIds.size() / 3;
         const std::vector<V3f> &meshPoints = animatedMesh->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex)->readable();
 
-        IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Calculating parallel processing parameters");
-
-        const size_t numCurves = curves->verticesPerCurve()->readable().size();
-        const size_t numThreads = std::thread::hardware_concurrency();
-        const size_t batchSize = calculateBatchSize(numCurves, numThreads);
-
-        IECore::msg(IECore::Msg::Info, "RigidDeformCurves",
-                    (boost::format("Processing setup - Curves: %d, Threads: %d, Batch size: %d") % numCurves % numThreads % batchSize).str());
-
-        IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Validating triangle indices");
-
-        size_t invalidTriangles = 0;
-        size_t invalidVertices = 0;
-
-        // Pre-validate triangle indices
-        for (size_t i = 0; i < triangleIndices.size(); ++i)
-        {
-            const int triangleIndex = triangleIndices[i];
-            if (triangleIndex < 0 || triangleIndex >= numTriangles)
-            {
-                invalidTriangles++;
-                IECore::msg(IECore::Msg::Error, "RigidDeformCurves",
-                            (boost::format("Invalid triangle index %d for curve %d (max: %d)") % triangleIndex % i % (numTriangles - 1)).str());
-                continue;
-            }
-
-            // Check vertex indices
-            const int *triangleVertices = &vertexIds[triangleIndex * 3];
-            for (int j = 0; j < 3; ++j)
-            {
-                if (triangleVertices[j] < 0 || triangleVertices[j] >= meshPoints.size())
-                {
-                    invalidVertices++;
-                    IECore::msg(IECore::Msg::Error, "RigidDeformCurves",
-                                (boost::format("Invalid vertex index %d for triangle %d vertex %d (max: %d)") % triangleVertices[j] % triangleIndex % j % (meshPoints.size() - 1)).str());
-                }
-            }
-        }
-
-        if (invalidTriangles > 0 || invalidVertices > 0)
-        {
-            IECore::msg(IECore::Msg::Error, "RigidDeformCurves",
-                        (boost::format("Validation failed - Invalid triangles: %d, Invalid vertices: %d") % invalidTriangles % invalidVertices).str());
-            throw IECore::Exception("Invalid topology data");
-        }
-
-        IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Calculating tangents for animated mesh");
-
         // Calculate tangents for animated mesh
         std::pair<PrimitiveVariable, PrimitiveVariable> animatedTangents;
-        bool hasTangents = false;
 
         // Try UV-based tangents first
         auto uvIt = animatedMesh->variables.find("uv");
@@ -777,20 +722,14 @@ void RigidDeformCurves::deformCurves(
 
         if (uvIt != animatedMesh->variables.end())
         {
-            IECore::msg(IECore::Msg::Info, "RigidDeformCurves",
-                        (boost::format("Computing UV-based tangents using '%s' attribute") % uvIt->first).str());
             animatedTangents = MeshAlgo::calculateTangents(animatedMesh, uvIt->first, true, "P");
-            hasTangents = true;
         }
         else
         {
-            IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "No UVs found, computing edge-based tangents");
-
             // Try edge-based tangents
             auto normalIt = animatedMesh->variables.find("N");
             if (normalIt == animatedMesh->variables.end())
             {
-                IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Computing vertex normals");
                 PrimitiveVariable normals = MeshAlgo::calculateNormals(animatedMesh);
                 const_cast<MeshPrimitive *>(animatedMesh)->variables["N"] = normals;
                 normalIt = animatedMesh->variables.find("N");
@@ -799,17 +738,18 @@ void RigidDeformCurves::deformCurves(
             if (normalIt != animatedMesh->variables.end())
             {
                 animatedTangents = MeshAlgo::calculateTangentsFromTwoEdges(animatedMesh, "P", normalIt->first, true, false);
-                hasTangents = true;
+            }
+            else
+            {
+                throw IECore::Exception("Failed to calculate tangents - no UVs or normals available");
             }
         }
 
-        if (!hasTangents)
-        {
-            IECore::msg(IECore::Msg::Error, "RigidDeformCurves", "Failed to calculate tangents");
-            throw IECore::Exception("Failed to calculate tangents for animated mesh");
-        }
-
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Starting parallel curve processing");
+
+        const size_t numCurves = curves->verticesPerCurve()->readable().size();
+        const size_t numThreads = std::thread::hardware_concurrency();
+        const size_t batchSize = calculateBatchSize(numCurves, numThreads);
 
         tbb::atomic<size_t> degenerateFrames{0};
         tbb::atomic<size_t> processedCurves{0};
@@ -822,14 +762,6 @@ void RigidDeformCurves::deformCurves(
                          {
                              try
                              {
-                                 // Process curve
-                                 RestFrame restFrame;
-                                 restFrame.position = restPositions[i];
-                                 restFrame.normal = restNormals[i];
-                                 restFrame.tangent = restTangents[i];
-                                 restFrame.bitangent = restBitangents[i];
-                                 restFrame.orthonormalize();
-
                                  // Get binding data
                                  const int triangleIndex = triangleIndices[i];
                                  const V3f &baryCoord = barycentricCoords[i];
@@ -851,21 +783,24 @@ void RigidDeformCurves::deformCurves(
                                                         trianglePoints[1] * baryCoord[1] +
                                                         trianglePoints[2] * baryCoord[2];
 
-                                 // Get normals for the triangle vertices (if available)
+                                 // Get normals for the triangle vertices
                                  V3f deformedNormal;
                                  const V3fVectorData *normalsData = animatedMesh->variableData<V3fVectorData>("N", PrimitiveVariable::Vertex);
                                  if (normalsData)
                                  {
                                      const std::vector<V3f> &meshNormals = normalsData->readable();
-                                     deformedNormal = safeNormalize(meshNormals[triangleVertices[0]] * baryCoord[0] +
-                                                                    meshNormals[triangleVertices[1]] * baryCoord[1] +
-                                                                    meshNormals[triangleVertices[2]] * baryCoord[2]);
+                                     deformedNormal = meshNormals[triangleVertices[0]] * baryCoord[0] +
+                                                      meshNormals[triangleVertices[1]] * baryCoord[1] +
+                                                      meshNormals[triangleVertices[2]] * baryCoord[2];
                                  }
                                  else
                                  {
-                                     // Calculate face normal if vertex normals not available
-                                     deformedNormal = safeNormalize((trianglePoints[1] - trianglePoints[0]).cross(trianglePoints[2] - trianglePoints[0]));
+                                     // Calculate face normal
+                                     deformedNormal = (trianglePoints[1] - trianglePoints[0]).cross(trianglePoints[2] - trianglePoints[0]);
                                  }
+
+                                 // Ensure normal is normalized
+                                 deformedNormal = safeNormalize(deformedNormal);
 
                                  // Get tangent using barycentric interpolation
                                  V3f deformedTangent = Detail::primVar<V3f>(animatedTangents.first,
@@ -875,25 +810,56 @@ void RigidDeformCurves::deformCurves(
                                                                                 triangleVertices[1],
                                                                                 triangleVertices[2]));
 
-                                 // Build deformed frame
+                                 // Build deformed frame with more robust orthonormalization
                                  RestFrame deformedFrame;
                                  deformedFrame.position = deformedPosition;
                                  deformedFrame.normal = deformedNormal;
-                                 deformedFrame.tangent = deformedTangent;
+
+                                 // Ensure tangent is not parallel to normal
+                                 V3f tangentGuess = safeNormalize(deformedTangent);
+                                 if (std::abs(tangentGuess.dot(deformedNormal)) > 0.99f)
+                                 {
+                                     // If tangent is too parallel to normal, try to find a better direction
+                                     V3f alternateDir(1, 0, 0);
+                                     if (std::abs(alternateDir.dot(deformedNormal)) > 0.99f)
+                                         alternateDir = V3f(0, 1, 0);
+                                     tangentGuess = safeNormalize(alternateDir - deformedNormal * alternateDir.dot(deformedNormal));
+                                 }
+                                 deformedFrame.tangent = tangentGuess;
                                  deformedFrame.orthonormalize();
 
-                                 // Check for degenerate frame
+                                 // Check for degenerate frame with a more lenient threshold
                                  M44f deformedMatrix = deformedFrame.toMatrix();
                                  if (std::abs(deformedMatrix.determinant()) < 1e-6)
                                  {
                                      ++degenerateFrames;
                                      IECore::msg(IECore::Msg::Warning, "RigidDeformCurves",
                                                  (boost::format("Near-singular matrix for curve %d") % i).str());
+                                     // Skip transformation for this curve - positions will remain unchanged
+                                     continue;
+                                 }
+
+                                 // Get rest frame
+                                 RestFrame restFrame;
+                                 restFrame.position = restPositions[i];
+                                 restFrame.normal = restNormals[i];
+                                 restFrame.tangent = restTangents[i];
+                                 restFrame.bitangent = restBitangents[i];
+                                 restFrame.orthonormalize();
+
+                                 // Check rest frame is valid
+                                 M44f restMatrix = restFrame.toMatrix();
+                                 if (std::abs(restMatrix.determinant()) < 1e-6)
+                                 {
+                                     ++degenerateFrames;
+                                     IECore::msg(IECore::Msg::Warning, "RigidDeformCurves",
+                                                 (boost::format("Near-singular rest matrix for curve %d") % i).str());
+                                     // Skip transformation for this curve - positions will remain unchanged
                                      continue;
                                  }
 
                                  // Transform points
-                                 M44f restToWorld = restFrame.toMatrix();
+                                 M44f restToWorld = restMatrix;
                                  M44f worldToDeformed = deformedMatrix.inverse();
 
                                  const size_t startIdx = vertexOffsets[i];
