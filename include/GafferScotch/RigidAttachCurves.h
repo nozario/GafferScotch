@@ -3,7 +3,7 @@
 
 #include "GafferScotch/Export.h"
 #include "GafferScotch/TypeIds.h"
-#include "GafferScotch/AttachCurvesDataStructures.h"
+#include "GafferScotch/CurvesDataStructures.h"
 
 #include "GafferScene/ObjectProcessor.h"
 #include "GafferScene/ScenePlug.h"

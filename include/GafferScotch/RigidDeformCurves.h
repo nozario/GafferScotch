@@ -3,7 +3,7 @@
 
 #include "GafferScotch/Export.h"
 #include "GafferScotch/TypeIds.h"
-#include "GafferScotch/AttachCurvesDataStructures.h"
+#include "GafferScotch/CurvesDataStructures.h"
 
 #include "GafferScene/Deformer.h"
 #include "GafferScene/ScenePlug.h"
@@ -58,7 +58,7 @@ namespace GafferScotch
         bool affectsProcessedObject(const Gaffer::Plug *input) const override;
         void hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const override;
         IECore::ConstObjectPtr computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const override;
-        
+
         // Override for bounds computation
         bool affectsProcessedObjectBound(const Gaffer::Plug *input) const override;
         void hashProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const override;

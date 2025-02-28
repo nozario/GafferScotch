@@ -10,11 +10,6 @@ nodeMenu.append(
     searchText="CaptureWeight",
 )
 nodeMenu.append(
-    "/GafferScotch/AttachCurves",
-    GafferScotch.AttachCurves,
-    searchText="AttachCurves",
-)
-nodeMenu.append(
     "/GafferScotch/PointDeform",
     GafferScotch.PointDeform,
     searchText="PointDeform",

@@ -1,4 +1,4 @@
-#include "GafferScotch/AttachCurvesDataStructures.h"
+#include "GafferScotch/CurvesDataStructures.h"
 
 using namespace GafferScotch;
 using namespace IECore;
@@ -9,7 +9,7 @@ namespace GafferScotch
 {
     namespace Detail
     {
-        // Specialization implementation for V3f
+        // Specialization implementation for V3f - used by both RigidAttachCurves and RigidDeformCurves
         template <>
         V3f primVar<V3f>(const PrimitiveVariable &pv, const float *barycentrics, unsigned int triangleIdx, const V3i &vertexIds)
         {
@@ -173,6 +173,7 @@ namespace GafferScotch
             }
         }
 
+        // Basic frame structure used by both curve nodes
         void AlignedFrame::buildFromMeshData(const MeshData &data, size_t index)
         {
             if (index >= data.positions.size())
