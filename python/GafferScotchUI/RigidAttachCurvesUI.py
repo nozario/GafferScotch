@@ -17,8 +17,8 @@ Gaffer.Metadata.registerNode(
     ICON_PATH,
     "nodeGadget:color",
     imath.Color3f(0.42, 0.27, 0.23),
-    # Add activator for bindAttr visibility
-    "plugValueWidget:activator:bindAttrVisible",
+    # Activator for bindAttr visibility
+    "layout:activator:bindAttrVisible",
     lambda plug: plug["useBindAttr"].getValue(),
     plugs={
         "staticDeformer": [
@@ -60,12 +60,6 @@ Gaffer.Metadata.registerNode(
             """,
             "plugValueWidget:type",
             "GafferUI.PathPlugValueWidget",
-            "path:valid",
-            True,
-            "path:leaf",
-            True,
-            "path:bookmarks",
-            "meshes",
         ],
         "bindAttr": [
             "description",
@@ -73,7 +67,7 @@ Gaffer.Metadata.registerNode(
             The name of the string attribute that specifies which mesh to
             bind to when useBindAttr is enabled.
             """,
-            "plugValueWidget:activator",
+            "layout:visibilityActivator",
             "bindAttrVisible",
         ],
     },

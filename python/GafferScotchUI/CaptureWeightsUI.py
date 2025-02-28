@@ -21,6 +21,11 @@ Gaffer.Metadata.registerNode(
     ICON_PATH,
     "nodeGadget:color",
     imath.Color3f(0.42, 0.27, 0.23),
+    # Section collapse states
+    "layout:section:Settings.General:collapsed",
+    False,
+    "layout:section:Settings.Search:collapsed",
+    False,
     plugs={
         "source": [
             "description",
@@ -30,6 +35,8 @@ Gaffer.Metadata.registerNode(
             """,
             "nodule:type",
             "GafferUI::StandardNodule",
+            "layout:section",
+            "Settings.General",
         ],
         "pieceAttribute": [
             "description",
@@ -39,7 +46,7 @@ Gaffer.Metadata.registerNode(
             will influence each other.
             """,
             "layout:section",
-            "Settings",
+            "Settings.General",
         ],
         "radius": [
             "description",
@@ -49,7 +56,7 @@ Gaffer.Metadata.registerNode(
             minPoints are found, the radius is automatically increased.
             """,
             "layout:section",
-            "Search",
+            "Settings.Search",
         ],
         "minPoints": [
             "description",
@@ -59,7 +66,7 @@ Gaffer.Metadata.registerNode(
             radius is automatically increased to include at least this many points.
             """,
             "layout:section",
-            "Search",
+            "Settings.Search",
         ],
         "maxPoints": [
             "description",
@@ -68,7 +75,7 @@ Gaffer.Metadata.registerNode(
             target point. The closest points within the radius are kept.
             """,
             "layout:section",
-            "Search",
+            "Settings.Search",
         ],
     },
 )
