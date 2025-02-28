@@ -7,11 +7,7 @@ __import__("GafferScene")
 
 try:
     # Import all symbols from our C++ extension module
-    from .GafferScotchModule import CaptureWeight
-    from .GafferScotchModule import PointDeform
-    from .GafferScotchModule import AttachCurves
-    from .GafferScotchModule import RigidAttachCurves
-    from .GafferScotchModule import RigidDeformCurves
+    from .GafferScotchModule import AttachCurves, CaptureWeight, PointDeform
 
 except ImportError as e:
     print(f"Error importing GafferScotch: {e}")
