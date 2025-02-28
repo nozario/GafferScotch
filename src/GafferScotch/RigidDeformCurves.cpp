@@ -400,6 +400,72 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
     const std::vector<int> &triangleIndices = triangleIndicesData->readable();
     const std::vector<V3f> &barycentricCoords = barycentricCoordsData->readable();
 
+    // Calculate vertex offsets
+    std::vector<size_t> vertexOffsets;
+    vertexOffsets.reserve(curves->verticesPerCurve()->readable().size());
+    size_t offset = 0;
+    for (int count : curves->verticesPerCurve()->readable())
+    {
+        vertexOffsets.push_back(offset);
+        offset += count;
+    }
+
+    // Initialize position data
+    V3fVectorDataPtr positionData = new V3fVectorData;
+    std::vector<V3f> &positions = positionData->writable();
+    positions.resize(curves->variableSize(PrimitiveVariable::Vertex));
+
+    // Copy initial positions
+    const V3fVectorData *inputPositions = curves->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
+    if (inputPositions)
+    {
+        positions = inputPositions->readable();
+    }
+
+    // Calculate tangents for animated mesh
+    std::pair<PrimitiveVariable, PrimitiveVariable> animatedTangents;
+    bool hasTangents = false;
+
+    // Try to calculate tangents from UVs first
+    auto uvIt = animatedMesh->variables.find("uv");
+    if (uvIt == animatedMesh->variables.end())
+    {
+        uvIt = animatedMesh->variables.find("st");
+    }
+    if (uvIt == animatedMesh->variables.end())
+    {
+        uvIt = animatedMesh->variables.find("UV");
+    }
+
+    if (uvIt != animatedMesh->variables.end())
+    {
+        animatedTangents = MeshAlgo::calculateTangents(animatedMesh, uvIt->first, true, "P");
+        hasTangents = true;
+    }
+    else
+    {
+        // If no UVs, calculate tangents from edges
+        auto normalIt = animatedMesh->variables.find("N");
+        if (normalIt == animatedMesh->variables.end())
+        {
+            // Calculate vertex normals if not present
+            PrimitiveVariable normals = MeshAlgo::calculateNormals(animatedMesh);
+            const_cast<MeshPrimitive *>(animatedMesh)->variables["N"] = normals;
+            normalIt = animatedMesh->variables.find("N");
+        }
+
+        if (normalIt != animatedMesh->variables.end())
+        {
+            animatedTangents = MeshAlgo::calculateTangentsFromTwoEdges(animatedMesh, "P", normalIt->first, true, false);
+            hasTangents = true;
+        }
+    }
+
+    if (!hasTangents)
+    {
+        throw IECore::Exception("Failed to calculate tangents for animated mesh");
+    }
+
     // Process curves in parallel
     const size_t numCurves = curves->verticesPerCurve()->readable().size();
     const size_t numThreads = std::thread::hardware_concurrency();
@@ -483,7 +549,6 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
 
                          for (size_t j = startIdx; j < endIdx; ++j)
                          {
-                             // Transform point from rest frame to deformed frame
                              positions[j] = transformPoint(positions[j], restToWorld, worldToDeformed);
                          }
                      }
