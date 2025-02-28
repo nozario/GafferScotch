@@ -922,43 +922,25 @@ void RigidDeformCurves::deformCurves(
                                      // Calculate a more stable transformation that preserves shape
                                      V3f restToDeformedOffset = deformedFrame.position - restPositions[i];
 
-                                     // Calculate rotation between rest and deformed frames
-                                     M44f restFrame;
-                                     restFrame.makeIdentity();
-                                     // Set rotation part
-                                     restFrame[0][0] = restTangents[i].x;
-                                     restFrame[0][1] = restTangents[i].y;
-                                     restFrame[0][2] = restTangents[i].z;
-                                     restFrame[1][0] = restBitangents[i].x;
-                                     restFrame[1][1] = restBitangents[i].y;
-                                     restFrame[1][2] = restBitangents[i].z;
-                                     restFrame[2][0] = restNormals[i].x;
-                                     restFrame[2][1] = restNormals[i].y;
-                                     restFrame[2][2] = restNormals[i].z;
-                                     // Set translation
-                                     restFrame[3][0] = restPositions[i].x;
-                                     restFrame[3][1] = restPositions[i].y;
-                                     restFrame[3][2] = restPositions[i].z;
+                                     // Calculate rotation between rest and deformed normals
+                                     V3f restN = restNormals[i];
+                                     V3f deformedN = deformedFrame.normal;
 
-                                     M44f deformedFrameMtx;
-                                     deformedFrameMtx.makeIdentity();
-                                     // Set rotation part
-                                     deformedFrameMtx[0][0] = deformedFrame.tangent.x;
-                                     deformedFrameMtx[0][1] = deformedFrame.tangent.y;
-                                     deformedFrameMtx[0][2] = deformedFrame.tangent.z;
-                                     deformedFrameMtx[1][0] = deformedFrame.bitangent.x;
-                                     deformedFrameMtx[1][1] = deformedFrame.bitangent.y;
-                                     deformedFrameMtx[1][2] = deformedFrame.bitangent.z;
-                                     deformedFrameMtx[2][0] = deformedFrame.normal.x;
-                                     deformedFrameMtx[2][1] = deformedFrame.normal.y;
-                                     deformedFrameMtx[2][2] = deformedFrame.normal.z;
-                                     // Set translation
-                                     deformedFrameMtx[3][0] = deformedFrame.position.x;
-                                     deformedFrameMtx[3][1] = deformedFrame.position.y;
-                                     deformedFrameMtx[3][2] = deformedFrame.position.z;
+                                     // Normalize vectors to ensure valid rotation
+                                     restN.normalize();
+                                     deformedN.normalize();
 
-                                     // Calculate stable transformation
-                                     M44f stableTransform = restFrame.inverse() * deformedFrameMtx;
+                                     // Calculate rotation axis and angle
+                                     V3f rotAxis = restN.cross(deformedN);
+                                     float rotAngle = std::acos(std::max(-1.0f, std::min(1.0f, restN.dot(deformedN))));
+
+                                     // Build stable rotation matrix
+                                     M44f stableRotation;
+                                     if (rotAxis.length() > 1e-6f && std::abs(rotAngle) > 1e-6f)
+                                     {
+                                         rotAxis.normalize();
+                                         stableRotation.setAxisAngle(rotAxis, rotAngle);
+                                     }
 
                                      // Apply stable transformation
                                      for (size_t j = startIdx; j < endIdx; ++j)
@@ -966,12 +948,12 @@ void RigidDeformCurves::deformCurves(
                                          // Get point relative to rest position
                                          V3f localP = positions[j] - restPositions[i];
 
-                                         // Apply transformation
-                                         V3f transformedP;
-                                         stableTransform.multDirMatrix(localP, transformedP);
+                                         // Apply rotation
+                                         V3f rotatedP;
+                                         stableRotation.multDirMatrix(localP, rotatedP);
 
-                                         // Add deformed position
-                                         positions[j] = transformedP + deformedFrame.position;
+                                         // Translate to final position
+                                         positions[j] = rotatedP + deformedFrame.position;
                                      }
                                  }
                                  else
@@ -979,15 +961,8 @@ void RigidDeformCurves::deformCurves(
                                      // Use original transformation
                                      for (size_t j = startIdx; j < endIdx; ++j)
                                      {
-                                         // Get point relative to rest position
-                                         V3f localP = positions[j] - restPositions[i];
-
-                                         // Apply transformation
-                                         V3f transformedP;
-                                         Transform.multDirMatrix(localP, transformedP);
-
-                                         // Add deformed position
-                                         positions[j] = transformedP + deformedFrame.position;
+                                         V3f p = positions[j];
+                                         Transform.multVecMatrix(p, positions[j]);
                                      }
                                  }
 
