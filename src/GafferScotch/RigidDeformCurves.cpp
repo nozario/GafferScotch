@@ -948,12 +948,12 @@ void RigidDeformCurves::deformCurves(
                                          // Get point relative to rest position
                                          V3f localP = positions[j] - restPositions[i];
 
-                                         // Apply rotation
-                                         V3f rotatedP;
-                                         stableRotation.multDirMatrix(localP, rotatedP);
+                                         // Apply transformation
+                                         V3f transformedP;
+                                         Transform.multDirMatrix(localP, transformedP);
 
-                                         // Translate to final position
-                                         positions[j] = rotatedP + deformedFrame.position;
+                                         // Add deformed position
+                                         positions[j] = transformedP + deformedFrame.position;
                                      }
                                  }
                                  else
@@ -961,8 +961,15 @@ void RigidDeformCurves::deformCurves(
                                      // Use original transformation
                                      for (size_t j = startIdx; j < endIdx; ++j)
                                      {
-                                         V3f p = positions[j];
-                                         Transform.multVecMatrix(p, positions[j]);
+                                         // Get point relative to rest position
+                                         V3f localP = positions[j] - restPositions[i];
+
+                                         // Apply transformation
+                                         V3f transformedP;
+                                         Transform.multDirMatrix(localP, transformedP);
+
+                                         // Add deformed position
+                                         positions[j] = transformedP + deformedFrame.position;
                                      }
                                  }
 
