@@ -479,10 +479,8 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
                          const std::vector<int> &vertexIds = triangulatedRestMesh->vertexIds()->readable();
                          const int *triangleVertices = &vertexIds[binding.triangleIndex * 3];
 
-                         // Extract tangent data from the PrimitiveVariable
+                         // Extract tangent data from the PrimitiveVariable pair
                          const PrimitiveVariable &tangentPrimVar = restTangents.first;
-
-                         // Get tangent using barycentric interpolation
                          binding.restFrame.tangent = Detail::primVar<V3f>(tangentPrimVar,
                                                                           &binding.baryCoords[0],
                                                                           binding.triangleIndex,
