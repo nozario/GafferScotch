@@ -401,9 +401,6 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
             return inputObject;
         }
 
-        IECore::msg(IECore::Msg::Info, "RigidDeformCurves",
-                    (boost::format("Resolved mesh path: %s") % boost::join(meshPath, "/")).str());
-
         // Get meshes using resolved path
         ConstObjectPtr restMeshObj = restMeshPlug()->object(meshPath);
         if (!restMeshObj)
