@@ -140,7 +140,7 @@ void AttachCurves::hashProcessedObject( const ScenePath &path, const Gaffer::Con
 	}
 }
 
-IECore::ConstObjectPtr AttachCurves::computeProcessedObject( const ScenePath &path, const Gaffer::Context *context, const IECoreScene::Object *inputObject ) const
+IECore::ConstObjectPtr AttachCurves::computeProcessedObject( const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject ) const
 {
 	// Check if the input is a curves primitive
 	const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>( inputObject );
@@ -274,8 +274,7 @@ IECore::ConstObjectPtr AttachCurves::computeProcessedObject( const ScenePath &pa
 					M44f animatedMatrix = createTransformMatrix( animatedPosition, animatedNormal, animatedTangentU, animatedTangentV );
 					
 					// Calculate the transformation from static to animated space
-					M44f staticMatrixInverse;
-					staticMatrix.inverse( staticMatrixInverse );
+					M44f staticMatrixInverse = staticMatrix.inverse();
 					M44f transformation = animatedMatrix * staticMatrixInverse;
 					
 					// Apply the transformation to all points of the curve
