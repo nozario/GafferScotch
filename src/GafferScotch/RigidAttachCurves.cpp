@@ -480,7 +480,7 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
                          const std::vector<int> &vertexIds = triangulatedRestMesh->vertexIds()->readable();
                          const int *triangleVertices = &vertexIds[binding.triangleIndex * 3];
 
-                         // Get tangent and bitangent using primVar interpolation
+                         // Get raw tangent and bitangent using primVar interpolation
                          binding.restFrame.tangent = Detail::primVar<V3f>(tangentPrimVar,
                                                                           &binding.baryCoords[0],
                                                                           binding.triangleIndex,
@@ -495,8 +495,21 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
                                                                                 triangleVertices[1],
                                                                                 triangleVertices[2]));
 
+                         // Store raw vectors before orthonormalization
+                         V3f origPosition = binding.restFrame.position;
+                         V3f origNormal = binding.restFrame.normal;
+                         V3f origTangent = binding.restFrame.tangent;
+                         V3f origBitangent = binding.restFrame.bitangent;
+
+                         // Orthonormalize for local computation only
                          binding.restFrame.orthonormalize();
                          binding.valid = true;
+
+                         // Store original vectors in binding for primitive variables
+                         binding.restFrame.position = origPosition;
+                         binding.restFrame.normal = origNormal;
+                         binding.restFrame.tangent = origTangent;
+                         binding.restFrame.bitangent = origBitangent;
                      }
                  });
 

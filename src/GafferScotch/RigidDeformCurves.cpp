@@ -799,9 +799,6 @@ void RigidDeformCurves::deformCurves(
                                      deformedNormal = (trianglePoints[1] - trianglePoints[0]).cross(trianglePoints[2] - trianglePoints[0]);
                                  }
 
-                                 // Ensure normal is normalized
-                                 deformedNormal = safeNormalize(deformedNormal);
-
                                  // Get tangent using barycentric interpolation
                                  V3f deformedTangent = Detail::primVar<V3f>(animatedTangents.first,
                                                                             &baryCoord[0],
@@ -819,38 +816,54 @@ void RigidDeformCurves::deformCurves(
 
                                  // Build matrices exactly like VEX implementation
                                  M44f StaticMatrix(1); // Initialize with identity
+                                 // Tangent row
                                  StaticMatrix[0][0] = restTangents[i].x;
                                  StaticMatrix[0][1] = restTangents[i].y;
                                  StaticMatrix[0][2] = restTangents[i].z;
+                                 StaticMatrix[0][3] = 0;
 
+                                 // Bitangent row
                                  StaticMatrix[1][0] = restBitangents[i].x;
                                  StaticMatrix[1][1] = restBitangents[i].y;
                                  StaticMatrix[1][2] = restBitangents[i].z;
+                                 StaticMatrix[1][3] = 0;
 
+                                 // Normal row
                                  StaticMatrix[2][0] = restNormals[i].x;
                                  StaticMatrix[2][1] = restNormals[i].y;
                                  StaticMatrix[2][2] = restNormals[i].z;
+                                 StaticMatrix[2][3] = 0;
 
+                                 // Position row
                                  StaticMatrix[3][0] = restPositions[i].x;
                                  StaticMatrix[3][1] = restPositions[i].y;
                                  StaticMatrix[3][2] = restPositions[i].z;
+                                 StaticMatrix[3][3] = 1;
 
                                  M44f AnimMatrix(1); // Initialize with identity
+                                 // Tangent row
                                  AnimMatrix[0][0] = deformedFrame.tangent.x;
                                  AnimMatrix[0][1] = deformedFrame.tangent.y;
                                  AnimMatrix[0][2] = deformedFrame.tangent.z;
+                                 AnimMatrix[0][3] = 0;
 
+                                 // Bitangent row
                                  AnimMatrix[1][0] = deformedFrame.bitangent.x;
                                  AnimMatrix[1][1] = deformedFrame.bitangent.y;
                                  AnimMatrix[1][2] = deformedFrame.bitangent.z;
+                                 AnimMatrix[1][3] = 0;
 
+                                 // Normal row
                                  AnimMatrix[2][0] = deformedFrame.normal.x;
                                  AnimMatrix[2][1] = deformedFrame.normal.y;
                                  AnimMatrix[2][2] = deformedFrame.normal.z;
+                                 AnimMatrix[2][3] = 0;
 
+                                 // Position row
                                  AnimMatrix[3][0] = deformedFrame.position.x;
                                  AnimMatrix[3][1] = deformedFrame.position.y;
                                  AnimMatrix[3][2] = deformedFrame.position.z;
+                                 AnimMatrix[3][3] = 1;
 
                                  // Calculate transform exactly like VEX
                                  M44f Transform = StaticMatrix.inverse() * AnimMatrix;
@@ -861,7 +874,8 @@ void RigidDeformCurves::deformCurves(
 
                                  for (size_t j = startIdx; j < endIdx; ++j)
                                  {
-                                     Transform.multVecMatrix(positions[j], positions[j]);
+                                     V3f p = positions[j];
+                                     Transform.multVecMatrix(p, positions[j]);
                                  }
 
                                  ++processedCurves;
