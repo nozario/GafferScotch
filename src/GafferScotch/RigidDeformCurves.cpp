@@ -854,20 +854,33 @@ void RigidDeformCurves::deformCurves(
                                      ++degenerateFrames;
                                      IECore::msg(IECore::Msg::Warning, "RigidDeformCurves",
                                                  (boost::format("Near-singular rest matrix for curve %d") % i).str());
-                                     // Skip transformation for this curve - positions will remain unchanged
                                      continue;
                                  }
 
-                                 // Transform points
-                                 M44f restToWorld = restMatrix;
-                                 M44f worldToDeformed = deformedMatrix.inverse();
-
+                                 // Calculate the relative transform from rest position to curve points
                                  const size_t startIdx = vertexOffsets[i];
                                  const size_t endIdx = (i + 1 < vertexOffsets.size()) ? vertexOffsets[i + 1] : positions.size();
 
+                                 // Store relative positions in rest space
+                                 std::vector<V3f> relativePositions;
+                                 relativePositions.reserve(endIdx - startIdx);
+
+                                 M44f worldToRest = restMatrix.inverse();
                                  for (size_t j = startIdx; j < endIdx; ++j)
                                  {
-                                     positions[j] = transformPoint(positions[j], restToWorld, worldToDeformed);
+                                     // Transform to rest space
+                                     V3f localPos = positions[j] - restFrame.position;
+                                     V3f restSpacePos;
+                                     worldToRest.multDirMatrix(localPos, restSpacePos);
+                                     relativePositions.push_back(restSpacePos);
+                                 }
+
+                                 // Now transform these relative positions using the deformed frame
+                                 for (size_t j = 0; j < relativePositions.size(); ++j)
+                                 {
+                                     V3f worldSpacePos;
+                                     deformedMatrix.multDirMatrix(relativePositions[j], worldSpacePos);
+                                     positions[startIdx + j] = worldSpacePos + deformedFrame.position;
                                  }
 
                                  ++processedCurves;
