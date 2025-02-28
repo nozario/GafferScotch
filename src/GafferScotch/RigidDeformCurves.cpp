@@ -488,11 +488,6 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
                          const int triangleIndex = triangleIndices[i];
                          const V3f &baryCoord = barycentricCoords[i];
 
-                         // Evaluate deformed position
-                         V3f deformedPosition;
-                         V3f deformedNormal;
-                         V3f deformedTangent;
-
                          // Get vertex indices for the triangle
                          const std::vector<int> &vertexIds = animatedMesh->vertexIds()->readable();
                          const int *triangleVertices = &vertexIds[triangleIndex * 3];
@@ -504,9 +499,10 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
                          const V3f &p2 = meshPoints[triangleVertices[2]];
 
                          // Interpolate position using barycentric coordinates
-                         deformedPosition = p0 * baryCoord[0] + p1 * baryCoord[1] + p2 * baryCoord[2];
+                         V3f deformedPosition = p0 * baryCoord[0] + p1 * baryCoord[1] + p2 * baryCoord[2];
 
                          // Get normals for the triangle vertices (if available)
+                         V3f deformedNormal;
                          const V3fVectorData *normalsData = animatedMesh->variableData<V3fVectorData>("N", PrimitiveVariable::Vertex);
                          if (normalsData)
                          {
@@ -525,12 +521,12 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
                          }
 
                          // Get tangent using barycentric interpolation
-                         deformedTangent = Detail::primVar<V3f>(animatedTangents.first,
-                                                                &baryCoord[0],
-                                                                triangleIndex,
-                                                                V3i(triangleVertices[0],
-                                                                    triangleVertices[1],
-                                                                    triangleVertices[2]));
+                         V3f deformedTangent = Detail::primVar<V3f>(animatedTangents.first,
+                                                                    &baryCoord[0],
+                                                                    triangleIndex,
+                                                                    V3i(triangleVertices[0],
+                                                                        triangleVertices[1],
+                                                                        triangleVertices[2]));
 
                          // Build deformed frame
                          RestFrame deformedFrame;
@@ -700,4 +696,184 @@ Imath::Box3f RigidDeformCurves::computeProcessedObjectBound(const ScenePath &pat
     deformCurves(curves, restMesh, animatedMesh, outputCurves.get());
 
     return outputCurves->bound();
+}
+
+void RigidDeformCurves::deformCurves(
+    const IECoreScene::CurvesPrimitive *curves,
+    const IECoreScene::MeshPrimitive *restMesh,
+    const IECoreScene::MeshPrimitive *animatedMesh,
+    IECoreScene::CurvesPrimitive *outputCurves) const
+{
+    // Read binding data
+    const V3fVectorData *restPositionsData = runTimeCast<const V3fVectorData>(curves->variables.at("restPosition").data.get());
+    const V3fVectorData *restNormalsData = runTimeCast<const V3fVectorData>(curves->variables.at("restNormal").data.get());
+    const V3fVectorData *restTangentsData = runTimeCast<const V3fVectorData>(curves->variables.at("restTangent").data.get());
+    const V3fVectorData *restBitangentsData = runTimeCast<const V3fVectorData>(curves->variables.at("restBitangent").data.get());
+    const IntVectorData *triangleIndicesData = runTimeCast<const IntVectorData>(curves->variables.at("triangleIndex").data.get());
+    const V3fVectorData *barycentricCoordsData = runTimeCast<const V3fVectorData>(curves->variables.at("barycentricCoords").data.get());
+
+    if (!restPositionsData || !restNormalsData || !restTangentsData || !restBitangentsData || !triangleIndicesData || !barycentricCoordsData)
+    {
+        throw IECore::Exception("Missing binding data");
+    }
+
+    const std::vector<V3f> &restPositions = restPositionsData->readable();
+    const std::vector<V3f> &restNormals = restNormalsData->readable();
+    const std::vector<V3f> &restTangents = restTangentsData->readable();
+    const std::vector<V3f> &restBitangents = restBitangentsData->readable();
+    const std::vector<int> &triangleIndices = triangleIndicesData->readable();
+    const std::vector<V3f> &barycentricCoords = barycentricCoordsData->readable();
+
+    // Calculate vertex offsets
+    std::vector<size_t> vertexOffsets;
+    vertexOffsets.reserve(curves->verticesPerCurve()->readable().size());
+    size_t offset = 0;
+    for (int count : curves->verticesPerCurve()->readable())
+    {
+        vertexOffsets.push_back(offset);
+        offset += count;
+    }
+
+    // Initialize position data
+    V3fVectorDataPtr positionData = new V3fVectorData;
+    std::vector<V3f> &positions = positionData->writable();
+    positions.resize(curves->variableSize(PrimitiveVariable::Vertex));
+
+    // Copy initial positions
+    const V3fVectorData *inputPositions = curves->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
+    if (inputPositions)
+    {
+        positions = inputPositions->readable();
+    }
+
+    // Calculate tangents for animated mesh
+    std::pair<PrimitiveVariable, PrimitiveVariable> animatedTangents;
+    bool hasTangents = false;
+
+    // Try to calculate tangents from UVs first
+    auto uvIt = animatedMesh->variables.find("uv");
+    if (uvIt == animatedMesh->variables.end())
+    {
+        uvIt = animatedMesh->variables.find("st");
+    }
+    if (uvIt == animatedMesh->variables.end())
+    {
+        uvIt = animatedMesh->variables.find("UV");
+    }
+
+    if (uvIt != animatedMesh->variables.end())
+    {
+        animatedTangents = MeshAlgo::calculateTangents(animatedMesh, uvIt->first, true, "P");
+        hasTangents = true;
+    }
+    else
+    {
+        // If no UVs, calculate tangents from edges
+        auto normalIt = animatedMesh->variables.find("N");
+        if (normalIt == animatedMesh->variables.end())
+        {
+            // Calculate vertex normals if not present
+            PrimitiveVariable normals = MeshAlgo::calculateNormals(animatedMesh);
+            const_cast<MeshPrimitive *>(animatedMesh)->variables["N"] = normals;
+            normalIt = animatedMesh->variables.find("N");
+        }
+
+        if (normalIt != animatedMesh->variables.end())
+        {
+            animatedTangents = MeshAlgo::calculateTangentsFromTwoEdges(animatedMesh, "P", normalIt->first, true, false);
+            hasTangents = true;
+        }
+    }
+
+    if (!hasTangents)
+    {
+        throw IECore::Exception("Failed to calculate tangents for animated mesh");
+    }
+
+    // Process curves in parallel
+    const size_t numCurves = curves->verticesPerCurve()->readable().size();
+    const size_t numThreads = std::thread::hardware_concurrency();
+    const size_t batchSize = calculateBatchSize(numCurves, numThreads);
+
+    parallel_for(blocked_range<size_t>(0, numCurves, batchSize),
+                 [&](const blocked_range<size_t> &range)
+                 {
+                     for (size_t i = range.begin(); i != range.end(); ++i)
+                     {
+                         // Reconstruct rest frame
+                         RestFrame restFrame;
+                         restFrame.position = restPositions[i];
+                         restFrame.normal = restNormals[i];
+                         restFrame.tangent = restTangents[i];
+                         restFrame.bitangent = restBitangents[i];
+                         restFrame.orthonormalize();
+
+                         // Get binding data
+                         const int triangleIndex = triangleIndices[i];
+                         const V3f &baryCoord = barycentricCoords[i];
+
+                         // Get vertex indices for the triangle
+                         const std::vector<int> &vertexIds = animatedMesh->vertexIds()->readable();
+                         const int *triangleVertices = &vertexIds[triangleIndex * 3];
+
+                         // Get positions for the triangle vertices
+                         const std::vector<V3f> &meshPoints = animatedMesh->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex)->readable();
+                         const V3f &p0 = meshPoints[triangleVertices[0]];
+                         const V3f &p1 = meshPoints[triangleVertices[1]];
+                         const V3f &p2 = meshPoints[triangleVertices[2]];
+
+                         // Interpolate position using barycentric coordinates
+                         V3f deformedPosition = p0 * baryCoord[0] + p1 * baryCoord[1] + p2 * baryCoord[2];
+
+                         // Get normals for the triangle vertices (if available)
+                         V3f deformedNormal;
+                         const V3fVectorData *normalsData = animatedMesh->variableData<V3fVectorData>("N", PrimitiveVariable::Vertex);
+                         if (normalsData)
+                         {
+                             const std::vector<V3f> &meshNormals = normalsData->readable();
+                             const V3f &n0 = meshNormals[triangleVertices[0]];
+                             const V3f &n1 = meshNormals[triangleVertices[1]];
+                             const V3f &n2 = meshNormals[triangleVertices[2]];
+
+                             // Interpolate normal using barycentric coordinates
+                             deformedNormal = safeNormalize(n0 * baryCoord[0] + n1 * baryCoord[1] + n2 * baryCoord[2]);
+                         }
+                         else
+                         {
+                             // Calculate face normal if vertex normals not available
+                             deformedNormal = safeNormalize((p1 - p0).cross(p2 - p0));
+                         }
+
+                         // Get tangent using barycentric interpolation
+                         V3f deformedTangent = Detail::primVar<V3f>(animatedTangents.first,
+                                                                    &baryCoord[0],
+                                                                    triangleIndex,
+                                                                    V3i(triangleVertices[0],
+                                                                        triangleVertices[1],
+                                                                        triangleVertices[2]));
+
+                         // Build deformed frame
+                         RestFrame deformedFrame;
+                         deformedFrame.position = deformedPosition;
+                         deformedFrame.normal = deformedNormal;
+                         deformedFrame.tangent = deformedTangent;
+                         deformedFrame.orthonormalize();
+
+                         // Get transformation matrices
+                         M44f restToWorld = restFrame.toMatrix();
+                         M44f worldToDeformed = deformedFrame.toMatrix().inverse();
+
+                         // Transform points for this curve
+                         const size_t startIdx = vertexOffsets[i];
+                         const size_t endIdx = (i + 1 < vertexOffsets.size()) ? vertexOffsets[i + 1] : positions.size();
+
+                         for (size_t j = startIdx; j < endIdx; ++j)
+                         {
+                             positions[j] = transformPoint(positions[j], restToWorld, worldToDeformed);
+                         }
+                     }
+                 });
+
+    // Update positions in output curves
+    outputCurves->variables["P"] = PrimitiveVariable(PrimitiveVariable::Vertex, positionData);
 }
