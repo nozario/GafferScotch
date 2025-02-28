@@ -834,8 +834,67 @@ void RigidDeformCurves::deformCurves(
                                  {
                                      ++degenerateFrames;
                                      IECore::msg(IECore::Msg::Warning, "RigidDeformCurves",
-                                                 (boost::format("Near-singular matrix for curve %d") % i).str());
-                                     // Skip transformation for this curve - positions will remain unchanged
+                                                 (boost::format("Near-singular matrix for curve %d - using fallback deformation") % i).str());
+
+                                     // Fallback: Use simple translation + normal-aligned rotation
+                                     const size_t startIdx = vertexOffsets[i];
+                                     const size_t endIdx = (i + 1 < vertexOffsets.size()) ? vertexOffsets[i + 1] : positions.size();
+
+                                     // Get rest and deformed data
+                                     const V3f restPos = restPositions[i];
+                                     const V3f restNorm = safeNormalize(restNormals[i]);
+                                     const V3f deformedPos = deformedPosition;
+                                     const V3f deformedNorm = deformedNormal;
+
+                                     // Calculate rotation between normals
+                                     V3f rotAxis;
+                                     float rotAngle;
+
+                                     if (restNorm.dot(deformedNorm) > -0.99f) // Not completely flipped
+                                     {
+                                         rotAxis = restNorm.cross(deformedNorm);
+                                         if (rotAxis.length() > 1e-6)
+                                         {
+                                             rotAxis.normalize();
+                                             rotAngle = Math::acos(clamp(restNorm.dot(deformedNorm), -1.0f, 1.0f));
+                                         }
+                                         else
+                                         {
+                                             // Parallel normals, no rotation needed
+                                             rotAxis = V3f(0, 1, 0);
+                                             rotAngle = 0;
+                                         }
+                                     }
+                                     else
+                                     {
+                                         // Normals are opposite, rotate 180° around perpendicular axis
+                                         if (std::abs(restNorm.y) < 0.9f)
+                                             rotAxis = V3f(0, 1, 0).cross(restNorm).normalized();
+                                         else
+                                             rotAxis = V3f(1, 0, 0).cross(restNorm).normalized();
+                                         rotAngle = M_PI;
+                                     }
+
+                                     // Build fallback transform
+                                     M44f fallbackTransform;
+                                     fallbackTransform.setAxisAngle(rotAxis, rotAngle);
+
+                                     // Transform points
+                                     const V3f translation = deformedPos - restPos;
+                                     for (size_t j = startIdx; j < endIdx; ++j)
+                                     {
+                                         // Get point in rest-local space
+                                         V3f localPos = positions[j] - restPos;
+
+                                         // Apply rotation
+                                         V3f rotatedPos;
+                                         fallbackTransform.multDirMatrix(localPos, rotatedPos);
+
+                                         // Apply translation
+                                         positions[j] = rotatedPos + deformedPos;
+                                     }
+
+                                     ++processedCurves;
                                      continue;
                                  }
 
@@ -853,10 +912,64 @@ void RigidDeformCurves::deformCurves(
                                  {
                                      ++degenerateFrames;
                                      IECore::msg(IECore::Msg::Warning, "RigidDeformCurves",
-                                                 (boost::format("Near-singular rest matrix for curve %d") % i).str());
+                                                 (boost::format("Near-singular rest matrix for curve %d - using fallback deformation") % i).str());
+
+                                     // Use same fallback as above
+                                     const size_t startIdx = vertexOffsets[i];
+                                     const size_t endIdx = (i + 1 < vertexOffsets.size()) ? vertexOffsets[i + 1] : positions.size();
+
+                                     // Get rest and deformed data
+                                     const V3f restPos = restPositions[i];
+                                     const V3f restNorm = safeNormalize(restNormals[i]);
+                                     const V3f deformedPos = deformedPosition;
+                                     const V3f deformedNorm = deformedNormal;
+
+                                     // Calculate rotation between normals
+                                     V3f rotAxis;
+                                     float rotAngle;
+
+                                     if (restNorm.dot(deformedNorm) > -0.99f)
+                                     {
+                                         rotAxis = restNorm.cross(deformedNorm);
+                                         if (rotAxis.length() > 1e-6)
+                                         {
+                                             rotAxis.normalize();
+                                             rotAngle = Math::acos(clamp(restNorm.dot(deformedNorm), -1.0f, 1.0f));
+                                         }
+                                         else
+                                         {
+                                             rotAxis = V3f(0, 1, 0);
+                                             rotAngle = 0;
+                                         }
+                                     }
+                                     else
+                                     {
+                                         if (std::abs(restNorm.y) < 0.9f)
+                                             rotAxis = V3f(0, 1, 0).cross(restNorm).normalized();
+                                         else
+                                             rotAxis = V3f(1, 0, 0).cross(restNorm).normalized();
+                                         rotAngle = M_PI;
+                                     }
+
+                                     // Build fallback transform
+                                     M44f fallbackTransform;
+                                     fallbackTransform.setAxisAngle(rotAxis, rotAngle);
+
+                                     // Transform points
+                                     const V3f translation = deformedPos - restPos;
+                                     for (size_t j = startIdx; j < endIdx; ++j)
+                                     {
+                                         V3f localPos = positions[j] - restPos;
+                                         V3f rotatedPos;
+                                         fallbackTransform.multDirMatrix(localPos, rotatedPos);
+                                         positions[j] = rotatedPos + deformedPos;
+                                     }
+
+                                     ++processedCurves;
                                      continue;
                                  }
 
+                                 // Original transformation code continues here...
                                  // Calculate the relative transform from rest position to curve points
                                  const size_t startIdx = vertexOffsets[i];
                                  const size_t endIdx = (i + 1 < vertexOffsets.size()) ? vertexOffsets[i + 1] : positions.size();
