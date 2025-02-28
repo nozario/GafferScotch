@@ -316,244 +316,168 @@ void RigidDeformCurves::hashProcessedObject(const ScenePath &path, const Gaffer:
 
 IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
 {
-    // Early out if we don't have a valid input object
-    const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>(inputObject);
-    if (!curves)
-    {
-        return inputObject;
-    }
+    IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Starting computeProcessedObject");
 
-    // Get the target path based on mode
-    ScenePath meshPath;
-    const bool useBindAttr = useBindAttrPlug()->getValue();
-    if (useBindAttr)
+    try
     {
-        // Try to get path from attribute
-        const std::string bindAttrName = bindAttrPlug()->getValue();
-        if (!bindAttrName.empty())
+        // Early out if we don't have a valid input object
+        if (!inputObject)
         {
-            auto it = curves->variables.find(bindAttrName);
-            if (it != curves->variables.end())
+            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Null input object");
+            return inputObject;
+        }
+
+        const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>(inputObject);
+        if (!curves)
+        {
+            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Input is not a CurvesPrimitive");
+            return inputObject;
+        }
+
+        IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Input validation passed");
+
+        // Get the target path based on mode
+        ScenePath meshPath;
+        const bool useBindAttr = useBindAttrPlug()->getValue();
+
+        if (useBindAttr)
+        {
+            IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Using bind attribute mode");
+            // Try to get path from attribute
+            const std::string bindAttrName = bindAttrPlug()->getValue();
+            if (bindAttrName.empty())
             {
-                if (const StringData *pathData = runTimeCast<const StringData>(it->second.data.get()))
+                IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Empty bind attribute name");
+                return inputObject;
+            }
+
+            auto it = curves->variables.find(bindAttrName);
+            if (it == curves->variables.end())
+            {
+                IECore::msg(IECore::Msg::Warning, "RigidDeformCurves",
+                            boost::format("Bind attribute '%s' not found") % bindAttrName);
+                return inputObject;
+            }
+
+            if (!it->second.data)
+            {
+                IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Null bind attribute data");
+                return inputObject;
+            }
+
+            if (const StringData *pathData = runTimeCast<const StringData>(it->second.data.get()))
+            {
+                meshPath = GafferScotch::makeScenePath(pathData->readable());
+            }
+            else if (const StringVectorData *pathVectorData = runTimeCast<const StringVectorData>(it->second.data.get()))
+            {
+                const std::vector<std::string> &paths = pathVectorData->readable();
+                if (!paths.empty())
                 {
-                    meshPath = GafferScotch::makeScenePath(pathData->readable());
-                }
-                else if (const StringVectorData *pathVectorData = runTimeCast<const StringVectorData>(it->second.data.get()))
-                {
-                    const std::vector<std::string> &paths = pathVectorData->readable();
-                    if (!paths.empty())
-                    {
-                        meshPath = GafferScotch::makeScenePath(paths[0]); // Use first path for now
-                    }
+                    meshPath = GafferScotch::makeScenePath(paths[0]); // Use first path for now
                 }
             }
         }
+        else
+        {
+            IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Using direct bind path");
+            meshPath = GafferScotch::makeScenePath(bindPathPlug()->getValue());
+        }
+
+        if (meshPath.empty())
+        {
+            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Empty mesh path");
+            return inputObject;
+        }
+
+        IECore::msg(IECore::Msg::Info, "RigidDeformCurves",
+                    boost::format("Resolved mesh path: %s") % boost::join(meshPath, "/"));
+
+        // Get meshes using resolved path
+        ConstObjectPtr restMeshObj = restMeshPlug()->object(meshPath);
+        if (!restMeshObj)
+        {
+            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Null rest mesh object");
+            return inputObject;
+        }
+
+        const MeshPrimitive *restMesh = runTimeCast<const MeshPrimitive>(restMeshObj.get());
+        if (!restMesh)
+        {
+            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Rest mesh is not a MeshPrimitive");
+            return inputObject;
+        }
+
+        ConstObjectPtr animatedMeshObj = animatedMeshPlug()->object(meshPath);
+        if (!animatedMeshObj)
+        {
+            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Null animated mesh object");
+            return inputObject;
+        }
+
+        const MeshPrimitive *animatedMesh = runTimeCast<const MeshPrimitive>(animatedMeshObj.get());
+        if (!animatedMesh)
+        {
+            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Animated mesh is not a MeshPrimitive");
+            return inputObject;
+        }
+
+        IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Mesh objects validated");
+
+        // Validate mesh topology
+        if (!restMesh->vertexIds() || !animatedMesh->vertexIds())
+        {
+            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Missing vertex IDs");
+            return inputObject;
+        }
+
+        if (!restMesh->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex) ||
+            !animatedMesh->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex))
+        {
+            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Missing position data");
+            return inputObject;
+        }
+
+        // Create output curves with same topology
+        CurvesPrimitivePtr outputCurves = new CurvesPrimitive(
+            curves->verticesPerCurve(),
+            curves->basis(),
+            curves->periodic());
+
+        // Copy primitive variables
+        for (const auto &primVar : curves->variables)
+        {
+            outputCurves->variables[primVar.first] = primVar.second;
+        }
+
+        IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Starting deformation");
+
+        // Deform curves
+        try
+        {
+            deformCurves(curves, restMesh, animatedMesh, outputCurves.get());
+        }
+        catch (const std::exception &e)
+        {
+            IECore::msg(IECore::Msg::Error, "RigidDeformCurves",
+                        boost::format("Deformation failed: %s") % e.what());
+            return inputObject;
+        }
+
+        IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Deformation completed successfully");
+        return outputCurves;
     }
-    else
+    catch (const std::exception &e)
     {
-        // Use path from plug
-        meshPath = GafferScotch::makeScenePath(bindPathPlug()->getValue());
-    }
-
-    // Get meshes using resolved path
-    ConstObjectPtr restMeshObj = restMeshPlug()->object(meshPath);
-    const MeshPrimitive *restMesh = runTimeCast<const MeshPrimitive>(restMeshObj.get());
-
-    ConstObjectPtr animatedMeshObj = animatedMeshPlug()->object(meshPath);
-    const MeshPrimitive *animatedMesh = runTimeCast<const MeshPrimitive>(animatedMeshObj.get());
-
-    if (!restMesh || !animatedMesh)
-    {
+        IECore::msg(IECore::Msg::Error, "RigidDeformCurves",
+                    boost::format("Computation failed: %s") % e.what());
         return inputObject;
     }
-
-    // Create output curves with same topology
-    CurvesPrimitivePtr outputCurves = new CurvesPrimitive(
-        curves->verticesPerCurve(),
-        curves->basis(),
-        curves->periodic());
-
-    // Copy primitive variables
-    for (const auto &primVar : curves->variables)
+    catch (...)
     {
-        outputCurves->variables[primVar.first] = primVar.second;
+        IECore::msg(IECore::Msg::Error, "RigidDeformCurves", "Unknown error in computation");
+        return inputObject;
     }
-
-    // Read binding data
-    const V3fVectorData *restPositionsData = runTimeCast<const V3fVectorData>(curves->variables.at("restPosition").data.get());
-    const V3fVectorData *restNormalsData = runTimeCast<const V3fVectorData>(curves->variables.at("restNormal").data.get());
-    const V3fVectorData *restTangentsData = runTimeCast<const V3fVectorData>(curves->variables.at("restTangent").data.get());
-    const V3fVectorData *restBitangentsData = runTimeCast<const V3fVectorData>(curves->variables.at("restBitangent").data.get());
-    const IntVectorData *triangleIndicesData = runTimeCast<const IntVectorData>(curves->variables.at("triangleIndex").data.get());
-    const V3fVectorData *barycentricCoordsData = runTimeCast<const V3fVectorData>(curves->variables.at("barycentricCoords").data.get());
-
-    if (!restPositionsData || !restNormalsData || !restTangentsData || !restBitangentsData || !triangleIndicesData || !barycentricCoordsData)
-    {
-        throw IECore::Exception("Missing binding data");
-    }
-
-    const std::vector<V3f> &restPositions = restPositionsData->readable();
-    const std::vector<V3f> &restNormals = restNormalsData->readable();
-    const std::vector<V3f> &restTangents = restTangentsData->readable();
-    const std::vector<V3f> &restBitangents = restBitangentsData->readable();
-    const std::vector<int> &triangleIndices = triangleIndicesData->readable();
-    const std::vector<V3f> &barycentricCoords = barycentricCoordsData->readable();
-
-    // Calculate vertex offsets
-    std::vector<size_t> vertexOffsets;
-    vertexOffsets.reserve(curves->verticesPerCurve()->readable().size());
-    size_t offset = 0;
-    for (int count : curves->verticesPerCurve()->readable())
-    {
-        vertexOffsets.push_back(offset);
-        offset += count;
-    }
-
-    // Initialize position data
-    V3fVectorDataPtr positionData = new V3fVectorData;
-    std::vector<V3f> &positions = positionData->writable();
-    positions.resize(curves->variableSize(PrimitiveVariable::Vertex));
-
-    // Copy initial positions
-    const V3fVectorData *inputPositions = curves->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
-    if (inputPositions)
-    {
-        positions = inputPositions->readable();
-    }
-
-    // Calculate tangents for animated mesh
-    std::pair<PrimitiveVariable, PrimitiveVariable> animatedTangents;
-    bool hasTangents = false;
-
-    // Try to calculate tangents from UVs first
-    auto uvIt = animatedMesh->variables.find("uv");
-    if (uvIt == animatedMesh->variables.end())
-    {
-        uvIt = animatedMesh->variables.find("st");
-    }
-    if (uvIt == animatedMesh->variables.end())
-    {
-        uvIt = animatedMesh->variables.find("UV");
-    }
-
-    if (uvIt != animatedMesh->variables.end())
-    {
-        animatedTangents = MeshAlgo::calculateTangents(animatedMesh, uvIt->first, true, "P");
-        hasTangents = true;
-    }
-    else
-    {
-        // If no UVs, calculate tangents from edges
-        auto normalIt = animatedMesh->variables.find("N");
-        if (normalIt == animatedMesh->variables.end())
-        {
-            // Calculate vertex normals if not present
-            PrimitiveVariable normals = MeshAlgo::calculateNormals(animatedMesh);
-            const_cast<MeshPrimitive *>(animatedMesh)->variables["N"] = normals;
-            normalIt = animatedMesh->variables.find("N");
-        }
-
-        if (normalIt != animatedMesh->variables.end())
-        {
-            animatedTangents = MeshAlgo::calculateTangentsFromTwoEdges(animatedMesh, "P", normalIt->first, true, false);
-            hasTangents = true;
-        }
-    }
-
-    if (!hasTangents)
-    {
-        throw IECore::Exception("Failed to calculate tangents for animated mesh");
-    }
-
-    // Process curves in parallel
-    const size_t numCurves = curves->verticesPerCurve()->readable().size();
-    const size_t numThreads = std::thread::hardware_concurrency();
-    const size_t batchSize = calculateBatchSize(numCurves, numThreads);
-
-    parallel_for(blocked_range<size_t>(0, numCurves, batchSize),
-                 [&](const blocked_range<size_t> &range)
-                 {
-                     for (size_t i = range.begin(); i != range.end(); ++i)
-                     {
-                         // Reconstruct rest frame
-                         RestFrame restFrame;
-                         restFrame.position = restPositions[i];
-                         restFrame.normal = restNormals[i];
-                         restFrame.tangent = restTangents[i];
-                         restFrame.bitangent = restBitangents[i];
-                         restFrame.orthonormalize();
-
-                         // Get binding data
-                         const int triangleIndex = triangleIndices[i];
-                         const V3f &baryCoord = barycentricCoords[i];
-
-                         // Get vertex indices for the triangle
-                         const std::vector<int> &vertexIds = animatedMesh->vertexIds()->readable();
-                         const int *triangleVertices = &vertexIds[triangleIndex * 3];
-
-                         // Get positions for the triangle vertices
-                         const std::vector<V3f> &meshPoints = animatedMesh->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex)->readable();
-                         const V3f &p0 = meshPoints[triangleVertices[0]];
-                         const V3f &p1 = meshPoints[triangleVertices[1]];
-                         const V3f &p2 = meshPoints[triangleVertices[2]];
-
-                         // Interpolate position using barycentric coordinates
-                         V3f deformedPosition = p0 * baryCoord[0] + p1 * baryCoord[1] + p2 * baryCoord[2];
-
-                         // Get normals for the triangle vertices (if available)
-                         V3f deformedNormal;
-                         const V3fVectorData *normalsData = animatedMesh->variableData<V3fVectorData>("N", PrimitiveVariable::Vertex);
-                         if (normalsData)
-                         {
-                             const std::vector<V3f> &meshNormals = normalsData->readable();
-                             const V3f &n0 = meshNormals[triangleVertices[0]];
-                             const V3f &n1 = meshNormals[triangleVertices[1]];
-                             const V3f &n2 = meshNormals[triangleVertices[2]];
-
-                             // Interpolate normal using barycentric coordinates
-                             deformedNormal = safeNormalize(n0 * baryCoord[0] + n1 * baryCoord[1] + n2 * baryCoord[2]);
-                         }
-                         else
-                         {
-                             // Calculate face normal if vertex normals not available
-                             deformedNormal = safeNormalize((p1 - p0).cross(p2 - p0));
-                         }
-
-                         // Get tangent using barycentric interpolation
-                         V3f deformedTangent = Detail::primVar<V3f>(animatedTangents.first,
-                                                                    &baryCoord[0],
-                                                                    triangleIndex,
-                                                                    V3i(triangleVertices[0],
-                                                                        triangleVertices[1],
-                                                                        triangleVertices[2]));
-
-                         // Build deformed frame
-                         RestFrame deformedFrame;
-                         deformedFrame.position = deformedPosition;
-                         deformedFrame.normal = deformedNormal;
-                         deformedFrame.tangent = deformedTangent;
-                         deformedFrame.orthonormalize();
-
-                         // Get transformation matrices
-                         M44f restToWorld = restFrame.toMatrix();
-                         M44f worldToDeformed = deformedFrame.toMatrix().inverse();
-
-                         // Transform points for this curve
-                         const size_t startIdx = vertexOffsets[i];
-                         const size_t endIdx = (i + 1 < vertexOffsets.size()) ? vertexOffsets[i + 1] : positions.size();
-
-                         for (size_t j = startIdx; j < endIdx; ++j)
-                         {
-                             positions[j] = transformPoint(positions[j], restToWorld, worldToDeformed);
-                         }
-                     }
-                 });
-
-    // Update positions in output curves
-    outputCurves->variables["P"] = PrimitiveVariable(PrimitiveVariable::Vertex, positionData);
-
-    return outputCurves;
 }
 
 bool RigidDeformCurves::affectsProcessedObjectBound(const Gaffer::Plug *input) const
@@ -704,10 +628,21 @@ void RigidDeformCurves::deformCurves(
     const IECoreScene::MeshPrimitive *animatedMesh,
     IECoreScene::CurvesPrimitive *outputCurves) const
 {
+    if (!curves || !restMesh || !animatedMesh || !outputCurves)
+    {
+        throw IECore::Exception("Null input to deformCurves");
+    }
+
     IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Starting deformation process");
 
     try
     {
+        // Validate curves data
+        if (!curves->verticesPerCurve() || curves->verticesPerCurve()->readable().empty())
+        {
+            throw IECore::Exception("Invalid curves topology");
+        }
+
         // Log input stats
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves",
                     boost::format("Input: %d curves, Rest mesh: %d verts, %d faces, Animated mesh: %d verts, %d faces") % curves->verticesPerCurve()->readable().size() % restMesh->variableSize(PrimitiveVariable::Vertex) % (restMesh->vertexIds()->readable().size() / 3) % animatedMesh->variableSize(PrimitiveVariable::Vertex) % (animatedMesh->vertexIds()->readable().size() / 3));
@@ -883,7 +818,7 @@ void RigidDeformCurves::deformCurves(
                                  restFrame.bitangent = restBitangents[i];
                                  restFrame.orthonormalize();
 
-                                 // Get binding data and compute deformed frame
+                                 // Get binding data
                                  const int triangleIndex = triangleIndices[i];
                                  const V3f &baryCoord = barycentricCoords[i];
 
