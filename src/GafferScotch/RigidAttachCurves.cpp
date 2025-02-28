@@ -475,13 +475,13 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
                          binding.restFrame.position = meshResult->point();
                          binding.restFrame.normal = meshResult->normal();
 
-                         // Get vertex indices for the triangle
-                         const std::vector<int> &vertexIds = triangulatedRestMesh->vertexIds()->readable();
-                         const int *triangleVertices = &vertexIds[binding.triangleIndex * 3];
-
                          // Extract tangent data from the PrimitiveVariable pair
                          const PrimitiveVariable &tangentPrimVar = restTangents.first;
                          const PrimitiveVariable &bitangentPrimVar = restTangents.second;
+
+                         // Get vertex indices for the triangle
+                         const std::vector<int> &vertexIds = triangulatedRestMesh->vertexIds()->readable();
+                         const int *triangleVertices = &vertexIds[binding.triangleIndex * 3];
 
                          binding.restFrame.tangent = Detail::primVar<V3f>(tangentPrimVar,
                                                                           &binding.baryCoords[0],
@@ -509,6 +509,7 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
     V3fVectorDataPtr restBitangentsData = new V3fVectorData;
     V3fVectorDataPtr rootPointsData = new V3fVectorData;
 
+    // Get writable references to the data
     auto &restPositions = restPositionsData->writable();
     auto &restNormals = restNormalsData->writable();
     auto &restTangents = restTangentsData->writable();
