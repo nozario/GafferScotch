@@ -129,18 +129,18 @@ void AttachCurves::hashProcessedObject( const ScenePath &path, const Gaffer::Con
 	
 	// Hash the static deformer object
 	{
-		ScenePlug::PathScope pathScope( context, deformerPath );
+		ScenePlug::PathScope pathScope( context, &deformerPath );
 		staticDeformerPlug()->objectPlug()->hash( h );
 	}
 	
 	// Hash the animated deformer object
 	{
-		ScenePlug::PathScope pathScope( context, deformerPath );
+		ScenePlug::PathScope pathScope( context, &deformerPath );
 		animatedDeformerPlug()->objectPlug()->hash( h );
 	}
 }
 
-IECoreScene::ConstObjectPtr AttachCurves::computeProcessedObject( const ScenePath &path, const Gaffer::Context *context, const IECoreScene::Object *inputObject ) const
+IECore::ConstObjectPtr AttachCurves::computeProcessedObject( const ScenePath &path, const Gaffer::Context *context, const IECoreScene::Object *inputObject ) const
 {
 	// Check if the input is a curves primitive
 	const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>( inputObject );
@@ -159,16 +159,16 @@ IECoreScene::ConstObjectPtr AttachCurves::computeProcessedObject( const ScenePat
 	ScenePlug::ScenePath deformerPath = makeScenePath( deformerPathStr );
 	
 	// Get the static deformer object
-	ConstObjectPtr staticDeformerObject;
+	IECore::ConstObjectPtr staticDeformerObject;
 	{
-		ScenePlug::PathScope pathScope( context, deformerPath );
+		ScenePlug::PathScope pathScope( context, &deformerPath );
 		staticDeformerObject = staticDeformerPlug()->objectPlug()->getValue();
 	}
 	
 	// Get the animated deformer object
-	ConstObjectPtr animatedDeformerObject;
+	IECore::ConstObjectPtr animatedDeformerObject;
 	{
-		ScenePlug::PathScope pathScope( context, deformerPath );
+		ScenePlug::PathScope pathScope( context, &deformerPath );
 		animatedDeformerObject = animatedDeformerPlug()->objectPlug()->getValue();
 	}
 	
