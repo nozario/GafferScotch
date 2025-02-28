@@ -419,8 +419,8 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
                          restFrame.orthonormalize();
 
                          // Get binding data
-                         const int triangleIndex = triangleIndices->readable()[i];
-                         const V3f &baryCoord = baryCoords->readable()[i];
+                         const int triangleIndex = triangleIndices[i];
+                         const V3f &baryCoord = barycentricCoords[i];
 
                          // Evaluate deformed position
                          V3f deformedPosition;
