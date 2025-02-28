@@ -159,9 +159,9 @@ RigidDeformCurves::RigidDeformCurves(const std::string &name)
 
     // Binding mode
     addChild(new BoolPlug("useBindAttr", Plug::In, false));
-    addChild(new StringPlug("deformerPath", Plug::In, ""));           // Used when useBindAttr=false
-    addChild(new StringPlug("bindAttr", Plug::In, ""));               // Used when useBindAttr=true
-    addChild(new BoolPlug("cleanupBindAttributes", Plug::In, false)); // Whether to remove binding attributes from output
+    addChild(new StringPlug("deformerPath", Plug::In, ""));          // Used when useBindAttr=false
+    addChild(new StringPlug("bindAttr", Plug::In, ""));              // Used when useBindAttr=true
+    addChild(new BoolPlug("cleanupBindAttributes", Plug::In, true)); // Whether to remove binding attributes from output
 
     // Fast pass-throughs for things we don't modify
     outPlug()->attributesPlug()->setInput(inPlug()->attributesPlug());
