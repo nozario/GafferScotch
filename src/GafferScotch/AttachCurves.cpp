@@ -467,11 +467,8 @@ void AttachCurves::computeBindings(const MeshPrimitive *restMesh, const CurvesPr
                      // Process curves in this range
                      for (size_t i = range.begin(); i != range.end(); ++i)
                      {
-                         const CurveBinding &binding = m_restCache.bindingCache.bindings.get(i);
-                         if (!binding.valid)
-                         {
-                             continue;
-                         }
+                         CurveBinding &binding = m_restCache.bindingCache.bindings.get(i);
+                         binding.valid = false; // Start as invalid
 
                          const size_t vertOffset = m_restCache.curveData.vertexOffsets[i];
                          const V3f &rootP = m_restCache.curveData.points[vertOffset];
@@ -479,8 +476,7 @@ void AttachCurves::computeBindings(const MeshPrimitive *restMesh, const CurvesPr
                          // Find closest point
                          if (!restEvaluator->closestPoint(rootP, meshResult))
                          {
-                             binding.valid = false;
-                             continue;
+                             continue; // Keep binding invalid
                          }
 
                          // Store binding data
@@ -499,7 +495,7 @@ void AttachCurves::computeBindings(const MeshPrimitive *restMesh, const CurvesPr
                          // Pre-compute rest space offsets
                          m_restCache.curveData.computeRestSpaceOffsets(binding.restFrame, i);
 
-                         binding.valid = true;
+                         binding.valid = true; // Mark as valid only after successful computation
                      }
                  });
 
@@ -512,11 +508,27 @@ void AttachCurves::buildSpatialIndex(const MeshPrimitive *mesh, MeshPrimitiveEva
     // This is a hook for future optimizations if needed
 }
 
+struct RestDataCache
+{
+    Detail::MeshData restMeshData;
+    Detail::CurveData curveData;
+    Detail::BindingCache bindingCache;
+    IECoreScene::PrimitiveVariable restTangents;
+    IECore::MurmurHash restMeshHash;
+    IECore::MurmurHash curvesHash;
+    bool valid;
+    std::atomic<int> cacheAccesses;
+
+    RestDataCache() : valid(false), cacheAccesses(0) {}
+};
+
+mutable RestDataCache m_restCache;
+
 void AttachCurves::applyDeformation(const MeshPrimitive *animatedMesh,
                                     const CurvesPrimitive *curves,
                                     std::vector<V3f> &outputPoints) const
 {
-    int currentCacheAccesses = ++g_cacheAccesses;
+    int currentCacheAccesses = ++m_restCache.cacheAccesses;
     {
         std::lock_guard<std::mutex> lock(g_logMutex);
         std::cerr << "Starting applyDeformation (cache access #" << currentCacheAccesses << ")" << std::endl;
