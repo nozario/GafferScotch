@@ -1,8 +1,9 @@
+import Gaffer
 import IECore
 import imath
 
-import Gaffer
 import GafferScotch
+
 from . import ICON_PATH
 
 Gaffer.Metadata.registerNode(
@@ -53,7 +54,7 @@ Gaffer.Metadata.registerNode(
             "description",
             """
             Determines how the target mesh is specified for binding.
-            
+
             Direct Path : Use a single mesh path for all curves.
             Attribute : Use a string attribute on each curve to specify its target mesh.
             """,
@@ -72,7 +73,7 @@ Gaffer.Metadata.registerNode(
             The path to the mesh to bind to when useBindAttr is disabled.
             """,
             "plugValueWidget:type",
-            "GafferUI.PathPlugValueWidget",
+            "GafferUI.StringPlugValueWidget",
             "layout:section",
             "Settings.Binding",
             "layout:visibilityActivator",
