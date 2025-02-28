@@ -481,18 +481,30 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
 
                          // Extract tangent data from the PrimitiveVariable pair
                          const PrimitiveVariable &tangentPrimVar = restTangents.first;
+                         const PrimitiveVariable &bitangentPrimVar = restTangents.second;
+
                          const V3fVectorData *tangentData = runTimeCast<const V3fVectorData>(tangentPrimVar.data.get());
-                         if (!tangentData)
+                         const V3fVectorData *bitangentData = runTimeCast<const V3fVectorData>(bitangentPrimVar.data.get());
+
+                         if (!tangentData || !bitangentData)
                          {
                              binding.valid = false;
                              continue;
                          }
+
                          binding.restFrame.tangent = Detail::primVar<V3f>(tangentPrimVar,
                                                                           &binding.baryCoords[0],
                                                                           binding.triangleIndex,
                                                                           V3i(triangleVertices[0],
                                                                               triangleVertices[1],
                                                                               triangleVertices[2]));
+
+                         binding.restFrame.bitangent = Detail::primVar<V3f>(bitangentPrimVar,
+                                                                            &binding.baryCoords[0],
+                                                                            binding.triangleIndex,
+                                                                            V3i(triangleVertices[0],
+                                                                                triangleVertices[1],
+                                                                                triangleVertices[2]));
 
                          binding.restFrame.orthonormalize();
                          binding.valid = true;
