@@ -856,7 +856,7 @@ void RigidDeformCurves::deformCurves(
                                          if (rotAxis.length() > 1e-6)
                                          {
                                              rotAxis.normalize();
-                                             rotAngle = Math::acos(clamp(restNorm.dot(deformedNorm), -1.0f, 1.0f));
+                                             rotAngle = Imath::Math<float>::acos(Imath::Math<float>::clamp(restNorm.dot(deformedNorm), -1.0f, 1.0f));
                                          }
                                          else
                                          {
@@ -872,7 +872,7 @@ void RigidDeformCurves::deformCurves(
                                              rotAxis = V3f(0, 1, 0).cross(restNorm).normalized();
                                          else
                                              rotAxis = V3f(1, 0, 0).cross(restNorm).normalized();
-                                         rotAngle = M_PI;
+                                         rotAngle = 3.14159265358979323846f;
                                      }
 
                                      // Build fallback transform
@@ -928,27 +928,29 @@ void RigidDeformCurves::deformCurves(
                                      V3f rotAxis;
                                      float rotAngle;
 
-                                     if (restNorm.dot(deformedNorm) > -0.99f)
+                                     if (restNorm.dot(deformedNorm) > -0.99f) // Not completely flipped
                                      {
                                          rotAxis = restNorm.cross(deformedNorm);
                                          if (rotAxis.length() > 1e-6)
                                          {
                                              rotAxis.normalize();
-                                             rotAngle = Math::acos(clamp(restNorm.dot(deformedNorm), -1.0f, 1.0f));
+                                             rotAngle = Imath::Math<float>::acos(Imath::Math<float>::clamp(restNorm.dot(deformedNorm), -1.0f, 1.0f));
                                          }
                                          else
                                          {
+                                             // Parallel normals, no rotation needed
                                              rotAxis = V3f(0, 1, 0);
                                              rotAngle = 0;
                                          }
                                      }
                                      else
                                      {
+                                         // Normals are opposite, rotate 180° around perpendicular axis
                                          if (std::abs(restNorm.y) < 0.9f)
                                              rotAxis = V3f(0, 1, 0).cross(restNorm).normalized();
                                          else
                                              rotAxis = V3f(1, 0, 0).cross(restNorm).normalized();
-                                         rotAngle = M_PI;
+                                         rotAngle = 3.14159265358979323846f;
                                      }
 
                                      // Build fallback transform
