@@ -1,3 +1,8 @@
+// Prevent Windows min/max macro conflicts
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include "GafferScotch/AttachCurves.h"
 #include "GafferScotch/ScenePathUtil.h"
 #include "GafferScotch/AttachCurvesDataStructures.h"
@@ -42,12 +47,9 @@ AttachCurves::AttachCurves( const std::string &name )
 	:	Deformer( name )
 {
 	storeIndexOfNextChild( g_firstPlugIndex );
-	ScenePlug *staticDeformer = new ScenePlug( "staticDeformer" );
-	ScenePlug *animatedDeformer = new ScenePlug( "animatedDeformer" );
-	StringPlug *deformerPath = new StringPlug( "deformerPath", Plug::In, "" );
-	addChild( staticDeformer );
-	addChild( animatedDeformer );
-	addChild( deformerPath );
+	addChild( new GafferScene::ScenePlug( "staticDeformer" ) );
+	addChild( new GafferScene::ScenePlug( "animatedDeformer" ) );
+	addChild( new Gaffer::StringPlug( "deformerPath", Plug::In, "" ) );
 }
 
 AttachCurves::~AttachCurves()
@@ -56,32 +58,32 @@ AttachCurves::~AttachCurves()
 
 ScenePlug *AttachCurves::staticDeformerPlug()
 {
-	return this->template getChild<ScenePlug>( g_firstPlugIndex );
+	return getChild<ScenePlug>( g_firstPlugIndex );
 }
 
 const ScenePlug *AttachCurves::staticDeformerPlug() const
 {
-	return this->template getChild<ScenePlug>( g_firstPlugIndex );
+	return getChild<ScenePlug>( g_firstPlugIndex );
 }
 
 ScenePlug *AttachCurves::animatedDeformerPlug()
 {
-	return this->template getChild<ScenePlug>( g_firstPlugIndex + 1 );
+	return getChild<ScenePlug>( g_firstPlugIndex + 1 );
 }
 
 const ScenePlug *AttachCurves::animatedDeformerPlug() const
 {
-	return this->template getChild<ScenePlug>( g_firstPlugIndex + 1 );
+	return getChild<ScenePlug>( g_firstPlugIndex + 1 );
 }
 
 StringPlug *AttachCurves::deformerPathPlug()
 {
-	return this->template getChild<StringPlug>( g_firstPlugIndex + 2 );
+	return getChild<StringPlug>( g_firstPlugIndex + 2 );
 }
 
 const StringPlug *AttachCurves::deformerPathPlug() const
 {
-	return this->template getChild<StringPlug>( g_firstPlugIndex + 2 );
+	return getChild<StringPlug>( g_firstPlugIndex + 2 );
 }
 
 void AttachCurves::affects( const Plug *input, AffectedPlugsContainer &outputs ) const
