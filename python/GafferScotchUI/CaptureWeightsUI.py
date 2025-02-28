@@ -6,7 +6,7 @@ import GafferScotch
 from . import ICON_PATH
 
 Gaffer.Metadata.registerNode(
-    GafferScotch.CaptureWeight,
+    GafferScotch.CaptureWeights,
     "description",
     """
     Computes influence weights for each point/vertex based on proximity to source points.

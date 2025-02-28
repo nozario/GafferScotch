@@ -2,7 +2,7 @@
 
 #include "GafferBindings/DependencyNodeBinding.h"
 
-#include "GafferScotch/CaptureWeight.h"
+#include "GafferScotch/CaptureWeights.h"
 #include "GafferScotch/PointDeform.h"
 #include "GafferScotch/RigidAttachCurves.h"
 #include "GafferScotch/RigidDeformCurves.h"
@@ -13,7 +13,7 @@ using namespace GafferScotch;
 
 BOOST_PYTHON_MODULE(GafferScotchModule)
 {
-    GafferBindings::DependencyNodeClass<CaptureWeight>();
+    GafferBindings::DependencyNodeClass<CaptureWeights>();
     GafferBindings::DependencyNodeClass<PointDeform>();
     GafferBindings::DependencyNodeClass<RigidAttachCurves>();
     GafferBindings::DependencyNodeClass<RigidDeformCurves>();

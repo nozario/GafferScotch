@@ -9,7 +9,7 @@ Gaffer.Metadata.registerNode(
     GafferScotch.PointDeform,
     "description",
     """
-    Deforms geometry based on the weights created by CaptureWeight node.
+    Deforms geometry based on the weights created by CaptureWeights node.
     Takes three inputs:
     1. The mesh/points/curve to deform (input)
     2. The static reference deformer (staticDeformer)

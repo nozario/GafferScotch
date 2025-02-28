@@ -5,9 +5,9 @@ import GafferScotchUI
 
 nodeMenu = GafferUI.NodeMenu.acquire(application)
 nodeMenu.append(
-    "/GafferScotch/CaptureWeight",
-    GafferScotch.CaptureWeight,
-    searchText="CaptureWeight",
+    "/GafferScotch/CaptureWeights",
+    GafferScotch.CaptureWeights,
+    searchText="CaptureWeights",
 )
 nodeMenu.append(
     "/GafferScotch/PointDeform",
