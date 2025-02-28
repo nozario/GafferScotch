@@ -864,9 +864,9 @@ void RigidDeformCurves::deformCurves(
 
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Starting parallel curve processing");
 
-        size_t degenerateFrames = 0;
-        size_t processedCurves = 0;
-        tbb::atomic<size_t> errorCount = 0;
+        tbb::atomic<size_t> degenerateFrames{0};
+        tbb::atomic<size_t> processedCurves{0};
+        tbb::atomic<size_t> errorCount{0};
 
         parallel_for(blocked_range<size_t>(0, numCurves, batchSize),
                      [&](const blocked_range<size_t> &range)
@@ -939,7 +939,7 @@ void RigidDeformCurves::deformCurves(
                                  M44f deformedMatrix = deformedFrame.toMatrix();
                                  if (std::abs(deformedMatrix.determinant()) < 1e-6)
                                  {
-                                     tbb::atomic_fetch_and_add(&degenerateFrames, size_t(1));
+                                     ++degenerateFrames;
                                      IECore::msg(IECore::Msg::Warning, "RigidDeformCurves",
                                                  boost::format("Near-singular matrix for curve %d") % i);
                                      continue;
@@ -957,11 +957,11 @@ void RigidDeformCurves::deformCurves(
                                      positions[j] = transformPoint(positions[j], restToWorld, worldToDeformed);
                                  }
 
-                                 tbb::atomic_fetch_and_add(&processedCurves, size_t(1));
+                                 ++processedCurves;
                              }
                              catch (const std::exception &e)
                              {
-                                 tbb::atomic_fetch_and_add(&errorCount, size_t(1));
+                                 ++errorCount;
                                  IECore::msg(IECore::Msg::Error, "RigidDeformCurves",
                                              boost::format("Error processing curve %d: %s") % i % e.what());
                              }
@@ -969,7 +969,7 @@ void RigidDeformCurves::deformCurves(
                      });
 
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves",
-                    boost::format("Deformation complete - Processed: %d/%d curves, Degenerate frames: %d, Errors: %d") % processedCurves % numCurves % degenerateFrames % errorCount.load());
+                    boost::format("Deformation complete - Processed: %d/%d curves, Degenerate frames: %d, Errors: %d") % processedCurves.load() % numCurves % degenerateFrames.load() % errorCount.load());
 
         // Update output positions
         outputCurves->variables["P"] = PrimitiveVariable(PrimitiveVariable::Vertex, positionData);
