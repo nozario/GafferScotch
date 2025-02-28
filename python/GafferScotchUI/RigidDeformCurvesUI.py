@@ -10,7 +10,7 @@ Gaffer.Metadata.registerNode(
     "description",
     """
     Deforms curves using binding data computed by the RigidAttachCurves node.
-    Takes both rest and animated meshes as input and uses a rigid frame-based
+    Takes both static and animated meshes as input and uses a rigid frame-based
     approach to maintain curve shape during deformation.
     """,
     "icon",
@@ -18,16 +18,16 @@ Gaffer.Metadata.registerNode(
     "nodeGadget:color",
     imath.Color3f(0.42, 0.27, 0.23),
     plugs={
-        "restMesh": [
+        "staticDeformer": [
             "description",
             """
-            The rest mesh that was used for binding. This is used as a reference
+            The static mesh that was used for binding. This is used as a reference
             to ensure proper deformation.
             """,
             "nodule:type",
             "GafferUI::StandardNodule",
         ],
-        "animatedMesh": [
+        "animatedDeformer": [
             "description",
             """
             The animated version of the mesh. The curves will follow the
@@ -44,7 +44,7 @@ Gaffer.Metadata.registerNode(
             for all curves.
             """,
         ],
-        "bindPath": [
+        "deformerPath": [
             "description",
             """
             The path to the mesh to use when useBindAttr is disabled.

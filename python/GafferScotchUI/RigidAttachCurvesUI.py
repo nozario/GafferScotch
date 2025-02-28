@@ -18,16 +18,16 @@ Gaffer.Metadata.registerNode(
     "nodeGadget:color",
     imath.Color3f(0.42, 0.27, 0.23),
     plugs={
-        "restMesh": [
+        "staticDeformer": [
             "description",
             """
-            The rest mesh to bind the curves to. This mesh defines the initial
+            The static mesh to bind the curves to. This mesh defines the initial
             binding positions and frames.
             """,
             "nodule:type",
             "GafferUI::StandardNodule",
         ],
-        "rootAttr": [
+        "curveRootAttr": [
             "description",
             """
             The name of a vertex float attribute that defines the root point
@@ -43,7 +43,7 @@ Gaffer.Metadata.registerNode(
             for all curves.
             """,
         ],
-        "bindPath": [
+        "deformerPath": [
             "description",
             """
             The path to the mesh to bind to when useBindAttr is disabled.

@@ -150,15 +150,15 @@ RigidAttachCurves::RigidAttachCurves(const std::string &name)
     storeIndexOfNextChild(g_firstPlugIndex);
 
     // Add rest mesh input
-    addChild(new ScenePlug("restMesh", Plug::In));
+    addChild(new ScenePlug("staticDeformer", Plug::In));
 
     // Root finding
-    addChild(new StringPlug("rootAttr", Plug::In, ""));
+    addChild(new StringPlug("curveRootAttr", Plug::In, ""));
 
     // Binding mode
     addChild(new BoolPlug("useBindAttr", Plug::In, false));
-    addChild(new StringPlug("bindPath", Plug::In, "")); // Used when useBindAttr=false
-    addChild(new StringPlug("bindAttr", Plug::In, "")); // Used when useBindAttr=true
+    addChild(new StringPlug("deformerPath", Plug::In, "")); // Used when useBindAttr=false
+    addChild(new StringPlug("bindAttr", Plug::In, ""));     // Used when useBindAttr=true
 
     // Fast pass-throughs for things we don't modify
     outPlug()->attributesPlug()->setInput(inPlug()->attributesPlug());
@@ -170,22 +170,22 @@ RigidAttachCurves::~RigidAttachCurves()
 {
 }
 
-ScenePlug *RigidAttachCurves::restMeshPlug()
+ScenePlug *RigidAttachCurves::staticDeformerPlug()
 {
     return getChild<ScenePlug>(g_firstPlugIndex);
 }
 
-const ScenePlug *RigidAttachCurves::restMeshPlug() const
+const ScenePlug *RigidAttachCurves::staticDeformerPlug() const
 {
     return getChild<ScenePlug>(g_firstPlugIndex);
 }
 
-StringPlug *RigidAttachCurves::rootAttrPlug()
+StringPlug *RigidAttachCurves::curveRootAttrPlug()
 {
     return getChild<StringPlug>(g_firstPlugIndex + 1);
 }
 
-const StringPlug *RigidAttachCurves::rootAttrPlug() const
+const StringPlug *RigidAttachCurves::curveRootAttrPlug() const
 {
     return getChild<StringPlug>(g_firstPlugIndex + 1);
 }
@@ -200,12 +200,12 @@ const BoolPlug *RigidAttachCurves::useBindAttrPlug() const
     return getChild<BoolPlug>(g_firstPlugIndex + 2);
 }
 
-StringPlug *RigidAttachCurves::bindPathPlug()
+StringPlug *RigidAttachCurves::deformerPathPlug()
 {
     return getChild<StringPlug>(g_firstPlugIndex + 3);
 }
 
-const StringPlug *RigidAttachCurves::bindPathPlug() const
+const StringPlug *RigidAttachCurves::deformerPathPlug() const
 {
     return getChild<StringPlug>(g_firstPlugIndex + 3);
 }
@@ -224,10 +224,10 @@ void RigidAttachCurves::affects(const Gaffer::Plug *input, AffectedPlugsContaine
 {
     ObjectProcessor::affects(input, outputs);
 
-    if (input == restMeshPlug()->objectPlug() ||
-        input == rootAttrPlug() ||
+    if (input == staticDeformerPlug()->objectPlug() ||
+        input == curveRootAttrPlug() ||
         input == useBindAttrPlug() ||
-        input == bindPathPlug() ||
+        input == deformerPathPlug() ||
         input == bindAttrPlug())
     {
         outputs.push_back(outPlug()->objectPlug());
@@ -246,10 +246,10 @@ bool RigidAttachCurves::acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plu
 
 bool RigidAttachCurves::affectsProcessedObject(const Gaffer::Plug *input) const
 {
-    return input == restMeshPlug()->objectPlug() ||
-           input == rootAttrPlug() ||
+    return input == staticDeformerPlug()->objectPlug() ||
+           input == curveRootAttrPlug() ||
            input == useBindAttrPlug() ||
-           input == bindPathPlug() ||
+           input == deformerPathPlug() ||
            input == bindAttrPlug();
 }
 
@@ -295,19 +295,19 @@ void RigidAttachCurves::hashProcessedObject(const ScenePath &path, const Gaffer:
     else
     {
         // Use path from plug
-        restPath = GafferScotch::makeScenePath(bindPathPlug()->getValue());
+        restPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
     }
 
     // Hash rest mesh
-    h.append(restMeshPlug()->objectHash(restPath));
+    h.append(staticDeformerPlug()->objectHash(restPath));
 
     // Hash input curves
     h.append(inPlug()->objectHash(path));
 
     // Hash parameters
-    rootAttrPlug()->hash(h);
+    curveRootAttrPlug()->hash(h);
     useBindAttrPlug()->hash(h);
-    bindPathPlug()->hash(h);
+    deformerPathPlug()->hash(h);
     bindAttrPlug()->hash(h);
 }
 
@@ -317,7 +317,7 @@ size_t RigidAttachCurves::findRootPointIndex(
     size_t curveIndex) const
 {
     // Get root attribute name
-    const std::string rootAttrName = rootAttrPlug()->getValue();
+    const std::string rootAttrName = curveRootAttrPlug()->getValue();
     if (rootAttrName.empty())
     {
         // If no attribute specified, use first point
@@ -616,11 +616,11 @@ IECore::ConstObjectPtr RigidAttachCurves::computeProcessedObject(const ScenePath
     else
     {
         // Use path from plug
-        restPath = GafferScotch::makeScenePath(bindPathPlug()->getValue());
+        restPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
     }
 
     // Get rest mesh using resolved path
-    ConstObjectPtr restMeshObj = restMeshPlug()->object(restPath);
+    ConstObjectPtr restMeshObj = staticDeformerPlug()->object(restPath);
     const MeshPrimitive *restMesh = runTimeCast<const MeshPrimitive>(restMeshObj.get());
 
     if (!restMesh)
