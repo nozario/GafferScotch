@@ -19,15 +19,3 @@ nodeMenu.append(
     GafferScotch.PointDeform,
     searchText="PointDeform",
 )
-
-nodeMenu.append(
-    "/GafferScotch/RigidAttachCurves",
-    GafferScotch.RigidAttachCurves,
-    searchText="RigidAttachCurves",
-)
-
-nodeMenu.append(
-    "/GafferScotch/RigidDeformCurves",
-    GafferScotch.RigidDeformCurves,
-    searchText="RigidDeformCurves",
-)

@@ -325,8 +325,8 @@ namespace GafferScotch
             {
                 const size_t pointIndex = vertOffset + i;
 
-                // Use cached rest space offset
-                const V3f &restSpaceOffset = curves->restSpaceOffsets[pointIndex];
+                // Use cached rest space offset with thread-safe getter
+                const V3f &restSpaceOffset = curves->getRestSpaceOffset(pointIndex);
 
                 // Transform to animated space
                 V3f animatedOffset =

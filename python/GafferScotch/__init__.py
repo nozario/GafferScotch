@@ -10,8 +10,6 @@ try:
     from .GafferScotchModule import CaptureWeight
     from .GafferScotchModule import PointDeform
     from .GafferScotchModule import AttachCurves
-    from .GafferScotchModule import RigidAttachCurves
-    from .GafferScotchModule import RigidDeformCurves
 
 except ImportError as e:
     print(f"Error importing GafferScotch: {e}")

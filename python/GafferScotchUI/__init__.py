@@ -9,5 +9,3 @@ from ._IconPath import ICON_NAME, ICON_PATH
 from . import CaptureWeightUI
 from . import AttachCurvesUI
 from . import PointDeformUI
-from . import RigidAttachCurvesUI
-from . import RigidDeformCurvesUI
