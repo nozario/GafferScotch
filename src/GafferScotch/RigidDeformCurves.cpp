@@ -922,25 +922,21 @@ void RigidDeformCurves::deformCurves(
                                      // Calculate a more stable transformation that preserves shape
                                      V3f restToDeformedOffset = deformedFrame.position - restPositions[i];
 
-                                     // Calculate rotation between rest and deformed normals
-                                     V3f restN = restNormals[i];
-                                     V3f deformedN = deformedFrame.normal;
+                                     // Calculate rotation between rest and deformed frames
+                                     M44f restFrame;
+                                     restFrame.setTranslation(restPositions[i]);
+                                     restFrame[0].setValue(restTangents[i].x, restTangents[i].y, restTangents[i].z, 0);
+                                     restFrame[1].setValue(restBitangents[i].x, restBitangents[i].y, restBitangents[i].z, 0);
+                                     restFrame[2].setValue(restNormals[i].x, restNormals[i].y, restNormals[i].z, 0);
 
-                                     // Normalize vectors to ensure valid rotation
-                                     restN.normalize();
-                                     deformedN.normalize();
+                                     M44f deformedFrameMtx;
+                                     deformedFrameMtx.setTranslation(deformedFrame.position);
+                                     deformedFrameMtx[0].setValue(deformedFrame.tangent.x, deformedFrame.tangent.y, deformedFrame.tangent.z, 0);
+                                     deformedFrameMtx[1].setValue(deformedFrame.bitangent.x, deformedFrame.bitangent.y, deformedFrame.bitangent.z, 0);
+                                     deformedFrameMtx[2].setValue(deformedFrame.normal.x, deformedFrame.normal.y, deformedFrame.normal.z, 0);
 
-                                     // Calculate rotation axis and angle
-                                     V3f rotAxis = restN.cross(deformedN);
-                                     float rotAngle = std::acos(std::max(-1.0f, std::min(1.0f, restN.dot(deformedN))));
-
-                                     // Build stable rotation matrix
-                                     M44f stableRotation;
-                                     if (rotAxis.length() > 1e-6f && std::abs(rotAngle) > 1e-6f)
-                                     {
-                                         rotAxis.normalize();
-                                         stableRotation.setAxisAngle(rotAxis, rotAngle);
-                                     }
+                                     // Calculate stable transformation
+                                     M44f stableTransform = restFrame.inverse() * deformedFrameMtx;
 
                                      // Apply stable transformation
                                      for (size_t j = startIdx; j < endIdx; ++j)
@@ -950,7 +946,7 @@ void RigidDeformCurves::deformCurves(
 
                                          // Apply transformation
                                          V3f transformedP;
-                                         Transform.multDirMatrix(localP, transformedP);
+                                         stableTransform.multDirMatrix(localP, transformedP);
 
                                          // Add deformed position
                                          positions[j] = transformedP + deformedFrame.position;
