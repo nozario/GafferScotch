@@ -1,5 +1,4 @@
 #include "GafferScotch/RigidAttachCurves.h"
-#include "GafferScotch/AttachCurvesDataStructures.h"
 #include "GafferScotch/ScenePathUtil.h"
 
 #include "IECore/NullObject.h"
@@ -44,6 +43,33 @@ namespace
         const size_t targetBatches = numThreads * 4;
         return std::max(size_t(1), numCurves / targetBatches);
     }
+
+    struct RestFrame
+    {
+        V3f position;
+        V3f normal;
+        V3f tangent;
+        V3f bitangent;
+
+        void orthonormalize()
+        {
+            normal = safeNormalize(normal);
+            tangent = safeNormalize(tangent - normal * (tangent.dot(normal)));
+            bitangent = normal.cross(tangent);
+        }
+    };
+
+    struct CurveBinding
+    {
+        int triangleIndex;
+        V3f baryCoords;
+        V2f uvCoords;
+        V3f rootPointOffset;
+        RestFrame restFrame;
+        bool valid;
+
+        CurveBinding() : triangleIndex(-1), valid(false) {}
+    };
 
     // Helper to get hash for positions only
     void hashPositions(const Primitive *primitive, MurmurHash &h)
@@ -285,91 +311,6 @@ void RigidAttachCurves::hashProcessedObject(const ScenePath &path, const Gaffer:
     bindAttrPlug()->hash(h);
 }
 
-void RigidAttachCurves::updateRestCache(const MeshPrimitive *restMesh,
-                                        const CurvesPrimitive *curves,
-                                        const MurmurHash &restMeshHash,
-                                        const MurmurHash &curvesHash) const
-{
-    // Check if cache is valid
-    if (m_restCache.valid &&
-        m_restCache.restMeshHash == restMeshHash &&
-        m_restCache.curvesHash == curvesHash)
-    {
-        return;
-    }
-
-    // Initialize curve data
-    m_restCache.curveData.initFromCurves(curves);
-
-    // Get rest mesh data with proper normal/tangent handling
-    auto resampleNormals = [](const MeshPrimitive *mesh) -> PrimitiveVariable
-    {
-        auto normalIt = mesh->variables.find("N");
-        if (normalIt == mesh->variables.end())
-        {
-            throw InvalidArgumentException("MeshPrimitive has no 'N' primitive variable.");
-        }
-
-        if (normalIt->second.interpolation == PrimitiveVariable::FaceVarying)
-        {
-            throw InvalidArgumentException("FaceVarying normal interpolation not yet supported.");
-        }
-
-        return normalIt->second;
-    };
-
-    // Get normals with proper interpolation
-    PrimitiveVariable restNormals = resampleNormals(restMesh);
-
-    // Calculate tangents for rest mesh
-    auto calculateMeshTangents = [](const MeshPrimitive *mesh)
-    {
-        // Check for UV coordinates
-        auto uvIt = mesh->variables.find("uv");
-        if (uvIt == mesh->variables.end())
-        {
-            uvIt = mesh->variables.find("st");
-        }
-        if (uvIt == mesh->variables.end())
-        {
-            uvIt = mesh->variables.find("UV");
-        }
-
-        if (uvIt != mesh->variables.end())
-        {
-            return MeshAlgo::calculateTangents(mesh, uvIt->first, true, "P");
-        }
-
-        auto normalIt = mesh->variables.find("N");
-        if (normalIt == mesh->variables.end())
-        {
-            throw InvalidArgumentException("MeshPrimitive has no 'N' primitive variable.");
-        }
-
-        return MeshAlgo::calculateTangentsFromTwoEdges(mesh, "P", normalIt->first, true, false);
-    };
-
-    std::pair<PrimitiveVariable, PrimitiveVariable> restTangents = calculateMeshTangents(restMesh);
-
-    // Initialize rest mesh data and store tangents
-    m_restCache.restMeshData.initFromMesh(restMesh, restNormals, restTangents.first);
-    m_restCache.restTangents = restTangents.first;
-
-    // Initialize binding cache
-    m_restCache.bindingCache.initializeBindings(m_restCache.curveData.vertsPerCurve.size());
-
-    // Update hashes
-    m_restCache.restMeshHash = restMeshHash;
-    m_restCache.curvesHash = curvesHash;
-    m_restCache.valid = true;
-}
-
-void RigidAttachCurves::buildSpatialIndex(const MeshPrimitive *mesh, MeshPrimitiveEvaluator *evaluator) const
-{
-    // The evaluator already builds its internal BVH, so we don't need additional work here
-    // This is a hook for future optimizations if needed
-}
-
 size_t RigidAttachCurves::findRootPointIndex(
     const CurvesPrimitive *curves,
     const std::vector<size_t> &vertexOffsets,
@@ -429,18 +370,78 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
     MeshPrimitivePtr triangulatedRestMesh = MeshAlgo::triangulate(restMesh);
     MeshPrimitiveEvaluatorPtr restEvaluator = new MeshPrimitiveEvaluator(triangulatedRestMesh);
 
-    // Build spatial index for acceleration
-    buildSpatialIndex(triangulatedRestMesh.get(), restEvaluator.get());
+    // Calculate tangents for rest mesh
+    std::pair<PrimitiveVariable, PrimitiveVariable> restTangents;
+    bool hasTangents = false;
 
-    // Get curve data - copy instead of reference to handle different allocators
-    std::vector<int> vertsPerCurve(m_restCache.curveData.vertsPerCurve.begin(), m_restCache.curveData.vertsPerCurve.end());
-    std::vector<size_t> vertexOffsets(m_restCache.curveData.vertexOffsets.begin(), m_restCache.curveData.vertexOffsets.end());
-    std::vector<V3f> points(m_restCache.curveData.points.begin(), m_restCache.curveData.points.end());
+    // Try to calculate tangents from UVs first
+    auto uvIt = triangulatedRestMesh->variables.find("uv");
+    if (uvIt == triangulatedRestMesh->variables.end())
+    {
+        uvIt = triangulatedRestMesh->variables.find("st");
+    }
+    if (uvIt == triangulatedRestMesh->variables.end())
+    {
+        uvIt = triangulatedRestMesh->variables.find("UV");
+    }
+
+    if (uvIt != triangulatedRestMesh->variables.end())
+    {
+        restTangents = MeshAlgo::calculateTangents(triangulatedRestMesh.get(), uvIt->first, true, "P");
+        hasTangents = true;
+    }
+    else
+    {
+        // If no UVs, calculate tangents from edges
+        auto normalIt = triangulatedRestMesh->variables.find("N");
+        if (normalIt == triangulatedRestMesh->variables.end())
+        {
+            // Calculate vertex normals if not present
+            PrimitiveVariable normals = MeshAlgo::calculateNormals(triangulatedRestMesh.get());
+            triangulatedRestMesh->variables["N"] = normals;
+            normalIt = triangulatedRestMesh->variables.find("N");
+        }
+
+        if (normalIt != triangulatedRestMesh->variables.end())
+        {
+            restTangents = MeshAlgo::calculateTangentsFromTwoEdges(triangulatedRestMesh.get(), "P", normalIt->first, true, false);
+            hasTangents = true;
+        }
+    }
+
+    if (!hasTangents)
+    {
+        throw IECore::Exception("Failed to calculate tangents for rest mesh");
+    }
+
+    // Get curve data
+    const std::vector<int> &vertsPerCurve = curves->verticesPerCurve()->readable();
+    std::vector<size_t> vertexOffsets;
+    vertexOffsets.reserve(vertsPerCurve.size());
+
+    size_t offset = 0;
+    for (int count : vertsPerCurve)
+    {
+        vertexOffsets.push_back(offset);
+        offset += count;
+    }
+
+    auto pIt = curves->variables.find("P");
+    if (pIt == curves->variables.end())
+        return;
+
+    const V3fVectorData *posData = runTimeCast<const V3fVectorData>(pIt->second.data.get());
+    if (!posData)
+        return;
+
+    const std::vector<V3f> &points = posData->readable();
 
     // Process curves in parallel
     const size_t numCurves = vertsPerCurve.size();
     const size_t numThreads = std::thread::hardware_concurrency();
     const size_t batchSize = calculateBatchSize(numCurves, numThreads);
+
+    std::vector<CurveBinding> bindings(numCurves);
 
     parallel_for(blocked_range<size_t>(0, numCurves, batchSize),
                  [&](const blocked_range<size_t> &range)
@@ -451,7 +452,7 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
 
                      for (size_t i = range.begin(); i != range.end(); ++i)
                      {
-                         Detail::CurveBinding &binding = m_restCache.bindingCache.bindings[i];
+                         CurveBinding &binding = bindings[i];
 
                          // Find root point using attribute or first point
                          const size_t rootIdx = findRootPointIndex(curves, vertexOffsets, i);
@@ -473,15 +474,14 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
                          // Build and store rest frame
                          binding.restFrame.position = meshResult->point();
                          binding.restFrame.normal = meshResult->normal();
-                         binding.restFrame.tangent = Detail::primVar<V3f>(m_restCache.restTangents,
+
+                         // Get tangent using barycentric interpolation
+                         binding.restFrame.tangent = Detail::primVar<V3f>(restTangents.first,
                                                                           &binding.baryCoords[0],
                                                                           binding.triangleIndex,
                                                                           meshResult->vertexIds());
+
                          binding.restFrame.orthonormalize();
-
-                         // Pre-compute rest space offsets
-                         m_restCache.curveData.computeRestSpaceOffsets(binding.restFrame, i);
-
                          binding.valid = true;
                      }
                  });
@@ -491,16 +491,12 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
     V3fVectorDataPtr restNormalsData = new V3fVectorData;
     V3fVectorDataPtr restTangentsData = new V3fVectorData;
     V3fVectorDataPtr restBitangentsData = new V3fVectorData;
-    V3fVectorDataPtr localOffsetsData = new V3fVectorData;
-    FloatVectorDataPtr falloffValuesData = new FloatVectorData;
     V3fVectorDataPtr rootPointsData = new V3fVectorData;
 
     std::vector<V3f> &restPositions = restPositionsData->writable();
     std::vector<V3f> &restNormals = restNormalsData->writable();
     std::vector<V3f> &restTangents = restTangentsData->writable();
     std::vector<V3f> &restBitangents = restBitangentsData->writable();
-    std::vector<V3f> &localOffsets = localOffsetsData->writable();
-    std::vector<float> &falloffValues = falloffValuesData->writable();
     std::vector<V3f> &rootPoints = rootPointsData->writable();
 
     // Pre-allocate arrays
@@ -508,11 +504,6 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
     restNormals.resize(numCurves);
     restTangents.resize(numCurves);
     restBitangents.resize(numCurves);
-
-    // Copy data instead of direct assignment to handle different allocators
-    localOffsets.assign(m_restCache.curveData.restSpaceOffsets.begin(), m_restCache.curveData.restSpaceOffsets.end());
-    falloffValues.assign(m_restCache.curveData.falloffValues.begin(), m_restCache.curveData.falloffValues.end());
-
     rootPoints.resize(numCurves);
 
     // Store optimization data
@@ -531,7 +522,7 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
     // Copy data from bindings
     for (size_t i = 0; i < numCurves; ++i)
     {
-        const Detail::CurveBinding &binding = m_restCache.bindingCache.bindings[i];
+        const CurveBinding &binding = bindings[i];
         if (!binding.valid)
             continue;
 
@@ -551,16 +542,12 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
     outputCurves->variables["restNormal"] = PrimitiveVariable(PrimitiveVariable::Uniform, restNormalsData);
     outputCurves->variables["restTangent"] = PrimitiveVariable(PrimitiveVariable::Uniform, restTangentsData);
     outputCurves->variables["restBitangent"] = PrimitiveVariable(PrimitiveVariable::Uniform, restBitangentsData);
-    outputCurves->variables["localOffset"] = PrimitiveVariable(PrimitiveVariable::Vertex, localOffsetsData);
-    outputCurves->variables["falloffValue"] = PrimitiveVariable(PrimitiveVariable::Vertex, falloffValuesData);
     outputCurves->variables["rootPoint"] = PrimitiveVariable(PrimitiveVariable::Uniform, rootPointsData);
 
     // Store optimization data
     outputCurves->variables["triangleIndex"] = PrimitiveVariable(PrimitiveVariable::Uniform, triangleIndicesData);
     outputCurves->variables["barycentricCoords"] = PrimitiveVariable(PrimitiveVariable::Uniform, barycentricCoordsData);
     outputCurves->variables["uvCoords"] = PrimitiveVariable(PrimitiveVariable::Uniform, uvCoordsData);
-
-    m_restCache.bindingCache.valid = true;
 }
 
 IECore::ConstObjectPtr RigidAttachCurves::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
@@ -613,13 +600,6 @@ IECore::ConstObjectPtr RigidAttachCurves::computeProcessedObject(const ScenePath
     {
         return inputObject;
     }
-
-    // Get hashes for cache validation
-    MurmurHash restMeshHash = restMeshPlug()->objectHash(restPath);
-    MurmurHash curvesHash = inPlug()->objectHash(path);
-
-    // Update rest cache if needed
-    updateRestCache(restMesh, curves, restMeshHash, curvesHash);
 
     // Create output curves with same topology
     CurvesPrimitivePtr outputCurves = new CurvesPrimitive(
