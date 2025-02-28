@@ -26,21 +26,21 @@ namespace GafferScotch
 
         IE_CORE_DECLARERUNTIMETYPEDEXTENSION(GafferScotch::RigidAttachCurves, GafferScotch::TypeId::RigidAttachCurvesTypeId, GafferScene::ObjectProcessor);
 
-        // Rest mesh input
-        GafferScene::ScenePlug *restMeshPlug();
-        const GafferScene::ScenePlug *restMeshPlug() const;
+        // Static mesh input
+        GafferScene::ScenePlug *staticDeformerPlug();
+        const GafferScene::ScenePlug *staticDeformerPlug() const;
 
         // Root finding
-        Gaffer::StringPlug *rootAttrPlug();
-        const Gaffer::StringPlug *rootAttrPlug() const;
+        Gaffer::StringPlug *curveRootAttrPlug();
+        const Gaffer::StringPlug *curveRootAttrPlug() const;
 
         // Binding mode
         Gaffer::BoolPlug *useBindAttrPlug();
         const Gaffer::BoolPlug *useBindAttrPlug() const;
 
         // Single mesh path
-        Gaffer::StringPlug *bindPathPlug();
-        const Gaffer::StringPlug *bindPathPlug() const;
+        Gaffer::StringPlug *deformerPathPlug();
+        const Gaffer::StringPlug *deformerPathPlug() const;
 
         // Per-curve mesh path attribute
         Gaffer::StringPlug *bindAttrPlug();
@@ -57,17 +57,17 @@ namespace GafferScotch
         bool acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plug *inputPlug) const override;
 
     private:
-        // Cache for rest data
+        // Cache for static data
         struct RestDataCache
         {
-            IECore::MurmurHash restMeshHash;
+            IECore::MurmurHash staticMeshHash;
             IECore::MurmurHash curvesHash;
             bool valid;
 
             // Added members from Detail::RestDataCache
             Detail::CurveData curveData;
-            Detail::MeshData restMeshData;
-            IECoreScene::PrimitiveVariable restTangents;
+            Detail::MeshData staticMeshData;
+            IECoreScene::PrimitiveVariable staticTangents;
             Detail::BindingCache bindingCache;
 
             RestDataCache() : valid(false) {}
@@ -79,23 +79,9 @@ namespace GafferScotch
             }
         };
 
-        mutable RestDataCache m_restCache;
-
-        // Helper to update rest cache if needed
-        void updateRestCache(
-            const IECoreScene::MeshPrimitive *restMesh,
-            const IECoreScene::CurvesPrimitive *curves,
-            const IECore::MurmurHash &restMeshHash,
-            const IECore::MurmurHash &curvesHash) const;
-
-        // Helper for spatial acceleration
-        void buildSpatialIndex(
-            const IECoreScene::MeshPrimitive *mesh,
-            IECoreScene::MeshPrimitiveEvaluator *evaluator) const;
-
         // Helper to compute bindings and store as attributes
         void computeBindings(
-            const IECoreScene::MeshPrimitive *restMesh,
+            const IECoreScene::MeshPrimitive *staticMesh,
             const IECoreScene::CurvesPrimitive *curves,
             IECoreScene::CurvesPrimitive *outputCurves) const;
 

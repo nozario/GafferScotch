@@ -31,21 +31,21 @@ namespace GafferScotch
 
         IE_CORE_DECLARERUNTIMETYPEDEXTENSION(GafferScotch::RigidDeformCurves, GafferScotch::TypeId::RigidDeformCurvesTypeId, GafferScene::Deformer);
 
-        // Rest mesh input (for reference)
-        GafferScene::ScenePlug *restMeshPlug();
-        const GafferScene::ScenePlug *restMeshPlug() const;
+        // Static mesh input (for reference)
+        GafferScene::ScenePlug *staticDeformerPlug();
+        const GafferScene::ScenePlug *staticDeformerPlug() const;
 
         // Animated mesh input
-        GafferScene::ScenePlug *animatedMeshPlug();
-        const GafferScene::ScenePlug *animatedMeshPlug() const;
+        GafferScene::ScenePlug *animatedDeformerPlug();
+        const GafferScene::ScenePlug *animatedDeformerPlug() const;
 
         // Binding mode
         Gaffer::BoolPlug *useBindAttrPlug();
         const Gaffer::BoolPlug *useBindAttrPlug() const;
 
         // Single mesh path
-        Gaffer::StringPlug *bindPathPlug();
-        const Gaffer::StringPlug *bindPathPlug() const;
+        Gaffer::StringPlug *deformerPathPlug();
+        const Gaffer::StringPlug *deformerPathPlug() const;
 
         // Per-curve mesh path attribute
         Gaffer::StringPlug *bindAttrPlug();
@@ -67,25 +67,20 @@ namespace GafferScotch
         bool acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plug *inputPlug) const override;
 
     private:
-        // Helper to update rest cache if needed
-        void updateRestCache(
-            const IECoreScene::CurvesPrimitive *curves,
-            const IECore::MurmurHash &curvesHash) const;
-
         // Helper to deform curves using stored binding data
         void deformCurves(
             const IECoreScene::CurvesPrimitive *curves,
-            const IECoreScene::MeshPrimitive *restMesh,
+            const IECoreScene::MeshPrimitive *staticMesh,
             const IECoreScene::MeshPrimitive *animatedMesh,
             IECoreScene::CurvesPrimitive *outputCurves) const;
 
         // Helper to compute deformed frame
         void computeDeformedFrame(
-            const Imath::V3f &restPosition,
-            const Imath::V3f &restNormal,
-            const Imath::V3f &restTangent,
-            const Imath::V3f &restBitangent,
-            const IECoreScene::MeshPrimitive *restMesh,
+            const Imath::V3f &staticPosition,
+            const Imath::V3f &staticNormal,
+            const Imath::V3f &staticTangent,
+            const Imath::V3f &staticBitangent,
+            const IECoreScene::MeshPrimitive *staticMesh,
             const IECoreScene::MeshPrimitive *animatedMesh,
             Imath::V3f &outPosition,
             Imath::V3f &outNormal,
@@ -93,7 +88,6 @@ namespace GafferScotch
             Imath::V3f &outBitangent) const;
 
         static size_t g_firstPlugIndex;
-        mutable Detail::RestDataCache m_restCache;
     };
 
     IE_CORE_DECLAREPTR(RigidDeformCurves)
