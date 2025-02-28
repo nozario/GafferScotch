@@ -17,10 +17,33 @@ Gaffer.Metadata.registerNode(
     ICON_PATH,
     "nodeGadget:color",
     imath.Color3f(0.42, 0.27, 0.23),
+    # Section collapse states
+    "layout:section:Settings.Deformer:collapsed",
+    False,
+    "layout:section:Settings.Binding:collapsed",
+    False,
+    "layout:section:Settings.Cleanup:collapsed",
+    False,
     # Activator for bindAttr visibility
     "layout:activator:bindAttrVisible",
     lambda plug: plug["useBindAttr"].getValue(),
     plugs={
+        "deformerPath": [
+            "description",
+            """
+            The path to the mesh to use when useBindAttr is disabled.
+            """,
+            "plugValueWidget:type",
+            "GafferUI.PathPlugValueWidget",
+            "path:valid",
+            True,
+            "path:leaf",
+            True,
+            "path:bookmarks",
+            "meshes",
+            "layout:section",
+            "Settings.Deformer",
+        ],
         "staticDeformer": [
             "description",
             """
@@ -29,6 +52,8 @@ Gaffer.Metadata.registerNode(
             """,
             "nodule:type",
             "GafferUI::StandardNodule",
+            "layout:section",
+            "Settings.Deformer",
         ],
         "animatedDeformer": [
             "description",
@@ -38,6 +63,8 @@ Gaffer.Metadata.registerNode(
             """,
             "nodule:type",
             "GafferUI::StandardNodule",
+            "layout:section",
+            "Settings.Deformer",
         ],
         "useBindAttr": [
             "description",
@@ -53,14 +80,8 @@ Gaffer.Metadata.registerNode(
             False,
             "preset:Attribute",
             True,
-        ],
-        "deformerPath": [
-            "description",
-            """
-            The path to the mesh to use when useBindAttr is disabled.
-            """,
-            "plugValueWidget:type",
-            "GafferUI.PathPlugValueWidget",
+            "layout:section",
+            "Settings.Binding",
         ],
         "bindAttr": [
             "description",
@@ -70,6 +91,8 @@ Gaffer.Metadata.registerNode(
             """,
             "layout:visibilityActivator",
             "bindAttrVisible",
+            "layout:section",
+            "Settings.Binding",
         ],
         "cleanupBindAttributes": [
             "description",
@@ -79,6 +102,8 @@ Gaffer.Metadata.registerNode(
             triangleIndex, barycentricCoords, uvCoords, rootPoint, and any custom
             bind path attribute.
             """,
+            "layout:section",
+            "Settings.Cleanup",
         ],
     },
 )
