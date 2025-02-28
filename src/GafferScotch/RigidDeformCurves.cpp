@@ -159,8 +159,9 @@ RigidDeformCurves::RigidDeformCurves(const std::string &name)
 
     // Binding mode
     addChild(new BoolPlug("useBindAttr", Plug::In, false));
-    addChild(new StringPlug("deformerPath", Plug::In, "")); // Used when useBindAttr=false
-    addChild(new StringPlug("bindAttr", Plug::In, ""));     // Used when useBindAttr=true
+    addChild(new StringPlug("deformerPath", Plug::In, ""));           // Used when useBindAttr=false
+    addChild(new StringPlug("bindAttr", Plug::In, ""));               // Used when useBindAttr=true
+    addChild(new BoolPlug("cleanupBindAttributes", Plug::In, false)); // Whether to remove binding attributes from output
 
     // Fast pass-throughs for things we don't modify
     outPlug()->attributesPlug()->setInput(inPlug()->attributesPlug());
@@ -222,6 +223,16 @@ const StringPlug *RigidDeformCurves::bindAttrPlug() const
     return getChild<StringPlug>(g_firstPlugIndex + 4);
 }
 
+BoolPlug *RigidDeformCurves::cleanupBindAttributesPlug()
+{
+    return getChild<BoolPlug>(g_firstPlugIndex + 5);
+}
+
+const BoolPlug *RigidDeformCurves::cleanupBindAttributesPlug() const
+{
+    return getChild<BoolPlug>(g_firstPlugIndex + 5);
+}
+
 void RigidDeformCurves::affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const
 {
     Deformer::affects(input, outputs);
@@ -230,7 +241,8 @@ void RigidDeformCurves::affects(const Gaffer::Plug *input, AffectedPlugsContaine
         input == animatedDeformerPlug()->objectPlug() ||
         input == useBindAttrPlug() ||
         input == deformerPathPlug() ||
-        input == bindAttrPlug())
+        input == bindAttrPlug() ||
+        input == cleanupBindAttributesPlug())
     {
         outputs.push_back(outPlug()->objectPlug());
     }
@@ -252,7 +264,8 @@ bool RigidDeformCurves::affectsProcessedObject(const Gaffer::Plug *input) const
            input == animatedDeformerPlug()->objectPlug() ||
            input == useBindAttrPlug() ||
            input == deformerPathPlug() ||
-           input == bindAttrPlug();
+           input == bindAttrPlug() ||
+           input == cleanupBindAttributesPlug();
 }
 
 void RigidDeformCurves::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
@@ -474,6 +487,34 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
             IECore::msg(IECore::Msg::Error, "RigidDeformCurves",
                         (boost::format("Deformation failed: %s") % e.what()).str());
             return inputObject;
+        }
+
+        // Clean up binding attributes if requested
+        if (cleanupBindAttributesPlug()->getValue())
+        {
+            const std::vector<std::string> bindingAttrs = {
+                "restPosition", "restNormal", "restTangent", "restBitangent",
+                "triangleIndex", "barycentricCoords", "uvCoords", "rootPoint"};
+
+            for (const std::string &attr : bindingAttrs)
+            {
+                auto it = outputCurves->variables.find(attr);
+                if (it != outputCurves->variables.end())
+                {
+                    outputCurves->variables.erase(it);
+                }
+            }
+
+            // Also remove the bind path attribute if it exists
+            const std::string bindAttrName = bindAttrPlug()->getValue();
+            if (!bindAttrName.empty())
+            {
+                auto it = outputCurves->variables.find(bindAttrName);
+                if (it != outputCurves->variables.end())
+                {
+                    outputCurves->variables.erase(it);
+                }
+            }
         }
 
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Deformation completed successfully");

@@ -51,6 +51,9 @@ namespace GafferScotch
         Gaffer::StringPlug *bindAttrPlug();
         const Gaffer::StringPlug *bindAttrPlug() const;
 
+        Gaffer::BoolPlug *cleanupBindAttributesPlug();
+        const Gaffer::BoolPlug *cleanupBindAttributesPlug() const;
+
         void affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const override;
 
     protected:
