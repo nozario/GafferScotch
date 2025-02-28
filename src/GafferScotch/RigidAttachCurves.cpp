@@ -253,15 +253,6 @@ bool RigidAttachCurves::affectsProcessedObject(const Gaffer::Plug *input) const
            input == bindAttrPlug();
 }
 
-bool RigidAttachCurves::affectsProcessedObjectBound(const Gaffer::Plug *input) const
-{
-    return input == restMeshPlug()->objectPlug() ||
-           input == rootAttrPlug() ||
-           input == useBindAttrPlug() ||
-           input == bindPathPlug() ||
-           input == bindAttrPlug();
-}
-
 void RigidAttachCurves::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
 {
     // Get objects
@@ -314,21 +305,6 @@ void RigidAttachCurves::hashProcessedObject(const ScenePath &path, const Gaffer:
     h.append(inPlug()->objectHash(path));
 
     // Hash parameters
-    rootAttrPlug()->hash(h);
-    useBindAttrPlug()->hash(h);
-    bindPathPlug()->hash(h);
-    bindAttrPlug()->hash(h);
-}
-
-void RigidAttachCurves::hashProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
-{
-    // Hash rest mesh
-    h.append(restMeshPlug()->objectHash(path));
-
-    // Hash input curves
-    h.append(inPlug()->objectHash(path));
-
-    // Hash parameters that could affect the bound
     rootAttrPlug()->hash(h);
     useBindAttrPlug()->hash(h);
     bindPathPlug()->hash(h);
@@ -655,62 +631,4 @@ IECore::ConstObjectPtr RigidAttachCurves::computeProcessedObject(const ScenePath
     computeBindings(restMesh, curves, outputCurves.get());
 
     return outputCurves;
-}
-
-Imath::Box3f RigidAttachCurves::computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const
-{
-    // Get input object
-    ConstObjectPtr inputObject = inPlug()->object(path);
-    const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>(inputObject.get());
-
-    if (!curves)
-    {
-        return inputObject->bound();
-    }
-
-    // Get the target path based on mode
-    ScenePath restPath;
-    const bool useBindAttr = useBindAttrPlug()->getValue();
-    if (useBindAttr)
-    {
-        // Try to get path from attribute
-        const std::string bindAttrName = bindAttrPlug()->getValue();
-        if (!bindAttrName.empty())
-        {
-            auto it = curves->variables.find(bindAttrName);
-            if (it != curves->variables.end())
-            {
-                if (const StringData *pathData = runTimeCast<const StringData>(it->second.data.get()))
-                {
-                    restPath = GafferScotch::makeScenePath(pathData->readable());
-                }
-                else if (const StringVectorData *pathVectorData = runTimeCast<const StringVectorData>(it->second.data.get()))
-                {
-                    const std::vector<std::string> &paths = pathVectorData->readable();
-                    if (!paths.empty())
-                    {
-                        restPath = GafferScotch::makeScenePath(paths[0]); // Use first path for now
-                    }
-                }
-            }
-        }
-    }
-    else
-    {
-        // Use path from plug
-        restPath = GafferScotch::makeScenePath(bindPathPlug()->getValue());
-    }
-
-    // Get rest mesh
-    ConstObjectPtr restMeshObj = restMeshPlug()->object(restPath);
-    const MeshPrimitive *restMesh = runTimeCast<const MeshPrimitive>(restMeshObj.get());
-
-    if (!restMesh)
-    {
-        return curves->bound();
-    }
-
-    // For now, return a union of the input curves bound and the rest mesh bound
-    // This is conservative but safe
-    return curves->bound().extendBy(restMesh->bound());
 }

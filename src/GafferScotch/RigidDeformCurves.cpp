@@ -559,3 +559,145 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
 
     return outputCurves;
 }
+
+bool RigidDeformCurves::affectsProcessedObjectBound(const Gaffer::Plug *input) const
+{
+    return input == restMeshPlug()->objectPlug() ||
+           input == animatedMeshPlug()->objectPlug() ||
+           input == useBindAttrPlug() ||
+           input == bindPathPlug() ||
+           input == bindAttrPlug();
+}
+
+void RigidDeformCurves::hashProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
+{
+    // Get objects
+    ConstObjectPtr inputObject = inPlug()->object(path);
+    const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>(inputObject.get());
+
+    if (!curves)
+    {
+        h = inPlug()->boundHash(path);
+        return;
+    }
+
+    // Get the target path based on mode
+    ScenePath meshPath;
+    const bool useBindAttr = useBindAttrPlug()->getValue();
+    if (useBindAttr)
+    {
+        // Try to get path from attribute
+        const std::string bindAttrName = bindAttrPlug()->getValue();
+        if (!bindAttrName.empty())
+        {
+            auto it = curves->variables.find(bindAttrName);
+            if (it != curves->variables.end())
+            {
+                if (const StringData *pathData = runTimeCast<const StringData>(it->second.data.get()))
+                {
+                    meshPath = GafferScotch::makeScenePath(pathData->readable());
+                }
+                else if (const StringVectorData *pathVectorData = runTimeCast<const StringVectorData>(it->second.data.get()))
+                {
+                    const std::vector<std::string> &paths = pathVectorData->readable();
+                    if (!paths.empty())
+                    {
+                        meshPath = GafferScotch::makeScenePath(paths[0]); // Use first path for now
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        // Use path from plug
+        meshPath = GafferScotch::makeScenePath(bindPathPlug()->getValue());
+    }
+
+    // Hash meshes
+    h.append(restMeshPlug()->objectHash(meshPath));
+    h.append(animatedMeshPlug()->objectHash(meshPath));
+
+    // Hash input curves and binding data
+    h.append(inPlug()->boundHash(path));
+    hashBindingData(curves, h);
+
+    // Hash parameters
+    useBindAttrPlug()->hash(h);
+    bindPathPlug()->hash(h);
+    bindAttrPlug()->hash(h);
+}
+
+Imath::Box3f RigidDeformCurves::computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const
+{
+    // Get objects
+    ConstObjectPtr inputObject = inPlug()->object(path);
+    const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>(inputObject.get());
+
+    if (!curves)
+    {
+        return inPlug()->bound(path);
+    }
+
+    // Get the target path based on mode
+    ScenePath meshPath;
+    const bool useBindAttr = useBindAttrPlug()->getValue();
+    if (useBindAttr)
+    {
+        // Try to get path from attribute
+        const std::string bindAttrName = bindAttrPlug()->getValue();
+        if (!bindAttrName.empty())
+        {
+            auto it = curves->variables.find(bindAttrName);
+            if (it != curves->variables.end())
+            {
+                if (const StringData *pathData = runTimeCast<const StringData>(it->second.data.get()))
+                {
+                    meshPath = GafferScotch::makeScenePath(pathData->readable());
+                }
+                else if (const StringVectorData *pathVectorData = runTimeCast<const StringVectorData>(it->second.data.get()))
+                {
+                    const std::vector<std::string> &paths = pathVectorData->readable();
+                    if (!paths.empty())
+                    {
+                        meshPath = GafferScotch::makeScenePath(paths[0]); // Use first path for now
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        // Use path from plug
+        meshPath = GafferScotch::makeScenePath(bindPathPlug()->getValue());
+    }
+
+    // Get meshes using resolved path
+    ConstObjectPtr restMeshObj = restMeshPlug()->object(meshPath);
+    const MeshPrimitive *restMesh = runTimeCast<const MeshPrimitive>(restMeshObj.get());
+
+    ConstObjectPtr animatedMeshObj = animatedMeshPlug()->object(meshPath);
+    const MeshPrimitive *animatedMesh = runTimeCast<const MeshPrimitive>(animatedMeshObj.get());
+
+    if (!restMesh || !animatedMesh)
+    {
+        return inPlug()->bound(path);
+    }
+
+    // Create output curves with same topology
+    CurvesPrimitivePtr outputCurves = new CurvesPrimitive(
+        curves->verticesPerCurve(),
+        curves->basis(),
+        curves->periodic());
+
+    // Copy primitive variables
+    for (const auto &primVar : curves->variables)
+    {
+        outputCurves->variables[primVar.first] = primVar.second;
+    }
+
+    // Deform curves to get accurate bounds
+    deformCurves(curves, restMesh, animatedMesh, outputCurves.get());
+
+    return outputCurves->bound();
+}
