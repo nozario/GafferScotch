@@ -480,7 +480,8 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
                          const int *triangleVertices = &vertexIds[binding.triangleIndex * 3];
 
                          // Extract tangent data from the PrimitiveVariable
-                         const V3fVectorData *tangentData = runTimeCast<const V3fVectorData>(restTangents.first.data.get());
+                         const PrimitiveVariable &tangentPrimVar = restTangents.first;
+                         const V3fVectorData *tangentData = runTimeCast<const V3fVectorData>(tangentPrimVar.data.get());
                          if (!tangentData)
                          {
                              throw IECore::Exception("Failed to retrieve tangent data");
@@ -488,7 +489,7 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
                          const std::vector<V3f> &tangents = tangentData->readable();
 
                          // Get tangent using barycentric interpolation
-                         binding.restFrame.tangent = Detail::primVar<V3f>(tangents,
+                         binding.restFrame.tangent = Detail::primVar<V3f>(tangentPrimVar,
                                                                           &binding.baryCoords[0],
                                                                           binding.triangleIndex,
                                                                           V3i(triangleVertices[0],

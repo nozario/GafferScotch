@@ -380,124 +380,43 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
         outputCurves->variables[primVar.first] = primVar.second;
     }
 
-    // Get binding data
-    auto restPositionIt = curves->variables.find("restPosition");
-    auto restNormalIt = curves->variables.find("restNormal");
-    auto restTangentIt = curves->variables.find("restTangent");
-    auto restBitangentIt = curves->variables.find("restBitangent");
-    auto triangleIndexIt = curves->variables.find("triangleIndex");
-    auto baryCoordsIt = curves->variables.find("barycentricCoords");
+    // Read binding data
+    const V3fVectorData *restPositionsData = runTimeCast<const V3fVectorData>(curves->variables.at("restPosition").data.get());
+    const V3fVectorData *restNormalsData = runTimeCast<const V3fVectorData>(curves->variables.at("restNormal").data.get());
+    const V3fVectorData *restTangentsData = runTimeCast<const V3fVectorData>(curves->variables.at("restTangent").data.get());
+    const V3fVectorData *restBitangentsData = runTimeCast<const V3fVectorData>(curves->variables.at("restBitangent").data.get());
+    const IntVectorData *triangleIndicesData = runTimeCast<const IntVectorData>(curves->variables.at("triangleIndex").data.get());
+    const V3fVectorData *barycentricCoordsData = runTimeCast<const V3fVectorData>(curves->variables.at("barycentricCoords").data.get());
 
-    if (restPositionIt == curves->variables.end() ||
-        restNormalIt == curves->variables.end() ||
-        restTangentIt == curves->variables.end() ||
-        restBitangentIt == curves->variables.end() ||
-        triangleIndexIt == curves->variables.end() ||
-        baryCoordsIt == curves->variables.end())
+    if (!restPositionsData || !restNormalsData || !restTangentsData || !restBitangentsData || !triangleIndicesData || !barycentricCoordsData)
     {
-        return inputObject;
+        throw IECore::Exception("Missing binding data");
     }
 
-    const V3fVectorData *restPositions = runTimeCast<const V3fVectorData>(restPositionIt->second.data.get());
-    const V3fVectorData *restNormals = runTimeCast<const V3fVectorData>(restNormalIt->second.data.get());
-    const V3fVectorData *restTangents = runTimeCast<const V3fVectorData>(restTangentIt->second.data.get());
-    const V3fVectorData *restBitangents = runTimeCast<const V3fVectorData>(restBitangentIt->second.data.get());
-    const IntVectorData *triangleIndices = runTimeCast<const IntVectorData>(triangleIndexIt->second.data.get());
-    const V3fVectorData *baryCoords = runTimeCast<const V3fVectorData>(baryCoordsIt->second.data.get());
-
-    if (!restPositions || !restNormals || !restTangents || !restBitangents ||
-        !triangleIndices || !baryCoords)
-    {
-        return inputObject;
-    }
-
-    // Get positions from input curves
-    auto pIt = curves->variables.find("P");
-    if (pIt == curves->variables.end())
-        return inputObject;
-
-    V3fVectorDataPtr positionData = runTimeCast<V3fVectorData>(pIt->second.data->copy());
-    if (!positionData)
-        return inputObject;
-
-    std::vector<V3f> &positions = positionData->writable();
-
-    // Get vertex offsets
-    const std::vector<int> &vertsPerCurve = curves->verticesPerCurve()->readable();
-    std::vector<size_t> vertexOffsets;
-    vertexOffsets.reserve(vertsPerCurve.size());
-
-    size_t offset = 0;
-    for (int count : vertsPerCurve)
-    {
-        vertexOffsets.push_back(offset);
-        offset += count;
-    }
-
-    // Calculate tangents for animated mesh
-    std::pair<PrimitiveVariable, PrimitiveVariable> animatedTangents;
-    bool hasTangents = false;
-
-    // Try to calculate tangents from UVs first
-    auto uvIt = animatedMesh->variables.find("uv");
-    if (uvIt == animatedMesh->variables.end())
-    {
-        uvIt = animatedMesh->variables.find("st");
-    }
-    if (uvIt == animatedMesh->variables.end())
-    {
-        uvIt = animatedMesh->variables.find("UV");
-    }
-
-    if (uvIt != animatedMesh->variables.end())
-    {
-        animatedTangents = MeshAlgo::calculateTangents(animatedMesh, uvIt->first, true, "P");
-        hasTangents = true;
-    }
-    else
-    {
-        // If no UVs, calculate tangents from edges
-        auto normalIt = animatedMesh->variables.find("N");
-        if (normalIt == animatedMesh->variables.end())
-        {
-            // Calculate vertex normals if not present
-            PrimitiveVariable normals = MeshAlgo::calculateNormals(animatedMesh);
-            const_cast<MeshPrimitive *>(animatedMesh)->variables["N"] = normals;
-            normalIt = animatedMesh->variables.find("N");
-        }
-
-        if (normalIt != animatedMesh->variables.end())
-        {
-            animatedTangents = MeshAlgo::calculateTangentsFromTwoEdges(animatedMesh, "P", normalIt->first, true, false);
-            hasTangents = true;
-        }
-    }
-
-    if (!hasTangents)
-    {
-        throw IECore::Exception("Failed to calculate tangents for animated mesh");
-    }
+    const std::vector<V3f> &restPositions = restPositionsData->readable();
+    const std::vector<V3f> &restNormals = restNormalsData->readable();
+    const std::vector<V3f> &restTangents = restTangentsData->readable();
+    const std::vector<V3f> &restBitangents = restBitangentsData->readable();
+    const std::vector<int> &triangleIndices = triangleIndicesData->readable();
+    const std::vector<V3f> &barycentricCoords = barycentricCoordsData->readable();
 
     // Process curves in parallel
-    const size_t numCurves = vertsPerCurve.size();
+    const size_t numCurves = curves->verticesPerCurve()->readable().size();
     const size_t numThreads = std::thread::hardware_concurrency();
     const size_t batchSize = calculateBatchSize(numCurves, numThreads);
 
     parallel_for(blocked_range<size_t>(0, numCurves, batchSize),
                  [&](const blocked_range<size_t> &range)
                  {
-                     // Thread-local evaluator result
-                     MeshPrimitiveEvaluator::ResultPtr restResult = new MeshPrimitiveEvaluator::Result;
-                     MeshPrimitiveEvaluator::ResultPtr animatedResult = new MeshPrimitiveEvaluator::Result;
-
                      for (size_t i = range.begin(); i != range.end(); ++i)
                      {
-                         // Get rest frame
+                         // Reconstruct rest frame
                          RestFrame restFrame;
-                         restFrame.position = restPositions->readable()[i];
-                         restFrame.normal = restNormals->readable()[i];
-                         restFrame.tangent = restTangents->readable()[i];
-                         restFrame.bitangent = restBitangents->readable()[i];
+                         restFrame.position = restPositions[i];
+                         restFrame.normal = restNormals[i];
+                         restFrame.tangent = restTangents[i];
+                         restFrame.bitangent = restBitangents[i];
+                         restFrame.orthonormalize();
 
                          // Get binding data
                          const int triangleIndex = triangleIndices->readable()[i];
