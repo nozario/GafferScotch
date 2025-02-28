@@ -54,6 +54,11 @@ namespace GafferScotch
         void hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const override;
         IECore::ConstObjectPtr computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const override;
 
+        // Override bound processing methods
+        bool affectsProcessedObjectBound(const Gaffer::Plug *input) const override;
+        void hashProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const override;
+        Imath::Box3f computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const override;
+
         bool acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plug *inputPlug) const override;
 
     private:
