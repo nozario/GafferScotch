@@ -223,6 +223,18 @@ namespace GafferScotch
             const int numVerts = curves->vertsPerCurve[curveIndex];
             const V3f rootP = curves->points[vertOffset];
 
+            // Get binding with thread-safe access
+            const CurveBinding &binding = curves->bindingCache.bindings.get(curveIndex);
+            if (!binding.valid)
+            {
+                // If binding is invalid, copy original points unchanged
+                for (int i = 0; i < numVerts; ++i)
+                {
+                    (*outputPoints)[vertOffset + i] = curves->points[vertOffset + i];
+                }
+                return;
+            }
+
             // Find closest point on rest mesh
             if (!restEvaluator->closestPoint(rootP, cache.restResult.get()))
             {

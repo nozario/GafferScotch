@@ -192,10 +192,35 @@ namespace GafferScotch
         // Collection of cached bindings and acceleration data
         struct BindingCache
         {
-            AlignedVector<CurveBinding> bindings; // Per-curve root point bindings
-            IECore::MurmurHash restMeshHash;      // Hash for rest mesh validation
-            IECore::MurmurHash curvesHash;        // Hash for curves validation
-            bool valid;                           // Whether the cache is valid
+            // Thread-safe storage for bindings
+            struct ThreadSafeBindings
+            {
+                mutable std::shared_mutex mutex;
+                AlignedVector<CurveBinding> bindings;
+
+                void resize(size_t size)
+                {
+                    std::unique_lock<std::shared_mutex> lock(mutex);
+                    bindings.resize(size);
+                }
+
+                CurveBinding &get(size_t index)
+                {
+                    std::unique_lock<std::shared_mutex> lock(mutex);
+                    return bindings[index];
+                }
+
+                const CurveBinding &get(size_t index) const
+                {
+                    std::shared_lock<std::shared_mutex> lock(mutex);
+                    return bindings[index];
+                }
+            };
+
+            ThreadSafeBindings bindings;
+            IECore::MurmurHash restMeshHash; // Hash for rest mesh validation
+            IECore::MurmurHash curvesHash;   // Hash for curves validation
+            bool valid;                      // Whether the cache is valid
 
             BindingCache() : valid(false) {}
 
