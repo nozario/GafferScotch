@@ -30,29 +30,8 @@ Gaffer.Metadata.registerNode(
             """,
             "nodule:type",
             "GafferUI::StandardNodule",
-        ],
-        "radius": [
-            "description",
-            """
-            The search radius for finding influencing points. Points outside
-            this radius will not influence the target point. If fewer than
-            minPoints are found, the radius is automatically increased.
-            """,
-        ],
-        "maxPoints": [
-            "description",
-            """
-            The maximum number of source points that can influence each
-            target point. The closest points within the radius are kept.
-            """,
-        ],
-        "minPoints": [
-            "description",
-            """
-            The minimum number of source points required to influence each
-            target point. If fewer points are found within the radius, the
-            radius is automatically increased to include at least this many points.
-            """,
+            "plugValueWidget:position",
+            0,
         ],
         "pieceAttribute": [
             "description",
@@ -61,6 +40,41 @@ Gaffer.Metadata.registerNode(
             When specified, only points with matching attribute values
             will influence each other.
             """,
+            "plugValueWidget:position",
+            1,
         ],
+        "radius": [
+            "description",
+            """
+            The search radius for finding influencing points. Points outside
+            this radius will not influence the target point. If fewer than
+            minPoints are found, the radius is automatically increased.
+            """,
+            "plugValueWidget:position",
+            3,
+        ],
+        "minPoints": [
+            "description",
+            """
+            The minimum number of source points required to influence each
+            target point. If fewer points are found within the radius, the
+            radius is automatically increased to include at least this many points.
+            """,
+            "plugValueWidget:position",
+            4,
+        ],
+        "maxPoints": [
+            "description",
+            """
+            The maximum number of source points that can influence each
+            target point. The closest points within the radius are kept.
+            """,
+            "plugValueWidget:position",
+            5,
+        ],
+        "pieceAttribute__divider": {
+            "plugValueWidget:type": "GafferUI.Divider",
+            "plugValueWidget:position": 2,
+        },
     },
 )

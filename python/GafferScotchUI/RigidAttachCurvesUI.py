@@ -17,6 +17,9 @@ Gaffer.Metadata.registerNode(
     ICON_PATH,
     "nodeGadget:color",
     imath.Color3f(0.42, 0.27, 0.23),
+    # Add activator for bindAttr visibility
+    "plugValueWidget:activator:bindAttrVisible",
+    lambda plug: plug["useBindAttr"].getValue(),
     plugs={
         "staticDeformer": [
             "description",
@@ -38,16 +41,31 @@ Gaffer.Metadata.registerNode(
         "useBindAttr": [
             "description",
             """
-            When enabled, uses a string attribute on the curves to determine
-            which mesh to bind to. When disabled, uses a single mesh path
-            for all curves.
+            Determines how the target mesh is specified for binding.
+            
+            Direct Path : Use a single mesh path for all curves.
+            Attribute : Use a string attribute on each curve to specify its target mesh.
             """,
+            "plugValueWidget:type",
+            "GafferUI.PresetsPlugValueWidget",
+            "preset:Direct Path",
+            False,
+            "preset:Attribute",
+            True,
         ],
         "deformerPath": [
             "description",
             """
             The path to the mesh to bind to when useBindAttr is disabled.
             """,
+            "plugValueWidget:type",
+            "GafferUI.PathPlugValueWidget",
+            "path:valid",
+            True,
+            "path:leaf",
+            True,
+            "path:bookmarks",
+            "meshes",
         ],
         "bindAttr": [
             "description",
@@ -55,6 +73,8 @@ Gaffer.Metadata.registerNode(
             The name of the string attribute that specifies which mesh to
             bind to when useBindAttr is enabled.
             """,
+            "plugValueWidget:activator",
+            "bindAttrVisible",
         ],
     },
 )
