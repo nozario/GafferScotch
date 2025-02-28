@@ -1,7 +1,4 @@
-// Prevent Windows min/max macro conflicts
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
+#include <math.h>
 
 #include "GafferScotch/AttachCurves.h"
 #include "GafferScotch/ScenePathUtil.h"
