@@ -371,8 +371,8 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
     MeshPrimitiveEvaluatorPtr restEvaluator = new MeshPrimitiveEvaluator(triangulatedRestMesh);
 
     // Calculate tangents for rest mesh
-    std::pair<PrimitiveVariable, PrimitiveVariable> restTangents;
-    bool hasTangents = false;
+    PrimitiveVariable tangentPrimVar;
+    PrimitiveVariable bitangentPrimVar;
 
     // Try to calculate tangents from UVs first
     auto uvIt = triangulatedRestMesh->variables.find("uv");
@@ -387,8 +387,9 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
 
     if (uvIt != triangulatedRestMesh->variables.end())
     {
-        restTangents = MeshAlgo::calculateTangents(triangulatedRestMesh.get(), uvIt->first, true, "P");
-        hasTangents = true;
+        auto tangentResult = MeshAlgo::calculateTangents(triangulatedRestMesh.get(), uvIt->first, true, "P");
+        tangentPrimVar = tangentResult.first;
+        bitangentPrimVar = tangentResult.second;
     }
     else
     {
@@ -404,14 +405,14 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
 
         if (normalIt != triangulatedRestMesh->variables.end())
         {
-            restTangents = MeshAlgo::calculateTangentsFromTwoEdges(triangulatedRestMesh.get(), "P", normalIt->first, true, false);
-            hasTangents = true;
+            auto tangentResult = MeshAlgo::calculateTangentsFromTwoEdges(triangulatedRestMesh.get(), "P", normalIt->first, true, false);
+            tangentPrimVar = tangentResult.first;
+            bitangentPrimVar = tangentResult.second;
         }
-    }
-
-    if (!hasTangents)
-    {
-        throw IECore::Exception("Failed to calculate tangents for rest mesh");
+        else
+        {
+            throw IECore::Exception("Failed to calculate tangents for rest mesh - no UVs or normals available");
+        }
     }
 
     // Get curve data
@@ -475,14 +476,11 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
                          binding.restFrame.position = meshResult->point();
                          binding.restFrame.normal = meshResult->normal();
 
-                         // Extract tangent data from the PrimitiveVariable pair
-                         const PrimitiveVariable &tangentPrimVar = restTangents.first;
-                         const PrimitiveVariable &bitangentPrimVar = restTangents.second;
-
                          // Get vertex indices for the triangle
                          const std::vector<int> &vertexIds = triangulatedRestMesh->vertexIds()->readable();
                          const int *triangleVertices = &vertexIds[binding.triangleIndex * 3];
 
+                         // Get tangent and bitangent using primVar interpolation
                          binding.restFrame.tangent = Detail::primVar<V3f>(tangentPrimVar,
                                                                           &binding.baryCoords[0],
                                                                           binding.triangleIndex,
@@ -509,12 +507,11 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
     V3fVectorDataPtr restBitangentsData = new V3fVectorData;
     V3fVectorDataPtr rootPointsData = new V3fVectorData;
 
-    // Get writable references to the data
-    auto &restPositions = restPositionsData->writable();
-    auto &restNormals = restNormalsData->writable();
-    auto &restTangents = restTangentsData->writable();
-    auto &restBitangents = restBitangentsData->writable();
-    auto &rootPoints = rootPointsData->writable();
+    std::vector<V3f> &restPositions = restPositionsData->writable();
+    std::vector<V3f> &restNormals = restNormalsData->writable();
+    std::vector<V3f> &restTangents = restTangentsData->writable();
+    std::vector<V3f> &restBitangents = restBitangentsData->writable();
+    std::vector<V3f> &rootPoints = rootPointsData->writable();
 
     // Pre-allocate arrays
     restPositions.resize(numCurves);
