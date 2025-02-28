@@ -154,13 +154,13 @@ RigidDeformCurves::RigidDeformCurves(const std::string &name)
     storeIndexOfNextChild(g_firstPlugIndex);
 
     // Add mesh inputs
-    addChild(new ScenePlug("restMesh", Plug::In));
-    addChild(new ScenePlug("animatedMesh", Plug::In));
+    addChild(new ScenePlug("staticDeformer", Plug::In));
+    addChild(new ScenePlug("animatedDeformer", Plug::In));
 
     // Binding mode
     addChild(new BoolPlug("useBindAttr", Plug::In, false));
-    addChild(new StringPlug("bindPath", Plug::In, "")); // Used when useBindAttr=false
-    addChild(new StringPlug("bindAttr", Plug::In, "")); // Used when useBindAttr=true
+    addChild(new StringPlug("deformerPath", Plug::In, "")); // Used when useBindAttr=false
+    addChild(new StringPlug("bindAttr", Plug::In, ""));     // Used when useBindAttr=true
 
     // Fast pass-throughs for things we don't modify
     outPlug()->attributesPlug()->setInput(inPlug()->attributesPlug());
@@ -172,22 +172,22 @@ RigidDeformCurves::~RigidDeformCurves()
 {
 }
 
-ScenePlug *RigidDeformCurves::restMeshPlug()
+ScenePlug *RigidDeformCurves::staticDeformerPlug()
 {
     return getChild<ScenePlug>(g_firstPlugIndex);
 }
 
-const ScenePlug *RigidDeformCurves::restMeshPlug() const
+const ScenePlug *RigidDeformCurves::staticDeformerPlug() const
 {
     return getChild<ScenePlug>(g_firstPlugIndex);
 }
 
-ScenePlug *RigidDeformCurves::animatedMeshPlug()
+ScenePlug *RigidDeformCurves::animatedDeformerPlug()
 {
     return getChild<ScenePlug>(g_firstPlugIndex + 1);
 }
 
-const ScenePlug *RigidDeformCurves::animatedMeshPlug() const
+const ScenePlug *RigidDeformCurves::animatedDeformerPlug() const
 {
     return getChild<ScenePlug>(g_firstPlugIndex + 1);
 }
@@ -202,12 +202,12 @@ const BoolPlug *RigidDeformCurves::useBindAttrPlug() const
     return getChild<BoolPlug>(g_firstPlugIndex + 2);
 }
 
-StringPlug *RigidDeformCurves::bindPathPlug()
+StringPlug *RigidDeformCurves::deformerPathPlug()
 {
     return getChild<StringPlug>(g_firstPlugIndex + 3);
 }
 
-const StringPlug *RigidDeformCurves::bindPathPlug() const
+const StringPlug *RigidDeformCurves::deformerPathPlug() const
 {
     return getChild<StringPlug>(g_firstPlugIndex + 3);
 }
@@ -226,10 +226,10 @@ void RigidDeformCurves::affects(const Gaffer::Plug *input, AffectedPlugsContaine
 {
     Deformer::affects(input, outputs);
 
-    if (input == restMeshPlug()->objectPlug() ||
-        input == animatedMeshPlug()->objectPlug() ||
+    if (input == staticDeformerPlug()->objectPlug() ||
+        input == animatedDeformerPlug()->objectPlug() ||
         input == useBindAttrPlug() ||
-        input == bindPathPlug() ||
+        input == deformerPathPlug() ||
         input == bindAttrPlug())
     {
         outputs.push_back(outPlug()->objectPlug());
@@ -248,10 +248,10 @@ bool RigidDeformCurves::acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plu
 
 bool RigidDeformCurves::affectsProcessedObject(const Gaffer::Plug *input) const
 {
-    return input == restMeshPlug()->objectPlug() ||
-           input == animatedMeshPlug()->objectPlug() ||
+    return input == staticDeformerPlug()->objectPlug() ||
+           input == animatedDeformerPlug()->objectPlug() ||
            input == useBindAttrPlug() ||
-           input == bindPathPlug() ||
+           input == deformerPathPlug() ||
            input == bindAttrPlug();
 }
 
@@ -297,12 +297,12 @@ void RigidDeformCurves::hashProcessedObject(const ScenePath &path, const Gaffer:
     else
     {
         // Use path from plug
-        meshPath = GafferScotch::makeScenePath(bindPathPlug()->getValue());
+        meshPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
     }
 
     // Hash meshes
-    h.append(restMeshPlug()->objectHash(meshPath));
-    h.append(animatedMeshPlug()->objectHash(meshPath));
+    h.append(staticDeformerPlug()->objectHash(meshPath));
+    h.append(animatedDeformerPlug()->objectHash(meshPath));
 
     // Hash input curves and binding data
     h.append(inPlug()->objectHash(path));
@@ -310,7 +310,7 @@ void RigidDeformCurves::hashProcessedObject(const ScenePath &path, const Gaffer:
 
     // Hash parameters
     useBindAttrPlug()->hash(h);
-    bindPathPlug()->hash(h);
+    deformerPathPlug()->hash(h);
     bindAttrPlug()->hash(h);
 }
 
@@ -381,7 +381,7 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
         else
         {
             IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Using direct bind path");
-            meshPath = GafferScotch::makeScenePath(bindPathPlug()->getValue());
+            meshPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
         }
 
         if (meshPath.empty())
@@ -402,49 +402,49 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
         }
 
         // Get meshes using resolved path
-        ConstObjectPtr restMeshObj = restMeshPlug()->object(meshPath);
-        if (!restMeshObj)
+        ConstObjectPtr staticDeformerObj = staticDeformerPlug()->object(meshPath);
+        if (!staticDeformerObj)
         {
-            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Null rest mesh object");
+            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Null static deformer object");
             return inputObject;
         }
 
-        const MeshPrimitive *restMesh = runTimeCast<const MeshPrimitive>(restMeshObj.get());
-        if (!restMesh)
+        const MeshPrimitive *staticDeformer = runTimeCast<const MeshPrimitive>(staticDeformerObj.get());
+        if (!staticDeformer)
         {
-            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Rest mesh is not a MeshPrimitive");
+            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Static deformer is not a MeshPrimitive");
             return inputObject;
         }
 
-        ConstObjectPtr animatedMeshObj = animatedMeshPlug()->object(meshPath);
-        if (!animatedMeshObj)
+        ConstObjectPtr animatedDeformerObj = animatedDeformerPlug()->object(meshPath);
+        if (!animatedDeformerObj)
         {
-            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Null animated mesh object");
+            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Null animated deformer object");
             return inputObject;
         }
 
-        const MeshPrimitive *animatedMesh = runTimeCast<const MeshPrimitive>(animatedMeshObj.get());
-        if (!animatedMesh)
+        const MeshPrimitive *animatedDeformer = runTimeCast<const MeshPrimitive>(animatedDeformerObj.get());
+        if (!animatedDeformer)
         {
-            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Animated mesh is not a MeshPrimitive");
+            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Animated deformer is not a MeshPrimitive");
             return inputObject;
         }
 
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Mesh objects validated");
 
         // Triangulate meshes to match RigidAttachCurves behavior
-        MeshPrimitivePtr triangulatedRestMesh = MeshAlgo::triangulate(restMesh);
-        MeshPrimitivePtr triangulatedAnimatedMesh = MeshAlgo::triangulate(animatedMesh);
+        MeshPrimitivePtr triangulatedStaticDeformer = MeshAlgo::triangulate(staticDeformer);
+        MeshPrimitivePtr triangulatedAnimatedDeformer = MeshAlgo::triangulate(animatedDeformer);
 
         // Validate mesh topology
-        if (!triangulatedRestMesh->vertexIds() || !triangulatedAnimatedMesh->vertexIds())
+        if (!triangulatedStaticDeformer->vertexIds() || !triangulatedAnimatedDeformer->vertexIds())
         {
             IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Missing vertex IDs");
             return inputObject;
         }
 
-        if (!triangulatedRestMesh->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex) ||
-            !triangulatedAnimatedMesh->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex))
+        if (!triangulatedStaticDeformer->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex) ||
+            !triangulatedAnimatedDeformer->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex))
         {
             IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Missing position data");
             return inputObject;
@@ -467,7 +467,7 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
         // Deform curves
         try
         {
-            deformCurves(curves, triangulatedRestMesh.get(), triangulatedAnimatedMesh.get(), outputCurves.get());
+            deformCurves(curves, triangulatedStaticDeformer.get(), triangulatedAnimatedDeformer.get(), outputCurves.get());
         }
         catch (const std::exception &e)
         {
@@ -494,10 +494,10 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
 
 bool RigidDeformCurves::affectsProcessedObjectBound(const Gaffer::Plug *input) const
 {
-    return input == restMeshPlug()->objectPlug() ||
-           input == animatedMeshPlug()->objectPlug() ||
+    return input == staticDeformerPlug()->objectPlug() ||
+           input == animatedDeformerPlug()->objectPlug() ||
            input == useBindAttrPlug() ||
-           input == bindPathPlug() ||
+           input == deformerPathPlug() ||
            input == bindAttrPlug();
 }
 
@@ -543,12 +543,12 @@ void RigidDeformCurves::hashProcessedObjectBound(const ScenePath &path, const Ga
     else
     {
         // Use path from plug
-        meshPath = GafferScotch::makeScenePath(bindPathPlug()->getValue());
+        meshPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
     }
 
     // Hash meshes
-    h.append(restMeshPlug()->objectHash(meshPath));
-    h.append(animatedMeshPlug()->objectHash(meshPath));
+    h.append(staticDeformerPlug()->objectHash(meshPath));
+    h.append(animatedDeformerPlug()->objectHash(meshPath));
 
     // Hash input curves and binding data
     h.append(inPlug()->boundHash(path));
@@ -556,7 +556,7 @@ void RigidDeformCurves::hashProcessedObjectBound(const ScenePath &path, const Ga
 
     // Hash parameters
     useBindAttrPlug()->hash(h);
-    bindPathPlug()->hash(h);
+    deformerPathPlug()->hash(h);
     bindAttrPlug()->hash(h);
 }
 
@@ -601,33 +601,33 @@ Imath::Box3f RigidDeformCurves::computeProcessedObjectBound(const ScenePath &pat
     else
     {
         // Use path from plug
-        meshPath = GafferScotch::makeScenePath(bindPathPlug()->getValue());
+        meshPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
     }
 
     // Get animated mesh using resolved path
-    ConstObjectPtr animatedMeshObj = animatedMeshPlug()->object(meshPath);
-    if (!animatedMeshObj)
+    ConstObjectPtr animatedDeformerObj = animatedDeformerPlug()->object(meshPath);
+    if (!animatedDeformerObj)
     {
         return inPlug()->bound(path);
     }
 
-    const MeshPrimitive *animatedMesh = runTimeCast<const MeshPrimitive>(animatedMeshObj.get());
-    if (!animatedMesh)
+    const MeshPrimitive *animatedDeformer = runTimeCast<const MeshPrimitive>(animatedDeformerObj.get());
+    if (!animatedDeformer)
     {
         return inPlug()->bound(path);
     }
 
     // Use the animated mesh's bounds directly since curves are bound to its surface
-    return animatedMesh->bound();
+    return animatedDeformer->bound();
 }
 
 void RigidDeformCurves::deformCurves(
     const IECoreScene::CurvesPrimitive *curves,
-    const IECoreScene::MeshPrimitive *restMesh,
-    const IECoreScene::MeshPrimitive *animatedMesh,
+    const IECoreScene::MeshPrimitive *staticDeformer,
+    const IECoreScene::MeshPrimitive *animatedDeformer,
     IECoreScene::CurvesPrimitive *outputCurves) const
 {
-    if (!curves || !restMesh || !animatedMesh || !outputCurves)
+    if (!curves || !staticDeformer || !animatedDeformer || !outputCurves)
     {
         throw IECore::Exception("Null input to deformCurves");
     }
@@ -644,7 +644,7 @@ void RigidDeformCurves::deformCurves(
 
         // Log input stats
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves",
-                    (boost::format("Input: %d curves, Rest mesh: %d verts, %d faces, Animated mesh: %d verts, %d faces") % curves->verticesPerCurve()->readable().size() % restMesh->variableSize(PrimitiveVariable::Vertex) % (restMesh->vertexIds()->readable().size() / 3) % animatedMesh->variableSize(PrimitiveVariable::Vertex) % (animatedMesh->vertexIds()->readable().size() / 3)).str());
+                    (boost::format("Input: %d curves, Static deformer: %d verts, %d faces, Animated deformer: %d verts, %d faces") % curves->verticesPerCurve()->readable().size() % staticDeformer->variableSize(PrimitiveVariable::Vertex) % (staticDeformer->vertexIds()->readable().size() / 3) % animatedDeformer->variableSize(PrimitiveVariable::Vertex) % (animatedDeformer->vertexIds()->readable().size() / 3)).str());
 
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Reading binding data");
 
@@ -693,38 +693,38 @@ void RigidDeformCurves::deformCurves(
 
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Setting up mesh data access");
 
-        const std::vector<int> &vertexIds = animatedMesh->vertexIds()->readable();
+        const std::vector<int> &vertexIds = animatedDeformer->vertexIds()->readable();
         const size_t numTriangles = vertexIds.size() / 3;
-        const std::vector<V3f> &meshPoints = animatedMesh->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex)->readable();
+        const std::vector<V3f> &meshPoints = animatedDeformer->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex)->readable();
 
         // Calculate tangents for animated mesh
         std::pair<PrimitiveVariable, PrimitiveVariable> animatedTangents;
 
         // Try UV-based tangents first
-        auto uvIt = animatedMesh->variables.find("uv");
-        if (uvIt == animatedMesh->variables.end())
-            uvIt = animatedMesh->variables.find("st");
-        if (uvIt == animatedMesh->variables.end())
-            uvIt = animatedMesh->variables.find("UV");
+        auto uvIt = animatedDeformer->variables.find("uv");
+        if (uvIt == animatedDeformer->variables.end())
+            uvIt = animatedDeformer->variables.find("st");
+        if (uvIt == animatedDeformer->variables.end())
+            uvIt = animatedDeformer->variables.find("UV");
 
-        if (uvIt != animatedMesh->variables.end())
+        if (uvIt != animatedDeformer->variables.end())
         {
-            animatedTangents = MeshAlgo::calculateTangents(animatedMesh, uvIt->first, true, "P");
+            animatedTangents = MeshAlgo::calculateTangents(animatedDeformer, uvIt->first, true, "P");
         }
         else
         {
             // Try edge-based tangents
-            auto normalIt = animatedMesh->variables.find("N");
-            if (normalIt == animatedMesh->variables.end())
+            auto normalIt = animatedDeformer->variables.find("N");
+            if (normalIt == animatedDeformer->variables.end())
             {
-                PrimitiveVariable normals = MeshAlgo::calculateNormals(animatedMesh);
-                const_cast<MeshPrimitive *>(animatedMesh)->variables["N"] = normals;
-                normalIt = animatedMesh->variables.find("N");
+                PrimitiveVariable normals = MeshAlgo::calculateNormals(animatedDeformer);
+                const_cast<MeshPrimitive *>(animatedDeformer)->variables["N"] = normals;
+                normalIt = animatedDeformer->variables.find("N");
             }
 
-            if (normalIt != animatedMesh->variables.end())
+            if (normalIt != animatedDeformer->variables.end())
             {
-                animatedTangents = MeshAlgo::calculateTangentsFromTwoEdges(animatedMesh, "P", normalIt->first, true, false);
+                animatedTangents = MeshAlgo::calculateTangentsFromTwoEdges(animatedDeformer, "P", normalIt->first, true, false);
             }
             else
             {
@@ -772,7 +772,7 @@ void RigidDeformCurves::deformCurves(
 
                                  // Get normals for the triangle vertices
                                  V3f deformedNormal;
-                                 const V3fVectorData *normalsData = animatedMesh->variableData<V3fVectorData>("N", PrimitiveVariable::Vertex);
+                                 const V3fVectorData *normalsData = animatedDeformer->variableData<V3fVectorData>("N", PrimitiveVariable::Vertex);
                                  if (normalsData)
                                  {
                                      const std::vector<V3f> &meshNormals = normalsData->readable();
