@@ -22,26 +22,12 @@ Gaffer.Metadata.registerNode(
     False,
     "layout:section:Settings.Binding:collapsed",
     False,
-    # Activator for bindAttr visibility
+    # Activators for conditional visibility
     "layout:activator:bindAttrVisible",
     lambda plug: plug["useBindAttr"].getValue(),
+    "layout:activator:deformerPathVisible",
+    lambda plug: not plug["useBindAttr"].getValue(),
     plugs={
-        "deformerPath": [
-            "description",
-            """
-            The path to the mesh to bind to when useBindAttr is disabled.
-            """,
-            "plugValueWidget:type",
-            "GafferUI.PathPlugValueWidget",
-            "path:valid",
-            True,
-            "path:leaf",
-            True,
-            "path:bookmarks",
-            "meshes",
-            "layout:section",
-            "Settings.Deformer",
-        ],
         "staticDeformer": [
             "description",
             """
@@ -80,16 +66,34 @@ Gaffer.Metadata.registerNode(
             "layout:section",
             "Settings.Binding",
         ],
+        "deformerPath": [
+            "description",
+            """
+            The path to the mesh to bind to when useBindAttr is disabled.
+            """,
+            "plugValueWidget:type",
+            "GafferUI.PathPlugValueWidget",
+            "path:valid",
+            True,
+            "path:leaf",
+            True,
+            "path:bookmarks",
+            "meshes",
+            "layout:section",
+            "Settings.Binding",
+            "layout:visibilityActivator",
+            "deformerPathVisible",
+        ],
         "bindAttr": [
             "description",
             """
             The name of the string attribute that specifies which mesh to
             bind to when useBindAttr is enabled.
             """,
-            "layout:visibilityActivator",
-            "bindAttrVisible",
             "layout:section",
             "Settings.Binding",
+            "layout:visibilityActivator",
+            "bindAttrVisible",
         ],
     },
 )
