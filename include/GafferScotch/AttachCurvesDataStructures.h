@@ -255,6 +255,7 @@ namespace GafferScotch
             IECoreScene::MeshPrimitiveEvaluator *animatedEvaluator;
             const IECoreScene::PrimitiveVariable *restTangents;
             const IECoreScene::PrimitiveVariable *animatedTangents;
+            const BindingCache *bindingCache; // Add reference to binding cache
 
             void processCurve(size_t curveIndex, ComputationCache &cache) const;
         };

@@ -224,7 +224,7 @@ namespace GafferScotch
             const V3f rootP = curves->points[vertOffset];
 
             // Get binding with thread-safe access
-            const CurveBinding &binding = curves->bindingCache.bindings.get(curveIndex);
+            const CurveBinding &binding = bindingCache->bindings.get(curveIndex);
             if (!binding.valid)
             {
                 // If binding is invalid, copy original points unchanged

@@ -467,11 +467,14 @@ void AttachCurves::computeBindings(const MeshPrimitive *restMesh, const CurvesPr
                      // Process curves in this range
                      for (size_t i = range.begin(); i != range.end(); ++i)
                      {
+                         const CurveBinding &binding = m_restCache.bindingCache.bindings.get(i);
+                         if (!binding.valid)
+                         {
+                             continue;
+                         }
+
                          const size_t vertOffset = m_restCache.curveData.vertexOffsets[i];
                          const V3f &rootP = m_restCache.curveData.points[vertOffset];
-
-                         // Get binding with thread-safe access
-                         CurveBinding &binding = m_restCache.bindingCache.bindings.get(i);
 
                          // Find closest point
                          if (!restEvaluator->closestPoint(rootP, meshResult))
