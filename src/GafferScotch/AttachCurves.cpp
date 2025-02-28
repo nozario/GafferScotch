@@ -6,7 +6,7 @@
 #include "Gaffer/StringPlug.h"
 
 #include "GafferScene/SceneAlgo.h"
-#include "GafferScene/PathMatcher.h"
+#include "IECore/PathMatcher.h"
 #include "GafferScene/PathFilter.h"
 
 #include "IECore/NullObject.h"
