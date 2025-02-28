@@ -868,14 +868,74 @@ void RigidDeformCurves::deformCurves(
                                  // Calculate transform exactly like VEX
                                  M44f Transform = StaticMatrix.inverse() * AnimMatrix;
 
-                                 // Transform points
+                                 // Check for extreme transformations
+                                 bool useStableTransform = false;
+                                 const float maxAllowedScale = 10.0f; // Adjust this threshold as needed
+
+                                 // Check scale factors from the transformation matrix
+                                 V3f scaleX(Transform[0][0], Transform[1][0], Transform[2][0]);
+                                 V3f scaleY(Transform[0][1], Transform[1][1], Transform[2][1]);
+                                 V3f scaleZ(Transform[0][2], Transform[1][2], Transform[2][2]);
+
+                                 float maxScale = std::max({scaleX.length(), scaleY.length(), scaleZ.length()});
+
+                                 if (maxScale > maxAllowedScale)
+                                 {
+                                     useStableTransform = true;
+                                     ++degenerateFrames;
+                                 }
+
+                                 // Transform points with fallback for extreme deformations
                                  const size_t startIdx = vertexOffsets[i];
                                  const size_t endIdx = (i + 1 < vertexOffsets.size()) ? vertexOffsets[i + 1] : positions.size();
 
-                                 for (size_t j = startIdx; j < endIdx; ++j)
+                                 if (useStableTransform)
                                  {
-                                     V3f p = positions[j];
-                                     Transform.multVecMatrix(p, positions[j]);
+                                     // Calculate a more stable transformation that preserves shape
+                                     V3f restToDeformedOffset = deformedFrame.position - restPositions[i];
+
+                                     // Calculate rotation between rest and deformed normals
+                                     V3f restN = restNormals[i];
+                                     V3f deformedN = deformedFrame.normal;
+
+                                     // Normalize vectors to ensure valid rotation
+                                     restN.normalize();
+                                     deformedN.normalize();
+
+                                     // Calculate rotation axis and angle
+                                     V3f rotAxis = restN.cross(deformedN);
+                                     float rotAngle = std::acos(std::max(-1.0f, std::min(1.0f, restN.dot(deformedN))));
+
+                                     // Build stable rotation matrix
+                                     M44f stableRotation;
+                                     if (rotAxis.length() > 1e-6f && std::abs(rotAngle) > 1e-6f)
+                                     {
+                                         rotAxis.normalize();
+                                         stableRotation.setAxisAngle(rotAxis, rotAngle);
+                                     }
+
+                                     // Apply stable transformation
+                                     for (size_t j = startIdx; j < endIdx; ++j)
+                                     {
+                                         // Get point relative to rest position
+                                         V3f localP = positions[j] - restPositions[i];
+
+                                         // Apply rotation
+                                         V3f rotatedP;
+                                         stableRotation.multDirMatrix(localP, rotatedP);
+
+                                         // Translate to final position
+                                         positions[j] = rotatedP + deformedFrame.position;
+                                     }
+                                 }
+                                 else
+                                 {
+                                     // Use original transformation
+                                     for (size_t j = startIdx; j < endIdx; ++j)
+                                     {
+                                         V3f p = positions[j];
+                                         Transform.multVecMatrix(p, positions[j]);
+                                     }
                                  }
 
                                  ++processedCurves;
