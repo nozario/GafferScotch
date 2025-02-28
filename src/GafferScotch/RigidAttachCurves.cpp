@@ -481,11 +481,6 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
 
                          // Extract tangent data from the PrimitiveVariable
                          const PrimitiveVariable &tangentPrimVar = restTangents.first;
-                         const V3fVectorData *tangentData = runTimeCast<const V3fVectorData>(tangentPrimVar.data.get());
-                         if (!tangentData)
-                         {
-                             throw IECore::Exception("Failed to retrieve tangent data");
-                         }
 
                          // Get tangent using barycentric interpolation
                          binding.restFrame.tangent = Detail::primVar<V3f>(tangentPrimVar,
