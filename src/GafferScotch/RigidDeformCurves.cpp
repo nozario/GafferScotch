@@ -856,7 +856,7 @@ void RigidDeformCurves::deformCurves(
                                          if (rotAxis.length() > 1e-6)
                                          {
                                              rotAxis.normalize();
-                                             rotAngle = Imath::Math<float>::acos(Imath::Math<float>::clamp(restNorm.dot(deformedNorm), -1.0f, 1.0f));
+                                             rotAngle = Imath::Math<float>::acos(Imath::clamp(restNorm.dot(deformedNorm), -1.0f, 1.0f));
                                          }
                                          else
                                          {
@@ -934,7 +934,7 @@ void RigidDeformCurves::deformCurves(
                                          if (rotAxis.length() > 1e-6)
                                          {
                                              rotAxis.normalize();
-                                             rotAngle = Imath::Math<float>::acos(Imath::Math<float>::clamp(restNorm.dot(deformedNorm), -1.0f, 1.0f));
+                                             rotAngle = Imath::Math<float>::acos(Imath::clamp(restNorm.dot(deformedNorm), -1.0f, 1.0f));
                                          }
                                          else
                                          {
