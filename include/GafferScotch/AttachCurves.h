@@ -12,6 +12,7 @@
 
 #include "IECore/MurmurHash.h"
 #include "IECore/VectorTypedData.h"
+#include "IECore/Object.h"
 
 #include "IECoreScene/CurvesPrimitive.h"
 #include "IECoreScene/MeshPrimitive.h"
@@ -31,7 +32,7 @@ class GAFFERSCOTCH_API AttachCurves : public GafferScene::Deformer
 		AttachCurves( const std::string &name=defaultName<AttachCurves>() );
 		~AttachCurves() override;
 
-		GAFFER_NODE_DECLARE_TYPE( GafferScotch::AttachCurves, GafferScotchAttachCurvesTypeId, GafferScene::Deformer );
+		GAFFER_NODE_DECLARE_TYPE( GafferScotch::AttachCurves, static_cast<int>(TypeId::AttachCurvesTypeId), GafferScene::Deformer );
 
 		/// The static deformer input (for binding the curves)
 		GafferScene::ScenePlug *staticDeformerPlug();
@@ -51,7 +52,7 @@ class GAFFERSCOTCH_API AttachCurves : public GafferScene::Deformer
 
 		bool affectsProcessedObject( const Gaffer::Plug *input ) const override;
 		void hashProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const override;
-		IECoreScene::ConstObjectPtr computeProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, const IECoreScene::Object *inputObject ) const override;
+		IECore::ConstObjectPtr computeProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject ) const override;
 
 	private :
 
