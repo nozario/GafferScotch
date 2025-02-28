@@ -1,350 +1,197 @@
 #include "GafferScotch/AttachCurvesDataStructures.h"
 
-using namespace GafferScotch;
+#include "IECoreScene/MeshAlgo.h"
+#include "IECoreScene/MeshPrimitiveEvaluator.h"
+#include "IECoreScene/PrimitiveVariable.h"
+
+using namespace Imath;
 using namespace IECore;
 using namespace IECoreScene;
-using namespace Imath;
+using namespace GafferScotch;
 
 namespace GafferScotch
 {
-    namespace Detail
+
+namespace AttachCurvesDataStructures
+{
+
+M44f createTransformMatrix(
+    const V3f &position,
+    const V3f &normal,
+    const V3f &tangentU,
+    const V3f &tangentV
+)
+{
+    M44f matrix;
+    matrix.makeIdentity();
+    
+    // Set the rotation part of the matrix (3x3 upper-left)
+    matrix[0][0] = tangentU.x;
+    matrix[0][1] = tangentU.y;
+    matrix[0][2] = tangentU.z;
+    
+    matrix[1][0] = tangentV.x;
+    matrix[1][1] = tangentV.y;
+    matrix[1][2] = tangentV.z;
+    
+    matrix[2][0] = normal.x;
+    matrix[2][1] = normal.y;
+    matrix[2][2] = normal.z;
+    
+    // Set the translation part of the matrix (bottom row)
+    matrix[3][0] = position.x;
+    matrix[3][1] = position.y;
+    matrix[3][2] = position.z;
+    
+    return matrix;
+}
+
+void transformCurve(
+    const M44f &transformation,
+    const std::vector<V3f> &inputPositions,
+    std::vector<V3f> &outputPositions,
+    int startIndex,
+    int numVerts
+)
+{
+    for( int i = 0; i < numVerts; ++i )
     {
-        // Specialization implementation for V3f
-        template <>
-        V3f primVar<V3f>(const PrimitiveVariable &pv, const float *barycentrics, unsigned int triangleIdx, const V3i &vertexIds)
-        {
-            typedef TypedData<V3f> DataType;
+        V3f point = inputPositions[startIndex + i];
+        V3f transformedPoint = point * transformation;
+        outputPositions[startIndex + i] = transformedPoint;
+    }
+}
 
-            if (pv.interpolation == PrimitiveVariable::Constant)
-            {
-                const DataType *data = runTimeCast<const DataType>(pv.data.get());
-                if (data)
-                {
-                    return data->readable();
-                }
-            }
+bool findClosestPointUV(
+    const MeshPrimitive *mesh,
+    const V3f &point,
+    V2f &uv
+)
+{
+    // Create a mesh evaluator
+    MeshPrimitiveEvaluatorPtr evaluator = new MeshPrimitiveEvaluator( mesh );
+    PrimitiveEvaluator::ResultPtr result = evaluator->createResult();
+    
+    // Find the closest point on the mesh
+    if( !evaluator->closestPoint( point, result.get() ) )
+    {
+        return false;
+    }
+    
+    // Get the UV coordinates at this point
+    uv = result->uv();
+    
+    return true;
+}
 
-            typename PrimitiveVariable::IndexedView<V3f> view(pv);
+bool findPointAtUV(
+    const MeshPrimitive *mesh,
+    const V2f &uv,
+    V3f &point,
+    V3f &normal,
+    V3f &tangentU,
+    V3f &tangentV
+)
+{
+    // Check if the mesh has the necessary UV coordinates
+    if( !mesh->variables.count( "uv" ) )
+    {
+        return false;
+    }
+    
+    // Create a mesh evaluator
+    MeshPrimitiveEvaluatorPtr evaluator = new MeshPrimitiveEvaluator( mesh );
+    PrimitiveEvaluator::ResultPtr result = evaluator->createResult();
+    
+    // Find the point on the mesh with the given UV coordinates
+    if( !evaluator->pointAtUV( uv, result.get() ) )
+    {
+        return false;
+    }
+    
+    // Get the position at this point
+    point = result->point();
+    
+    // Calculate normals if they don't exist
+    PrimitiveVariable normals;
+    if( !mesh->variables.count( "N" ) )
+    {
+        normals = MeshAlgo::calculateVertexNormals( mesh, MeshAlgo::NormalWeighting::Angle );
+    }
+    else
+    {
+        normals = mesh->variables.at( "N" );
+    }
+    
+    // Calculate tangents
+    std::pair<PrimitiveVariable, PrimitiveVariable> tangents = MeshAlgo::calculateTangentsFromUV( mesh, "uv", "P", true, false );
+    PrimitiveVariable tangentUVar = tangents.first;
+    PrimitiveVariable tangentVVar = tangents.second;
+    
+    // Get the normal and tangents at this point
+    normal = result->vectorPrimVar( normals );
+    tangentU = result->vectorPrimVar( tangentUVar );
+    tangentV = result->vectorPrimVar( tangentVVar );
+    
+    // Normalize the vectors
+    normal.normalize();
+    tangentU.normalize();
+    tangentV.normalize();
+    
+    // Ensure the vectors form an orthonormal basis
+    orthonormalizeBasis( normal, tangentU, tangentV );
+    
+    return true;
+}
 
-            switch (pv.interpolation)
-            {
-            case PrimitiveVariable::Constant:
-                assert(view.size() == 1);
-                return view[0];
+IntVectorDataPtr computeVertexOffsets(
+    const CurvesPrimitive *curves
+)
+{
+    const IntVectorData *vertsPerCurve = curves->verticesPerCurve();
+    const std::vector<int> &vertsPerCurveData = vertsPerCurve->readable();
+    
+    IntVectorDataPtr offsetsData = new IntVectorData();
+    std::vector<int> &offsets = offsetsData->writable();
+    offsets.reserve( vertsPerCurveData.size() );
+    
+    int offset = 0;
+    for( size_t i = 0; i < vertsPerCurveData.size(); ++i )
+    {
+        offsets.push_back( offset );
+        offset += vertsPerCurveData[i];
+    }
+    
+    return offsetsData;
+}
 
-            case PrimitiveVariable::Uniform:
-                assert(triangleIdx < view.size());
-                return view[triangleIdx];
+void orthonormalizeBasis(
+    V3f &normal,
+    V3f &tangentU,
+    V3f &tangentV
+)
+{
+    // Ensure the normal is normalized
+    normal.normalize();
+    
+    // Ensure the tangent vectors are orthogonal to the normal
+    tangentU = tangentU - normal * tangentU.dot( normal );
+    tangentU.normalize();
+    
+    tangentV = tangentV - normal * tangentV.dot( normal );
+    tangentV.normalize();
+    
+    // Ensure the tangent vectors are orthogonal to each other
+    tangentV = tangentV - tangentU * tangentV.dot( tangentU );
+    tangentV.normalize();
+    
+    // Ensure the tangent vectors form a right-handed coordinate system
+    if( tangentU.cross( tangentV ).dot( normal ) < 0 )
+    {
+        tangentV = -tangentV;
+    }
+}
 
-            case PrimitiveVariable::Vertex:
-            case PrimitiveVariable::Varying:
-                assert(vertexIds[0] < (int)view.size());
-                assert(vertexIds[1] < (int)view.size());
-                assert(vertexIds[2] < (int)view.size());
-                return static_cast<V3f>(
-                    view[vertexIds[0]] * barycentrics[0] +
-                    view[vertexIds[1]] * barycentrics[1] +
-                    view[vertexIds[2]] * barycentrics[2]);
+} // namespace AttachCurvesDataStructures
 
-            case PrimitiveVariable::FaceVarying:
-                assert((triangleIdx * 3) + 0 < view.size());
-                assert((triangleIdx * 3) + 1 < view.size());
-                assert((triangleIdx * 3) + 2 < view.size());
-                return static_cast<V3f>(
-                    view[(triangleIdx * 3) + 0] * barycentrics[0] +
-                    view[(triangleIdx * 3) + 1] * barycentrics[1] +
-                    view[(triangleIdx * 3) + 2] * barycentrics[2]);
-
-            default:
-                throw InvalidArgumentException("Unsupported primitive variable interpolation");
-            }
-        }
-
-        CurveData::CurveData() : totalVerts(0)
-        {
-        }
-
-        void CurveData::initFromCurves(const CurvesPrimitive *curves)
-        {
-            if (!curves)
-                return;
-
-            const std::vector<int> &curveVertCounts = curves->verticesPerCurve()->readable();
-            const V3fVectorData *curvePoints = curves->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
-
-            if (!curvePoints)
-                return;
-
-            // Copy vertex counts
-            vertsPerCurve = AlignedVector<int>(curveVertCounts.begin(), curveVertCounts.end());
-
-            // Pre-calculate vertex offsets
-            vertexOffsets.resize(vertsPerCurve.size());
-            size_t offset = 0;
-            for (size_t i = 0; i < vertsPerCurve.size(); ++i)
-            {
-                vertexOffsets[i] = offset;
-                offset += vertsPerCurve[i];
-            }
-
-            // Copy points with aligned storage
-            const std::vector<V3f> &srcPoints = curvePoints->readable();
-            points = AlignedVector<V3f>(srcPoints.begin(), srcPoints.end());
-
-            // Calculate total verts
-            totalVerts = points.size();
-
-            // Pre-calculate local offsets and falloff values
-            localOffsets.resize(totalVerts);
-            falloffValues.resize(totalVerts);
-            restSpaceOffsets.resize(totalVerts);
-
-            for (size_t i = 0; i < vertsPerCurve.size(); ++i)
-            {
-                const size_t vertOffset = vertexOffsets[i];
-                const int numVerts = vertsPerCurve[i];
-                const V3f &rootP = points[vertOffset];
-
-                // Calculate and store offsets and falloff values
-                for (int j = 0; j < numVerts; ++j)
-                {
-                    const size_t idx = vertOffset + j;
-                    localOffsets[idx] = points[idx] - rootP;
-
-                    // Pre-calculate falloff
-                    float distanceToRoot = localOffsets[idx].length();
-                    falloffValues[idx] = std::exp(-distanceToRoot * 0.1f);
-                }
-            }
-        }
-
-        void CurveData::computeRestSpaceOffsets(const AlignedFrame &restFrame, size_t curveIndex) const
-        {
-            const size_t vertOffset = vertexOffsets[curveIndex];
-            const int numVerts = vertsPerCurve[curveIndex];
-
-            for (int i = 0; i < numVerts; ++i)
-            {
-                const size_t idx = vertOffset + i;
-                const V3f &localOffset = localOffsets[idx];
-
-                // Transform offset to rest space
-                restSpaceOffsets[idx] = V3f(
-                    localOffset.dot(restFrame.tangent),
-                    localOffset.dot(restFrame.bitangent),
-                    localOffset.dot(restFrame.normal));
-            }
-        }
-
-        void MeshData::initFromMesh(const MeshPrimitive *mesh, const PrimitiveVariable &normalsVar,
-                                    const PrimitiveVariable &tangentsVar)
-        {
-            if (!mesh)
-                return;
-
-            // Get position data
-            const V3fVectorData *posData = mesh->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
-            if (!posData)
-                return;
-            positions = AlignedVector<V3f>(posData->readable().begin(), posData->readable().end());
-
-            // Get normal data
-            const V3fVectorData *normalData = runTimeCast<const V3fVectorData>(normalsVar.data.get());
-            if (normalData)
-            {
-                normals = AlignedVector<V3f>(normalData->readable().begin(), normalData->readable().end());
-            }
-
-            // Get tangent data
-            const V3fVectorData *tangentData = runTimeCast<const V3fVectorData>(tangentsVar.data.get());
-            if (tangentData)
-            {
-                tangents = AlignedVector<V3f>(tangentData->readable().begin(), tangentData->readable().end());
-
-                // Calculate bitangents
-                bitangents.resize(tangents.size());
-                for (size_t i = 0; i < tangents.size(); ++i)
-                {
-                    if (i < normals.size())
-                    {
-                        bitangents[i] = (normals[i] % tangents[i]).normalized();
-                    }
-                }
-            }
-        }
-
-        void AlignedFrame::buildFromMeshData(const MeshData &data, size_t index)
-        {
-            if (index >= data.positions.size())
-                return;
-
-            position = data.positions[index];
-
-            if (index < data.normals.size())
-            {
-                normal = data.normals[index].normalized();
-            }
-
-            if (index < data.tangents.size())
-            {
-                tangent = data.tangents[index].normalized();
-            }
-
-            if (index < data.bitangents.size())
-            {
-                bitangent = data.bitangents[index].normalized();
-            }
-            else if (normal.length() > 0 && tangent.length() > 0)
-            {
-                bitangent = (normal % tangent).normalized();
-                tangent = (bitangent % normal).normalized();
-            }
-        }
-
-        ComputationCache::ComputationCache(MeshPrimitiveEvaluator *restEval, MeshPrimitiveEvaluator *animEval)
-        {
-            if (restEval)
-            {
-                PrimitiveEvaluator::ResultPtr result = restEval->createResult();
-                restResult = static_cast<MeshPrimitiveEvaluator::Result *>(result.get());
-            }
-            if (animEval)
-            {
-                PrimitiveEvaluator::ResultPtr result = animEval->createResult();
-                animResult = static_cast<MeshPrimitiveEvaluator::Result *>(result.get());
-            }
-        }
-
-        void CurveBatch::processCurve(size_t curveIndex, ComputationCache &cache) const
-        {
-            // Use pre-calculated offset
-            const size_t vertOffset = curves->vertexOffsets[curveIndex];
-            const int numVerts = curves->vertsPerCurve[curveIndex];
-            const V3f rootP = curves->points[vertOffset];
-
-            // Find closest point on rest mesh
-            if (!restEvaluator->closestPoint(rootP, cache.restResult.get()))
-            {
-                // If no point found, copy original points unchanged
-                for (int i = 0; i < numVerts; ++i)
-                {
-                    (*outputPoints)[vertOffset + i] = curves->points[vertOffset + i];
-                }
-                return;
-            }
-
-            // Get rest position and frame
-            AlignedFrame restFrame;
-            const MeshPrimitiveEvaluator::Result *restMeshResult = static_cast<const MeshPrimitiveEvaluator::Result *>(cache.restResult.get());
-            const V3f &restBary = restMeshResult->barycentricCoordinates();
-            const unsigned int restTriIdx = restMeshResult->triangleIndex();
-            const Imath::V3i &restVertIds = restMeshResult->vertexIds();
-
-            // Build rest frame
-            restFrame.position = restMeshResult->point();
-            restFrame.normal = restMeshResult->normal();
-            restFrame.tangent = Detail::primVar<V3f>(*restTangents, &restBary[0], restTriIdx, restVertIds);
-            restFrame.orthonormalize();
-
-            // Compute rest space offsets for this curve
-            curves->computeRestSpaceOffsets(restFrame, curveIndex);
-
-            // Try multiple methods to find corresponding point on animated mesh
-            bool foundAnimPoint = false;
-            AlignedFrame animFrame;
-
-            // Method 1: Try UV sampling first
-            if (animatedEvaluator->pointAtUV(restMeshResult->uv(), cache.animResult.get()))
-            {
-                foundAnimPoint = true;
-                const MeshPrimitiveEvaluator::Result *animMeshResult = static_cast<const MeshPrimitiveEvaluator::Result *>(cache.animResult.get());
-                const V3f &animBary = animMeshResult->barycentricCoordinates();
-                const unsigned int animTriIdx = animMeshResult->triangleIndex();
-                const Imath::V3i &animVertIds = animMeshResult->vertexIds();
-
-                animFrame.position = animMeshResult->point();
-                animFrame.normal = animMeshResult->normal();
-                animFrame.tangent = Detail::primVar<V3f>(*animatedTangents, &animBary[0], animTriIdx, animVertIds);
-                animFrame.orthonormalize();
-            }
-
-            // Method 2: If UV sampling fails, try closest point to expected position
-            if (!foundAnimPoint)
-            {
-                V3f expectedPos = restFrame.position + (cache.animResult->point() - restMeshResult->point());
-                if (animatedEvaluator->closestPoint(expectedPos, cache.animResult.get()))
-                {
-                    foundAnimPoint = true;
-                    const MeshPrimitiveEvaluator::Result *animMeshResult = static_cast<const MeshPrimitiveEvaluator::Result *>(cache.animResult.get());
-                    const V3f &animBary = animMeshResult->barycentricCoordinates();
-                    const unsigned int animTriIdx = animMeshResult->triangleIndex();
-                    const Imath::V3i &animVertIds = animMeshResult->vertexIds();
-
-                    animFrame.position = animMeshResult->point();
-                    animFrame.normal = animMeshResult->normal();
-                    animFrame.tangent = Detail::primVar<V3f>(*animatedTangents, &animBary[0], animTriIdx, animVertIds);
-                    animFrame.orthonormalize();
-                }
-            }
-
-            if (!foundAnimPoint)
-            {
-                // If all methods fail, just translate the curve
-                V3f translation = cache.animResult->point() - restMeshResult->point();
-                for (int i = 0; i < numVerts; ++i)
-                {
-                    (*outputPoints)[vertOffset + i] = curves->points[vertOffset + i] + translation;
-                }
-                return;
-            }
-
-            // Check if we need to flip the frame
-            if (animFrame.normal.dot(restFrame.normal) < 0)
-            {
-                animFrame.normal = -animFrame.normal;
-                animFrame.tangent = -animFrame.tangent;
-                animFrame.bitangent = -animFrame.bitangent;
-            }
-
-            // Ensure tangent alignment between frames
-            float tangentDot = animFrame.tangent.dot(restFrame.tangent);
-            if (tangentDot < 0.99999f) // Allow for small numerical differences
-            {
-                // Project animated tangent onto the plane perpendicular to the animated normal
-                V3f projectedRestTangent = restFrame.tangent - animFrame.normal * restFrame.tangent.dot(animFrame.normal);
-                projectedRestTangent.normalize();
-
-                // Rotate animated frame to align with projected rest tangent
-                animFrame.tangent = projectedRestTangent;
-                animFrame.bitangent = (animFrame.normal % animFrame.tangent).normalized();
-            }
-
-            // Transform each point in the curve
-            for (int i = 0; i < numVerts; ++i)
-            {
-                const size_t pointIndex = vertOffset + i;
-
-                // Use cached rest space offset
-                const V3f &restSpaceOffset = curves->restSpaceOffsets[pointIndex];
-
-                // Transform to animated space
-                V3f animatedOffset =
-                    restSpaceOffset.x * animFrame.tangent +
-                    restSpaceOffset.y * animFrame.bitangent +
-                    restSpaceOffset.z * animFrame.normal;
-
-                // Use cached falloff value
-                float falloff = curves->falloffValues[pointIndex];
-
-                // Simple translation for far points
-                V3f translation = animFrame.position - restFrame.position;
-                V3f translatedPoint = curves->points[pointIndex] + translation;
-
-                // Blend between deformed and translated positions
-                (*outputPoints)[pointIndex] = animFrame.position + animatedOffset * falloff +
-                                              (translatedPoint - (animFrame.position + animatedOffset)) * (1.0f - falloff);
-            }
-        }
-
-    } // namespace Detail
 } // namespace GafferScotch
