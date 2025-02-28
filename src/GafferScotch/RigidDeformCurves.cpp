@@ -355,7 +355,7 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
             if (it == curves->variables.end())
             {
                 IECore::msg(IECore::Msg::Warning, "RigidDeformCurves",
-                            boost::format("Bind attribute '%s' not found") % bindAttrName);
+                            (boost::format("Bind attribute '%s' not found") % bindAttrName).str());
                 return inputObject;
             }
 
@@ -386,12 +386,23 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
 
         if (meshPath.empty())
         {
-            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves", "Empty mesh path");
+            // Convert path to string for logging
+            std::string pathStr;
+            for (const auto &element : meshPath)
+            {
+                if (!pathStr.empty())
+                    pathStr += "/";
+                pathStr += element;
+            }
+
+            IECore::msg(IECore::Msg::Warning, "RigidDeformCurves",
+                        (boost::format("Resolved mesh path: %s") % pathStr).str());
+
             return inputObject;
         }
 
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves",
-                    boost::format("Resolved mesh path: %s") % boost::join(meshPath, "/"));
+                    (boost::format("Resolved mesh path: %s") % boost::join(meshPath, "/")).str());
 
         // Get meshes using resolved path
         ConstObjectPtr restMeshObj = restMeshPlug()->object(meshPath);
@@ -460,7 +471,7 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
         catch (const std::exception &e)
         {
             IECore::msg(IECore::Msg::Error, "RigidDeformCurves",
-                        boost::format("Deformation failed: %s") % e.what());
+                        (boost::format("Deformation failed: %s") % e.what()).str());
             return inputObject;
         }
 
@@ -470,7 +481,7 @@ IECore::ConstObjectPtr RigidDeformCurves::computeProcessedObject(const ScenePath
     catch (const std::exception &e)
     {
         IECore::msg(IECore::Msg::Error, "RigidDeformCurves",
-                    boost::format("Computation failed: %s") % e.what());
+                    (boost::format("Computation failed: %s") % e.what()).str());
         return inputObject;
     }
     catch (...)
@@ -645,7 +656,7 @@ void RigidDeformCurves::deformCurves(
 
         // Log input stats
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves",
-                    boost::format("Input: %d curves, Rest mesh: %d verts, %d faces, Animated mesh: %d verts, %d faces") % curves->verticesPerCurve()->readable().size() % restMesh->variableSize(PrimitiveVariable::Vertex) % (restMesh->vertexIds()->readable().size() / 3) % animatedMesh->variableSize(PrimitiveVariable::Vertex) % (animatedMesh->vertexIds()->readable().size() / 3));
+                    (boost::format("Input: %d curves, Rest mesh: %d verts, %d faces, Animated mesh: %d verts, %d faces") % curves->verticesPerCurve()->readable().size() % restMesh->variableSize(PrimitiveVariable::Vertex) % (restMesh->vertexIds()->readable().size() / 3) % animatedMesh->variableSize(PrimitiveVariable::Vertex) % (animatedMesh->vertexIds()->readable().size() / 3)).str());
 
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Reading binding data");
 
@@ -667,7 +678,7 @@ void RigidDeformCurves::deformCurves(
 
         // Log binding data sizes
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves",
-                    boost::format("Binding data sizes - Rest positions: %d, Normals: %d, Tangents: %d, Bitangents: %d, Triangle indices: %d, Barycentric coords: %d") % restPositionsData->readable().size() % restNormalsData->readable().size() % restTangentsData->readable().size() % restBitangentsData->readable().size() % triangleIndicesData->readable().size() % barycentricCoordsData->readable().size());
+                    (boost::format("Binding data sizes - Rest positions: %d, Normals: %d, Tangents: %d, Bitangents: %d, Triangle indices: %d, Barycentric coords: %d") % restPositionsData->readable().size() % restNormalsData->readable().size() % restTangentsData->readable().size() % restBitangentsData->readable().size() % triangleIndicesData->readable().size() % barycentricCoordsData->readable().size()).str());
 
         const std::vector<V3f> &restPositions = restPositionsData->readable();
         const std::vector<V3f> &restNormals = restNormalsData->readable();
@@ -711,7 +722,7 @@ void RigidDeformCurves::deformCurves(
         const size_t batchSize = calculateBatchSize(numCurves, numThreads);
 
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves",
-                    boost::format("Processing setup - Curves: %d, Threads: %d, Batch size: %d") % numCurves % numThreads % batchSize);
+                    (boost::format("Processing setup - Curves: %d, Threads: %d, Batch size: %d") % numCurves % numThreads % batchSize).str());
 
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves", "Validating triangle indices");
 
@@ -726,7 +737,7 @@ void RigidDeformCurves::deformCurves(
             {
                 invalidTriangles++;
                 IECore::msg(IECore::Msg::Error, "RigidDeformCurves",
-                            boost::format("Invalid triangle index %d for curve %d (max: %d)") % triangleIndex % i % (numTriangles - 1));
+                            (boost::format("Invalid triangle index %d for curve %d (max: %d)") % triangleIndex % i % (numTriangles - 1)).str());
                 continue;
             }
 
@@ -738,7 +749,7 @@ void RigidDeformCurves::deformCurves(
                 {
                     invalidVertices++;
                     IECore::msg(IECore::Msg::Error, "RigidDeformCurves",
-                                boost::format("Invalid vertex index %d for triangle %d vertex %d (max: %d)") % triangleVertices[j] % triangleIndex % j % (meshPoints.size() - 1));
+                                (boost::format("Invalid vertex index %d for triangle %d vertex %d (max: %d)") % triangleVertices[j] % triangleIndex % j % (meshPoints.size() - 1)).str());
                 }
             }
         }
@@ -746,7 +757,7 @@ void RigidDeformCurves::deformCurves(
         if (invalidTriangles > 0 || invalidVertices > 0)
         {
             IECore::msg(IECore::Msg::Error, "RigidDeformCurves",
-                        boost::format("Validation failed - Invalid triangles: %d, Invalid vertices: %d") % invalidTriangles % invalidVertices);
+                        (boost::format("Validation failed - Invalid triangles: %d, Invalid vertices: %d") % invalidTriangles % invalidVertices).str());
             throw IECore::Exception("Invalid topology data");
         }
 
@@ -766,7 +777,7 @@ void RigidDeformCurves::deformCurves(
         if (uvIt != animatedMesh->variables.end())
         {
             IECore::msg(IECore::Msg::Info, "RigidDeformCurves",
-                        boost::format("Computing UV-based tangents using '%s' attribute") % uvIt->first);
+                        (boost::format("Computing UV-based tangents using '%s' attribute") % uvIt->first).str());
             animatedTangents = MeshAlgo::calculateTangents(animatedMesh, uvIt->first, true, "P");
             hasTangents = true;
         }
@@ -876,7 +887,7 @@ void RigidDeformCurves::deformCurves(
                                  {
                                      ++degenerateFrames;
                                      IECore::msg(IECore::Msg::Warning, "RigidDeformCurves",
-                                                 boost::format("Near-singular matrix for curve %d") % i);
+                                                 (boost::format("Near-singular matrix for curve %d") % i).str());
                                      continue;
                                  }
 
@@ -898,13 +909,13 @@ void RigidDeformCurves::deformCurves(
                              {
                                  ++errorCount;
                                  IECore::msg(IECore::Msg::Error, "RigidDeformCurves",
-                                             boost::format("Error processing curve %d: %s") % i % e.what());
+                                             (boost::format("Error processing curve %d: %s") % i % e.what()).str());
                              }
                          }
                      });
 
         IECore::msg(IECore::Msg::Info, "RigidDeformCurves",
-                    boost::format("Deformation complete - Processed: %d/%d curves, Degenerate frames: %d, Errors: %d") % processedCurves.load() % numCurves % degenerateFrames.load() % errorCount.load());
+                    (boost::format("Deformation complete - Processed: %d/%d curves, Degenerate frames: %d, Errors: %d") % processedCurves.load() % numCurves % degenerateFrames.load() % errorCount.load()).str());
 
         // Update output positions
         outputCurves->variables["P"] = PrimitiveVariable(PrimitiveVariable::Vertex, positionData);
@@ -912,7 +923,7 @@ void RigidDeformCurves::deformCurves(
     catch (const std::exception &e)
     {
         IECore::msg(IECore::Msg::Error, "RigidDeformCurves",
-                    boost::format("Deformation failed: %s") % e.what());
+                    (boost::format("Deformation failed: %s") % e.what()).str());
         throw;
     }
 }
