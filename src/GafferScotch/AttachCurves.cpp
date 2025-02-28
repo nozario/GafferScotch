@@ -17,6 +17,9 @@
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
 #include <tbb/cache_aligned_allocator.h>
+#include <iostream>
+#include <mutex>
+#include <atomic>
 
 using namespace Gaffer;
 using namespace GafferScene;
@@ -29,6 +32,10 @@ using namespace GafferScotch::Detail;
 
 namespace
 {
+    std::mutex g_logMutex;
+    std::atomic<int> g_concurrentOffsetWrites{0};
+    std::atomic<int> g_cacheAccesses{0};
+
     // Helper function for safe vector normalization
     inline V3f safeNormalize(const V3f &v)
     {
@@ -333,7 +340,7 @@ void AttachCurves::hashProcessedObjectBound(const ScenePath &path, const Gaffer:
     // We use the same hash as the processed object since the bound depends on the deformed positions
     const std::string rootPathStr = rootPathPlug()->getValue();
     const ScenePath restPath = GafferScotch::makeScenePath(rootPathStr);
-    
+
     h.append(inPlug()->objectHash(path));
     h.append(restMeshPlug()->objectHash(restPath));
     h.append(animatedMeshPlug()->objectHash(restPath));
@@ -433,6 +440,11 @@ void AttachCurves::updateRestCache(const MeshPrimitive *restMesh,
 
 void AttachCurves::computeBindings(const MeshPrimitive *restMesh, const CurvesPrimitive *curves) const
 {
+    {
+        std::lock_guard<std::mutex> lock(g_logMutex);
+        std::cerr << "Starting computeBindings with " << m_restCache.curveData.vertsPerCurve.size() << " curves" << std::endl;
+    }
+
     // Create evaluator for rest mesh
     MeshPrimitivePtr triangulatedRestMesh = MeshAlgo::triangulate(restMesh);
     MeshPrimitiveEvaluatorPtr restEvaluator = new MeshPrimitiveEvaluator(triangulatedRestMesh);
@@ -500,6 +512,12 @@ void AttachCurves::applyDeformation(const MeshPrimitive *animatedMesh,
                                     const CurvesPrimitive *curves,
                                     std::vector<V3f> &outputPoints) const
 {
+    int currentCacheAccesses = ++g_cacheAccesses;
+    {
+        std::lock_guard<std::mutex> lock(g_logMutex);
+        std::cerr << "Starting applyDeformation (cache access #" << currentCacheAccesses << ")" << std::endl;
+    }
+
     if (!m_restCache.bindingCache.valid)
     {
         return;
@@ -615,7 +633,8 @@ void AttachCurves::applyDeformation(const MeshPrimitive *animatedMesh,
                          for (int j = 0; j < numVerts; ++j)
                          {
                              const size_t pointIndex = vertOffset + j;
-                             const V3f &restSpaceOffset = m_restCache.curveData.restSpaceOffsets[pointIndex];
+                             // Use thread-safe getter
+                             const V3f &restSpaceOffset = m_restCache.curveData.getRestSpaceOffset(pointIndex);
 
                              // Transform to animated space
                              V3f animatedOffset =

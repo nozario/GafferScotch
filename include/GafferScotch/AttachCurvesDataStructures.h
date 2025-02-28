@@ -13,6 +13,7 @@
 #include "IECore/MurmurHash.h"
 
 #include <tbb/cache_aligned_allocator.h>
+#include <shared_mutex>
 
 namespace GafferScotch
 {
@@ -127,15 +128,30 @@ namespace GafferScotch
         {
             AlignedVector<Imath::V3f> points;
             AlignedVector<int> vertsPerCurve;
-            AlignedVector<size_t> vertexOffsets;                // Pre-calculated offsets
-            AlignedVector<Imath::V3f> localOffsets;             // Cached local offsets from root points
-            AlignedVector<float> falloffValues;                 // Cached falloff values
-            mutable AlignedVector<Imath::V3f> restSpaceOffsets; // Cached rest space transformed offsets
+            AlignedVector<size_t> vertexOffsets;    // Pre-calculated offsets
+            AlignedVector<Imath::V3f> localOffsets; // Cached local offsets from root points
+            AlignedVector<float> falloffValues;     // Cached falloff values
+
+            // Thread-safe storage for rest space offsets
+            struct ThreadSafeOffsets
+            {
+                mutable std::shared_mutex mutex;
+                AlignedVector<Imath::V3f> offsets;
+            };
+            mutable ThreadSafeOffsets restSpaceOffsets;
+
             size_t totalVerts;
 
             CurveData();
             void initFromCurves(const IECoreScene::CurvesPrimitive *curves);
             void computeRestSpaceOffsets(const AlignedFrame &restFrame, size_t curveIndex) const;
+
+            // Helper to safely access offsets
+            const Imath::V3f &getRestSpaceOffset(size_t index) const
+            {
+                std::shared_lock<std::shared_mutex> lock(restSpaceOffsets.mutex);
+                return restSpaceOffsets.offsets[index];
+            }
         };
 
         // Cached binding data for a single curve root point
