@@ -806,6 +806,13 @@ void RigidDeformCurves::deformCurves(
                                      meshPoints[triangleVertices[1]],
                                      meshPoints[triangleVertices[2]]};
 
+                                 // Get curve vertex range
+                                 const size_t startIdx = vertexOffsets[i];
+                                 const size_t endIdx = (i + 1 < vertexOffsets.size()) ? vertexOffsets[i + 1] : positions.size();
+
+                                 // Get curve root point for relative transformations
+                                 V3f rootPoint = positions[startIdx];
+
                                  // Interpolate position using barycentric coordinates
                                  V3f deformedPosition = trianglePoints[0] * baryCoord[0] +
                                                         trianglePoints[1] * baryCoord[1] +
@@ -893,7 +900,7 @@ void RigidDeformCurves::deformCurves(
                                  AnimMatrix[3][2] = deformedFrame.position.z;
                                  AnimMatrix[3][3] = 1;
 
-                                 // Calculate transform exactly like VEX
+                                 // Calculate transform exactly like VEX but with initial orientation preservation
                                  M44f Transform = StaticMatrix.inverse() * AnimMatrix;
 
                                  // Check for extreme transformations
@@ -914,9 +921,6 @@ void RigidDeformCurves::deformCurves(
                                  }
 
                                  // Transform points with fallback for extreme deformations
-                                 const size_t startIdx = vertexOffsets[i];
-                                 const size_t endIdx = (i + 1 < vertexOffsets.size()) ? vertexOffsets[i + 1] : positions.size();
-
                                  if (useStableTransform)
                                  {
                                      // Calculate a more stable transformation that preserves shape
@@ -945,8 +949,8 @@ void RigidDeformCurves::deformCurves(
                                      // Apply stable transformation
                                      for (size_t j = startIdx; j < endIdx; ++j)
                                      {
-                                         // Get point relative to rest position
-                                         V3f localP = positions[j] - restPositions[i];
+                                         // Get point relative to curve root instead of rest position
+                                         V3f localP = positions[j] - rootPoint;
 
                                          // Apply rotation
                                          V3f rotatedP;
@@ -961,8 +965,18 @@ void RigidDeformCurves::deformCurves(
                                      // Use original transformation
                                      for (size_t j = startIdx; j < endIdx; ++j)
                                      {
+                                         // Get point relative to curve root
                                          V3f p = positions[j];
-                                         Transform.multVecMatrix(p, positions[j]);
+                                         
+                                         // Get delta from root point
+                                         V3f delta = p - rootPoint;
+                                         
+                                         // Apply the transformation to the delta
+                                         V3f transformedDelta;
+                                         Transform.multDirMatrix(delta, transformedDelta);
+                                         
+                                         // Apply transformed delta to new position
+                                         positions[j] = deformedFrame.position + transformedDelta;
                                      }
                                  }
 

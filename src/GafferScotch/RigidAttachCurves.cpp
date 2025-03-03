@@ -53,8 +53,13 @@ namespace
 
         void orthonormalize()
         {
+            // First, normalize the normal to ensure we have a unit vector
             normal = safeNormalize(normal);
+            
+            // Make tangent orthogonal to normal and normalize it
             tangent = safeNormalize(tangent - normal * (tangent.dot(normal)));
+            
+            // Use cross product to get a perfectly orthogonal bitangent
             bitangent = normal.cross(tangent);
         }
     };
@@ -495,21 +500,16 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
                                                                                 triangleVertices[1],
                                                                                 triangleVertices[2]));
 
-                         // Store raw vectors before orthonormalization
+                         // Store original position before orthonormalization
                          V3f origPosition = binding.restFrame.position;
-                         V3f origNormal = binding.restFrame.normal;
-                         V3f origTangent = binding.restFrame.tangent;
-                         V3f origBitangent = binding.restFrame.bitangent;
-
-                         // Orthonormalize for local computation only
+                         
+                         // Orthonormalize frame for proper coordinate system
                          binding.restFrame.orthonormalize();
                          binding.valid = true;
 
-                         // Store original vectors in binding for primitive variables
+                         // Keep orthonormalized vectors for consistent transformation
+                         // but keep original position (we don't want to modify the mesh surface point)
                          binding.restFrame.position = origPosition;
-                         binding.restFrame.normal = origNormal;
-                         binding.restFrame.tangent = origTangent;
-                         binding.restFrame.bitangent = origBitangent;
                      }
                  });
     // YOUPI
