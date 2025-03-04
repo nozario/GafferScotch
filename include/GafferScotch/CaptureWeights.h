@@ -1,5 +1,5 @@
-#ifndef GAFFERSCOTCH_CAPTUREWEIGHT_H
-#define GAFFERSCOTCH_CAPTUREWEIGHT_H
+#ifndef GAFFERSCOTCH_CAPTUREWEIGHTS_H
+#define GAFFERSCOTCH_CAPTUREWEIGHTS_H
 
 #include "GafferScotch/Export.h"
 #include "GafferScotch/TypeIds.h"
@@ -16,20 +16,20 @@
 namespace GafferScotch
 {
 
-    /// \class CaptureWeight
+    /// \class CaptureWeights
     /// A node that computes capture weights for deformation.
-    /// 
+    ///
     /// This node computes weights for each vertex in the input mesh based on
     /// its proximity to vertices in a static deformer mesh. These weights can
     /// then be used by the PointDeform node to deform the mesh.
 
-    class GAFFERSCOTCH_API CaptureWeight : public GafferScene::ObjectProcessor
+    class GAFFERSCOTCH_API CaptureWeights : public GafferScene::ObjectProcessor
     {
     public:
-        CaptureWeight(const std::string &name = defaultName<CaptureWeight>());
-        ~CaptureWeight() override = default;
+        CaptureWeights(const std::string &name = defaultName<CaptureWeights>());
+        ~CaptureWeights() override = default;
 
-        IE_CORE_DECLARERUNTIMETYPEDEXTENSION(GafferScotch::CaptureWeight, GafferScotch::TypeId::CaptureWeightTypeId, GafferScene::ObjectProcessor);
+        IE_CORE_DECLARERUNTIMETYPEDEXTENSION(GafferScotch::CaptureWeights, GafferScotch::TypeId::CaptureWeightsTypeId, GafferScene::ObjectProcessor);
 
         // Static deformer input
         GafferScene::ScenePlug *staticDeformerPlug();
@@ -64,12 +64,12 @@ namespace GafferScotch
         // Helper methods for efficient hashing
         void hashPositions(const IECoreScene::Primitive *primitive, IECore::MurmurHash &h) const;
         void hashPieceAttribute(const IECoreScene::Primitive *primitive, const std::string &attrName, IECore::MurmurHash &h) const;
-        
+
         static size_t g_firstPlugIndex;
     };
 
-    IE_CORE_DECLAREPTR(CaptureWeight)
+    IE_CORE_DECLAREPTR(CaptureWeights)
 
 } // namespace GafferScotch
 
-#endif // GAFFERSCOTCH_CAPTUREWEIGHT_H
+#endif // GAFFERSCOTCH_CAPTUREWEIGHTS_H

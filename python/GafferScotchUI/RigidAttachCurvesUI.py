@@ -1,8 +1,9 @@
+import Gaffer
 import IECore
 import imath
 
-import Gaffer
 import GafferScotch
+
 from . import ICON_PATH
 
 Gaffer.Metadata.registerNode(
@@ -17,37 +18,66 @@ Gaffer.Metadata.registerNode(
     ICON_PATH,
     "nodeGadget:color",
     imath.Color3f(0.42, 0.27, 0.23),
+    # Section collapse states
+    "layout:section:Settings.Deformer:collapsed",
+    False,
+    "layout:section:Settings.Binding:collapsed",
+    False,
+    # Activators for conditional visibility
+    "layout:activator:bindAttrVisible",
+    lambda plug: plug["useBindAttr"].getValue(),
+    "layout:activator:deformerPathVisible",
+    lambda plug: not plug["useBindAttr"].getValue(),
     plugs={
-        "restMesh": [
+        "staticDeformer": [
             "description",
             """
-            The rest mesh to bind the curves to. This mesh defines the initial
+            The static mesh to bind the curves to. This mesh defines the initial
             binding positions and frames.
             """,
             "nodule:type",
             "GafferUI::StandardNodule",
+            "layout:section",
+            "Settings.Deformer",
         ],
-        "rootAttr": [
+        "curveRootAttr": [
             "description",
             """
             The name of a vertex float attribute that defines the root point
             of each curve. Values should be between 0 and 1, with 1 indicating
             the root point. If empty, the first point of each curve is used.
             """,
+            "layout:section",
+            "Settings.Binding",
         ],
         "useBindAttr": [
             "description",
             """
-            When enabled, uses a string attribute on the curves to determine
-            which mesh to bind to. When disabled, uses a single mesh path
-            for all curves.
+            Determines how the target mesh is specified for binding.
+
+            Direct Path : Use a single mesh path for all curves.
+            Attribute : Use a string attribute on each curve to specify its target mesh.
             """,
+            "plugValueWidget:type",
+            "GafferUI.PresetsPlugValueWidget",
+            "preset:Direct Path",
+            False,
+            "preset:Attribute",
+            True,
+            "layout:section",
+            "Settings.Binding",
         ],
-        "bindPath": [
+        "deformerPath": [
             "description",
             """
             The path to the mesh to bind to when useBindAttr is disabled.
             """,
+            "plugValueWidget:type",
+            "GafferUI.StringPlugValueWidget",
+            "layout:section",
+            "Settings.Binding",
+            "layout:visibilityActivator",
+            "deformerPathVisible",
         ],
         "bindAttr": [
             "description",
@@ -55,6 +85,10 @@ Gaffer.Metadata.registerNode(
             The name of the string attribute that specifies which mesh to
             bind to when useBindAttr is enabled.
             """,
+            "layout:section",
+            "Settings.Binding",
+            "layout:visibilityActivator",
+            "bindAttrVisible",
         ],
     },
 )

@@ -9,9 +9,8 @@ namespace GafferScotch
         // Make sure to claim a range with Cortex
         FirstTypeId = 121000,
 
-        CaptureWeightTypeId = 121001,
+        CaptureWeightsTypeId = 121001,
         PointDeformTypeId = 121002,
-        AttachCurvesTypeId = 121003,
         RigidAttachCurvesTypeId = 110703,
         RigidDeformCurvesTypeId = 110704,
 

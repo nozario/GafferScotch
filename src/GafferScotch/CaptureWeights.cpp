@@ -1,5 +1,5 @@
 #include <math.h>
-#include "GafferScotch/CaptureWeight.h"
+#include "GafferScotch/CaptureWeights.h"
 #include "GafferScotch/ScenePathUtil.h"
 
 #include "IECore/NullObject.h"
@@ -29,23 +29,21 @@ namespace
 
     struct BatchResults
     {
-        std::vector<int> allIndices;       // size = numVertices * maxPoints
-        std::vector<float> allWeights;     // size = numVertices * maxPoints
-        std::vector<int> influenceCounts;  // size = numVertices
+        std::vector<int> allIndices;      // size = numVertices * maxPoints
+        std::vector<float> allWeights;    // size = numVertices * maxPoints
+        std::vector<int> influenceCounts; // size = numVertices
 
         BatchResults(size_t numVertices, int maxPoints)
-            : allIndices(numVertices * maxPoints, 0)
-            , allWeights(numVertices * maxPoints, 0.0f)
-            , influenceCounts(numVertices, 0)
+            : allIndices(numVertices * maxPoints, 0), allWeights(numVertices * maxPoints, 0.0f), influenceCounts(numVertices, 0)
         {
         }
 
-        int* getIndices(size_t vertexIndex, int maxPoints)
+        int *getIndices(size_t vertexIndex, int maxPoints)
         {
             return &allIndices[vertexIndex * maxPoints];
         }
 
-        float* getWeights(size_t vertexIndex, int maxPoints)
+        float *getWeights(size_t vertexIndex, int maxPoints)
         {
             return &allWeights[vertexIndex * maxPoints];
         }
@@ -291,15 +289,15 @@ namespace
         }
     }
 
-    void computeCaptureWeights(
-        const std::vector<V3f>& sourcePoints,
-        const std::vector<V3f>& targetPoints,
+    void computeCaptureWeightss(
+        const std::vector<V3f> &sourcePoints,
+        const std::vector<V3f> &targetPoints,
         float radius,
         int maxPoints,
         int minPoints,
         const PrimitiveVariable *sourcePiece,
         const PrimitiveVariable *targetPiece,
-        BatchResults& results)
+        BatchResults &results)
     {
         V3fTree tree(sourcePoints.begin(), sourcePoints.end(), 8);
 
@@ -310,157 +308,155 @@ namespace
 
         const size_t numVertices = targetPoints.size();
         parallel_for(blocked_range<size_t>(0, numVertices, 1024),
-            [&](const blocked_range<size_t>& range)
-            {
+                     [&](const blocked_range<size_t> &range)
+                     {
+                         ThreadLocalStorage &tls = threadStorage.local();
 
-                ThreadLocalStorage& tls = threadStorage.local();
-                
-                for (size_t i = range.begin(); i != range.end(); ++i)
-                {
-                    const V3f& targetPos = targetPoints[i];
-                    
-                    tls.neighbours.clear();
-                    tls.validNeighbours.clear();
-                    tls.fallbackNeighbours.clear();
-                    tls.vertexWeights.clear();
-                    
-                    unsigned int found = tree.nearestNNeighbours(targetPos, maxPoints * 2, tls.neighbours);
-                    
-                    float maxDistSquared = radius2;
-                    for (size_t j = 0; j < found; ++j)
-                    {
-                        const V3fTree::Neighbour& neighbour = tls.neighbours[j];
-                        
-                        if (neighbour.distSquared > radius2)
-                            continue;
-                        
-                        const int sourceIndex = neighbour.point - sourcePoints.begin();
-                        
-                        tls.fallbackNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
-                        
-                        if (!piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
-                            continue;
-                        
-                        tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
-                    }
-                    
-                    if (tls.validNeighbours.size() < static_cast<size_t>(minPoints))
-                    {
-                        float expandedRadius2 = radius2 * 1.5f;
-                        const float maxExpandedRadius2 = radius2 * 4.0f; // Limit expansion to 2x original radius
-                        
-                        while (tls.validNeighbours.size() < static_cast<size_t>(minPoints) && expandedRadius2 <= maxExpandedRadius2)
-                        {
-                            tls.neighbours.clear();
-                            
-                            unsigned int extraFound = tree.nearestNNeighbours(targetPos, maxPoints * 4, tls.neighbours);
-                            
-                            for (size_t j = 0; j < extraFound; ++j)
-                            {
-                                const V3fTree::Neighbour& neighbour = tls.neighbours[j];
-                                
-                                
-                                if (neighbour.distSquared > radius2 && neighbour.distSquared <= expandedRadius2)
-                                {
-                                    const int sourceIndex = neighbour.point - sourcePoints.begin();
-                                    
-                                    if (piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
-                                    {
-                                        tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
-                                        maxDistSquared = std::max<float>(maxDistSquared, neighbour.distSquared);
-                                    }
-                                }
-                                
-                                if (tls.validNeighbours.size() >= static_cast<size_t>(minPoints))
-                                    break;
-                            }
+                         for (size_t i = range.begin(); i != range.end(); ++i)
+                         {
+                             const V3f &targetPos = targetPoints[i];
 
-                            expandedRadius2 *= 1.5f;
-                        }
-                    }
-                    
-                    // If we still don't have enough points after radius expansion, use nearest points regardless of piece
-                    if (tls.validNeighbours.size() < static_cast<size_t>(minPoints))
-                    {
-                        // Clear previous search results
-                        tls.neighbours.clear();
-                        
-                        // Find the closest points regardless of piece attribute
-                        unsigned int closestFound = tree.nearestNNeighbours(targetPos, minPoints, tls.neighbours);
-                        
-                        // Add these points to valid neighbors
-                        for (size_t j = 0; j < closestFound && tls.validNeighbours.size() < static_cast<size_t>(minPoints); ++j)
-                        {
-                            const V3fTree::Neighbour& neighbour = tls.neighbours[j];
-                            const int sourceIndex = neighbour.point - sourcePoints.begin();
-                            
-                            // Check if this point is already in our valid neighbors
-                            bool alreadyAdded = false;
-                            for (const auto& existing : tls.validNeighbours)
-                            {
-                                if (existing.second == sourceIndex)
-                                {
-                                    alreadyAdded = true;
-                                    break;
-                                }
-                            }
-                            
-                            // Only add if not already present
-                            if (!alreadyAdded)
-                            {
-                                tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
-                                maxDistSquared = std::max<float>(maxDistSquared, neighbour.distSquared);
-                            }
-                        }
-                    }
-                    
-                    std::sort(tls.validNeighbours.begin(), tls.validNeighbours.end());
-                    
-                    if (tls.validNeighbours.size() > static_cast<size_t>(maxPoints))
-                    {
-                        tls.validNeighbours.resize(maxPoints);
-                    }
-                    
-                    float totalWeight = 0.0f;
-                    const float invMaxDistSquared = 1.0f / maxDistSquared;
-                    
-                    for (const auto& neighbour : tls.validNeighbours)
-                    {
-                        float weight = calculateWeight(neighbour.first, invMaxDistSquared);
-                        totalWeight += weight;
-                        tls.vertexWeights.push_back(weight);
-                    }
-                    
-                    results.influenceCounts[i] = tls.validNeighbours.size();
-                    
-                    const float invTotalWeight = totalWeight > 0.0f ? 1.0f / totalWeight : 0.0f;
-                    
-                    int* indices = results.getIndices(i, maxPoints);
-                    float* weights = results.getWeights(i, maxPoints);
-                    
-                    for (int j = 0; j < maxPoints; ++j)
-                    {
-                        if (j < tls.validNeighbours.size())
-                        {
-                            indices[j] = tls.validNeighbours[j].second;
-                            weights[j] = tls.vertexWeights[j] * invTotalWeight;
-                        }
-                        else
-                        {
-                            indices[j] = 0;
-                            weights[j] = 0.0f;
-                        }
-                    }
-                }
-            });
+                             tls.neighbours.clear();
+                             tls.validNeighbours.clear();
+                             tls.fallbackNeighbours.clear();
+                             tls.vertexWeights.clear();
+
+                             unsigned int found = tree.nearestNNeighbours(targetPos, maxPoints * 2, tls.neighbours);
+
+                             float maxDistSquared = radius2;
+                             for (size_t j = 0; j < found; ++j)
+                             {
+                                 const V3fTree::Neighbour &neighbour = tls.neighbours[j];
+
+                                 if (neighbour.distSquared > radius2)
+                                     continue;
+
+                                 const int sourceIndex = neighbour.point - sourcePoints.begin();
+
+                                 tls.fallbackNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
+
+                                 if (!piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
+                                     continue;
+
+                                 tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
+                             }
+
+                             if (tls.validNeighbours.size() < static_cast<size_t>(minPoints))
+                             {
+                                 float expandedRadius2 = radius2 * 1.5f;
+                                 const float maxExpandedRadius2 = radius2 * 4.0f; // Limit expansion to 2x original radius
+
+                                 while (tls.validNeighbours.size() < static_cast<size_t>(minPoints) && expandedRadius2 <= maxExpandedRadius2)
+                                 {
+                                     tls.neighbours.clear();
+
+                                     unsigned int extraFound = tree.nearestNNeighbours(targetPos, maxPoints * 4, tls.neighbours);
+
+                                     for (size_t j = 0; j < extraFound; ++j)
+                                     {
+                                         const V3fTree::Neighbour &neighbour = tls.neighbours[j];
+
+                                         if (neighbour.distSquared > radius2 && neighbour.distSquared <= expandedRadius2)
+                                         {
+                                             const int sourceIndex = neighbour.point - sourcePoints.begin();
+
+                                             if (piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
+                                             {
+                                                 tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
+                                                 maxDistSquared = std::max<float>(maxDistSquared, neighbour.distSquared);
+                                             }
+                                         }
+
+                                         if (tls.validNeighbours.size() >= static_cast<size_t>(minPoints))
+                                             break;
+                                     }
+
+                                     expandedRadius2 *= 1.5f;
+                                 }
+                             }
+
+                             // If we still don't have enough points after radius expansion, use nearest points regardless of piece
+                             if (tls.validNeighbours.size() < static_cast<size_t>(minPoints))
+                             {
+                                 // Clear previous search results
+                                 tls.neighbours.clear();
+
+                                 // Find the closest points regardless of piece attribute
+                                 unsigned int closestFound = tree.nearestNNeighbours(targetPos, minPoints, tls.neighbours);
+
+                                 // Add these points to valid neighbors
+                                 for (size_t j = 0; j < closestFound && tls.validNeighbours.size() < static_cast<size_t>(minPoints); ++j)
+                                 {
+                                     const V3fTree::Neighbour &neighbour = tls.neighbours[j];
+                                     const int sourceIndex = neighbour.point - sourcePoints.begin();
+
+                                     // Check if this point is already in our valid neighbors
+                                     bool alreadyAdded = false;
+                                     for (const auto &existing : tls.validNeighbours)
+                                     {
+                                         if (existing.second == sourceIndex)
+                                         {
+                                             alreadyAdded = true;
+                                             break;
+                                         }
+                                     }
+
+                                     // Only add if not already present
+                                     if (!alreadyAdded)
+                                     {
+                                         tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
+                                         maxDistSquared = std::max<float>(maxDistSquared, neighbour.distSquared);
+                                     }
+                                 }
+                             }
+
+                             std::sort(tls.validNeighbours.begin(), tls.validNeighbours.end());
+
+                             if (tls.validNeighbours.size() > static_cast<size_t>(maxPoints))
+                             {
+                                 tls.validNeighbours.resize(maxPoints);
+                             }
+
+                             float totalWeight = 0.0f;
+                             const float invMaxDistSquared = 1.0f / maxDistSquared;
+
+                             for (const auto &neighbour : tls.validNeighbours)
+                             {
+                                 float weight = calculateWeight(neighbour.first, invMaxDistSquared);
+                                 totalWeight += weight;
+                                 tls.vertexWeights.push_back(weight);
+                             }
+
+                             results.influenceCounts[i] = tls.validNeighbours.size();
+
+                             const float invTotalWeight = totalWeight > 0.0f ? 1.0f / totalWeight : 0.0f;
+
+                             int *indices = results.getIndices(i, maxPoints);
+                             float *weights = results.getWeights(i, maxPoints);
+
+                             for (int j = 0; j < maxPoints; ++j)
+                             {
+                                 if (j < tls.validNeighbours.size())
+                                 {
+                                     indices[j] = tls.validNeighbours[j].second;
+                                     weights[j] = tls.vertexWeights[j] * invTotalWeight;
+                                 }
+                                 else
+                                 {
+                                     indices[j] = 0;
+                                     weights[j] = 0.0f;
+                                 }
+                             }
+                         }
+                     });
     }
 }
 
-IE_CORE_DEFINERUNTIMETYPED(CaptureWeight);
+IE_CORE_DEFINERUNTIMETYPED(CaptureWeights);
 
-size_t CaptureWeight::g_firstPlugIndex = 0;
+size_t CaptureWeights::g_firstPlugIndex = 0;
 
-CaptureWeight::CaptureWeight(const std::string &name)
+CaptureWeights::CaptureWeights(const std::string &name)
     : ObjectProcessor(name)
 {
     storeIndexOfNextChild(g_firstPlugIndex);
@@ -475,67 +471,67 @@ CaptureWeight::CaptureWeight(const std::string &name)
     addChild(new StringPlug("pieceAttribute", Plug::In, ""));
 }
 
-ScenePlug *CaptureWeight::staticDeformerPlug()
+ScenePlug *CaptureWeights::staticDeformerPlug()
 {
     return getChild<ScenePlug>(g_firstPlugIndex);
 }
 
-const ScenePlug *CaptureWeight::staticDeformerPlug() const
+const ScenePlug *CaptureWeights::staticDeformerPlug() const
 {
     return getChild<ScenePlug>(g_firstPlugIndex);
 }
 
-StringPlug *CaptureWeight::deformerPathPlug()
+StringPlug *CaptureWeights::deformerPathPlug()
 {
     return getChild<StringPlug>(g_firstPlugIndex + 1);
 }
 
-const StringPlug *CaptureWeight::deformerPathPlug() const
+const StringPlug *CaptureWeights::deformerPathPlug() const
 {
     return getChild<StringPlug>(g_firstPlugIndex + 1);
 }
 
-FloatPlug *CaptureWeight::radiusPlug()
+FloatPlug *CaptureWeights::radiusPlug()
 {
     return getChild<FloatPlug>(g_firstPlugIndex + 2);
 }
 
-const FloatPlug *CaptureWeight::radiusPlug() const
+const FloatPlug *CaptureWeights::radiusPlug() const
 {
     return getChild<FloatPlug>(g_firstPlugIndex + 2);
 }
 
-IntPlug *CaptureWeight::maxPointsPlug()
+IntPlug *CaptureWeights::maxPointsPlug()
 {
     return getChild<IntPlug>(g_firstPlugIndex + 3);
 }
 
-const IntPlug *CaptureWeight::maxPointsPlug() const
+const IntPlug *CaptureWeights::maxPointsPlug() const
 {
     return getChild<IntPlug>(g_firstPlugIndex + 3);
 }
 
-IntPlug *CaptureWeight::minPointsPlug()
+IntPlug *CaptureWeights::minPointsPlug()
 {
     return getChild<IntPlug>(g_firstPlugIndex + 4);
 }
 
-const IntPlug *CaptureWeight::minPointsPlug() const
+const IntPlug *CaptureWeights::minPointsPlug() const
 {
     return getChild<IntPlug>(g_firstPlugIndex + 4);
 }
 
-StringPlug *CaptureWeight::pieceAttributePlug()
+StringPlug *CaptureWeights::pieceAttributePlug()
 {
     return getChild<StringPlug>(g_firstPlugIndex + 5);
 }
 
-const StringPlug *CaptureWeight::pieceAttributePlug() const
+const StringPlug *CaptureWeights::pieceAttributePlug() const
 {
     return getChild<StringPlug>(g_firstPlugIndex + 5);
 }
 
-void CaptureWeight::affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const
+void CaptureWeights::affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const
 {
     ObjectProcessor::affects(input, outputs);
 
@@ -550,7 +546,7 @@ void CaptureWeight::affects(const Gaffer::Plug *input, AffectedPlugsContainer &o
     }
 }
 
-bool CaptureWeight::affectsProcessedObject(const Gaffer::Plug *input) const
+bool CaptureWeights::affectsProcessedObject(const Gaffer::Plug *input) const
 {
     return input == staticDeformerPlug()->objectPlug() ||
            input == deformerPathPlug() ||
@@ -560,7 +556,7 @@ bool CaptureWeight::affectsProcessedObject(const Gaffer::Plug *input) const
            input == pieceAttributePlug();
 }
 
-void CaptureWeight::hashPositions(const IECoreScene::Primitive *primitive, IECore::MurmurHash &h) const
+void CaptureWeights::hashPositions(const IECoreScene::Primitive *primitive, IECore::MurmurHash &h) const
 {
     if (!primitive)
         return;
@@ -581,7 +577,7 @@ void CaptureWeight::hashPositions(const IECoreScene::Primitive *primitive, IECor
     }
 }
 
-void CaptureWeight::hashPieceAttribute(const IECoreScene::Primitive *primitive, const std::string &attrName, IECore::MurmurHash &h) const
+void CaptureWeights::hashPieceAttribute(const IECoreScene::Primitive *primitive, const std::string &attrName, IECore::MurmurHash &h) const
 {
     if (!primitive || attrName.empty())
         return;
@@ -593,34 +589,35 @@ void CaptureWeight::hashPieceAttribute(const IECoreScene::Primitive *primitive, 
     it->second.data->hash(h);
 }
 
-void CaptureWeight::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
+void CaptureWeights::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
 {
     const std::string deformerPathStr = deformerPathPlug()->getValue();
     ScenePath deformerPath = GafferScotch::makeScenePath(deformerPathStr);
 
     ConstObjectPtr sourceObj = staticDeformerPlug()->object(deformerPath);
     ConstObjectPtr inputObj = inPlug()->object(path);
-    
+
     const IECoreScene::Primitive *sourcePrimitive = IECore::runTimeCast<const IECoreScene::Primitive>(sourceObj.get());
     const IECoreScene::Primitive *inputPrimitive = IECore::runTimeCast<const IECoreScene::Primitive>(inputObj.get());
-    
-    if (!sourcePrimitive || !inputPrimitive) {
+
+    if (!sourcePrimitive || !inputPrimitive)
+    {
         h = inputObj->hash();
         return;
     }
-    
+
     const std::string pieceAttr = pieceAttributePlug()->getValue();
-    
+
     hashPrimitiveForCapture(sourcePrimitive, pieceAttr, h);
     hashPrimitiveForCapture(inputPrimitive, pieceAttr, h);
-    
+
     radiusPlug()->hash(h);
     maxPointsPlug()->hash(h);
     minPointsPlug()->hash(h);
     pieceAttributePlug()->hash(h);
 }
 
-IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
+IECore::ConstObjectPtr CaptureWeights::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
 {
     const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject);
     if (!inputPrimitive)
@@ -679,8 +676,8 @@ IECore::ConstObjectPtr CaptureWeight::computeProcessedObject(const ScenePath &pa
 
     BatchResults results(targetPoints.size(), maxPoints);
 
-    computeCaptureWeights(sourcePoints, targetPoints, radius, maxPoints, minPoints, 
-                          sourcePiece, targetPiece, results);
+    computeCaptureWeightss(sourcePoints, targetPoints, radius, maxPoints, minPoints,
+                           sourcePiece, targetPiece, results);
 
     PrimitivePtr resultPrimitive = inputPrimitive->copy();
 
