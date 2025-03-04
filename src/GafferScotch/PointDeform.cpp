@@ -398,7 +398,6 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                          V3f delta(0, 0, 0);
                          float totalWeight = 0.0f;
 
-                         // Process each influence set
                          for (const auto &influence : influenceData.influences)
                          {
                              if (i >= influence.count)
@@ -409,20 +408,18 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
 
                              if (sourceIndex >= 0 && weight > 0.0f)
                              {
-                                 // Calculate delta between static and animated positions
                                  const V3f &staticPoint = staticPos[sourceIndex];
                                  const V3f &animatedPoint = animatedPos[sourceIndex];
                                  
-                                 // Accumulate weighted delta
                                  delta += (animatedPoint - staticPoint) * weight;
                                  totalWeight += weight;
                              }
                          }
 
-                         // Apply accumulated delta with proper weight normalization
                          if (totalWeight > 0.0f)
                          {
-                             positions[i] += delta;  // Weights are already normalized from CaptureWeights
+                             delta /= totalWeight;
+                             positions[i] += delta;
                          }
                      }
                  });
