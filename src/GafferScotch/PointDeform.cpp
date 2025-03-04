@@ -37,8 +37,8 @@ namespace
     {
         struct Entry
         {
-            const int *indices;      // Points to the array of indices for this influence level
-            const float *weights;    // Points to the array of weights for this influence level
+            const int *indices;   // Points to the array of indices for this influence level
+            const float *weights; // Points to the array of weights for this influence level
             size_t count;
         };
         std::vector<Entry> influences;
@@ -54,7 +54,7 @@ namespace
 
                 const int idx = influence.indices[pointIndex];
                 const float weight = influence.weights[pointIndex];
-                
+
                 if (idx >= 0 && weight > 0.0f)
                 {
                     pointInfluences.emplace_back(idx, weight);
@@ -89,7 +89,7 @@ namespace
             entry.indices = indices->readable().data();
             entry.weights = weights->readable().data();
             entry.count = indices->readable().size();
-            
+
             data.influences.push_back(std::move(entry));
         }
 
@@ -233,14 +233,14 @@ void PointDeform::hashProcessedObject(const ScenePath &path, const Gaffer::Conte
 
     const ScenePath deformerPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
     ConstObjectPtr inputObject = inPlug()->object(path);
-    
+
     const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
     if (!inputPrimitive)
     {
         h.append(inPlug()->objectHash(path));
         return;
     }
-    
+
     ConstObjectPtr staticDeformerObject = staticDeformerPlug()->object(deformerPath);
     ConstObjectPtr animatedDeformerObject = animatedDeformerPlug()->object(deformerPath);
 
@@ -276,55 +276,55 @@ Imath::Box3f PointDeform::computeProcessedObjectBound(const ScenePath &path, con
     {
         return inputBound;
     }
-    
+
     ConstObjectPtr inputObject = inPlug()->objectPlug()->getValue();
     const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
     if (!inputPrimitive)
     {
         return inputBound;
     }
-    
+
     const ScenePath deformerPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
-    
+
     ConstObjectPtr staticObj = staticDeformerPlug()->object(deformerPath);
     ConstObjectPtr animatedObj = animatedDeformerPlug()->object(deformerPath);
-    
+
     const Primitive *staticDeformerPrimitive = runTimeCast<const Primitive>(staticObj.get());
     const Primitive *animatedDeformerPrimitive = runTimeCast<const Primitive>(animatedObj.get());
-    
+
     if (!staticDeformerPrimitive || !animatedDeformerPrimitive)
     {
         return inputBound;
     }
-    
+
     // Get the positions from both deformers
     auto staticPIt = staticDeformerPrimitive->variables.find("P");
     auto animatedPIt = animatedDeformerPrimitive->variables.find("P");
-    
-    if (staticPIt == staticDeformerPrimitive->variables.end() || 
+
+    if (staticPIt == staticDeformerPrimitive->variables.end() ||
         animatedPIt == animatedDeformerPrimitive->variables.end())
     {
         return inputBound;
     }
-    
+
     const V3fVectorData *staticPositions = runTimeCast<const V3fVectorData>(staticPIt->second.data.get());
     const V3fVectorData *animatedPositions = runTimeCast<const V3fVectorData>(animatedPIt->second.data.get());
-    
+
     if (!staticPositions || !animatedPositions)
     {
         return inputBound;
     }
-    
+
     const std::vector<V3f> &staticPos = staticPositions->readable();
     const std::vector<V3f> &animatedPos = animatedPositions->readable();
-    
+
     if (staticPos.size() != animatedPos.size() || staticPos.empty())
     {
         return inputBound;
     }
-    
+
     V3f maxDisplacement(0, 0, 0);
-    
+
     for (size_t i = 0; i < staticPos.size(); ++i)
     {
         V3f displacement = animatedPos[i] - staticPos[i];
@@ -332,11 +332,11 @@ Imath::Box3f PointDeform::computeProcessedObjectBound(const ScenePath &path, con
         maxDisplacement.y = std::max(maxDisplacement.y, std::abs(displacement.y));
         maxDisplacement.z = std::max(maxDisplacement.z, std::abs(displacement.z));
     }
-    
+
     Box3f result = inputBound;
     result.min -= maxDisplacement;
     result.max += maxDisplacement;
-    
+
     return result;
 }
 
@@ -371,14 +371,14 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
     // Use find() for static and animated positions
     auto staticPIt = staticDeformerPrimitive->variables.find("P");
     auto animatedPIt = animatedDeformerPrimitive->variables.find("P");
-    
-    if (staticPIt == staticDeformerPrimitive->variables.end() || 
+
+    if (staticPIt == staticDeformerPrimitive->variables.end() ||
         animatedPIt == animatedDeformerPrimitive->variables.end())
         return result;
 
     const V3fVectorData *staticPositions = runTimeCast<const V3fVectorData>(staticPIt->second.data.get());
     const V3fVectorData *animatedPositions = runTimeCast<const V3fVectorData>(animatedPIt->second.data.get());
-    
+
     if (!staticPositions || !animatedPositions)
         return result;
 
@@ -395,57 +395,55 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
 
     // Process each point in parallel
     parallel_for(blocked_range<size_t>(0, positions.size()),
-        [&](const blocked_range<size_t> &range)
-        {
-            for (size_t i = range.begin(); i != range.end(); ++i)
-            {
-                V3f totalOffset(0);
-                float totalWeight = 0;
+                 [&](const blocked_range<size_t> &range)
+                 {
+                     for (size_t i = range.begin(); i != range.end(); ++i)
+                     {
+                         V3f totalOffset(0);
+                         float totalWeight = 0;
 
-                // Process each influence
-                const int maxInfluences = (i < numInfluences.size()) ? numInfluences[i] : 0;
-                
-                V3f finalPosition = positions[i];
-                for (int j = 1; j <= maxInfluences; ++j)
-                {
-                    // Use find() instead of operator[]
-                    std::string indexName = "captureIndex" + std::to_string(j);
-                    std::string weightName = "captureWeight" + std::to_string(j);
+                         // Process each influence
+                         const int maxInfluences = (i < numInfluences.size()) ? numInfluences[i] : 0;
 
-                    auto indexIt = inputPrimitive->variables.find(indexName);
-                    auto weightIt = inputPrimitive->variables.find(weightName);
-                    
-                    if (indexIt == inputPrimitive->variables.end() || 
-                        weightIt == inputPrimitive->variables.end())
-                        continue;
+                         V3f finalPosition = positions[i];
+                         for (int j = 1; j <= maxInfluences; ++j)
+                         {
+                             // Use find() instead of operator[]
+                             std::string indexName = "captureIndex" + std::to_string(j);
+                             std::string weightName = "captureWeight" + std::to_string(j);
 
-                    const IntVectorData *indices = runTimeCast<const IntVectorData>(indexIt->second.data.get());
-                    const FloatVectorData *weights = runTimeCast<const FloatVectorData>(weightIt->second.data.get());
-                    
-                    if (!indices || !weights || i >= indices->readable().size())
-                        continue;
+                             auto indexIt = inputPrimitive->variables.find(indexName);
+                             auto weightIt = inputPrimitive->variables.find(weightName);
 
-                    const int idx = indices->readable()[i];
-                    const float weight = weights->readable()[i];
+                             if (indexIt == inputPrimitive->variables.end() ||
+                                 weightIt == inputPrimitive->variables.end())
+                                 continue;
 
-                    if (idx >= 0 && weight > 0.0f && idx < staticPos.size())
-                    {
-                        // Simply apply the translation from rest to animated position
-                        V3f bind_offset = positions[idx] - staticPos[idx];
-                        V3f offset = animatedPos[idx] - staticPos[idx];
-                        totalOffset += bind_offset + offset * weight;
-                        totalWeight += weight;
-                    }
-                }
+                             const IntVectorData *indices = runTimeCast<const IntVectorData>(indexIt->second.data.get());
+                             const FloatVectorData *weights = runTimeCast<const FloatVectorData>(weightIt->second.data.get());
 
-                // Apply the weighted offset to the input position
-                if (totalWeight > 0)
-                {
-                    positions[i] += finalPosition + totalOffset;
-                }
-            }
-        }
-    );
+                             if (!indices || !weights || i >= indices->readable().size())
+                                 continue;
+
+                             const int idx = indices->readable()[i];
+                             const float weight = weights->readable()[i];
+
+                             if (idx >= 0 && weight > 0.0f && idx < staticPos.size())
+                             {
+                                 // Simply apply the translation from rest to animated position
+                                 V3f offset = animatedPos[idx] - staticPos[idx];
+                                 totalOffset += offset * weight;
+                                 totalWeight += weight;
+                             }
+                         }
+
+                         // Apply the weighted offset to the input position
+                         if (totalWeight > 0)
+                         {
+                             positions[i] += finalPosition + totalOffset;
+                         }
+                     }
+                 });
 
     if (cleanupAttributesPlug()->getValue())
     {
