@@ -399,8 +399,19 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                 
                 for (int j = 1; j <= maxInfluences; ++j)
                 {
-                    const IntVectorData *indices = runTimeCast<const IntVectorData>(inputPrimitive->variables["captureIndex" + std::to_string(j)].data.get());
-                    const FloatVectorData *weights = runTimeCast<const FloatVectorData>(inputPrimitive->variables["captureWeight" + std::to_string(j)].data.get());
+                    // Use find() instead of operator[]
+                    std::string indexName = "captureIndex" + std::to_string(j);
+                    std::string weightName = "captureWeight" + std::to_string(j);
+
+                    auto indexIt = inputPrimitive->variables.find(indexName);
+                    auto weightIt = inputPrimitive->variables.find(weightName);
+                    
+                    if (indexIt == inputPrimitive->variables.end() || 
+                        weightIt == inputPrimitive->variables.end())
+                        continue;
+
+                    const IntVectorData *indices = runTimeCast<const IntVectorData>(indexIt->second.data.get());
+                    const FloatVectorData *weights = runTimeCast<const FloatVectorData>(weightIt->second.data.get());
                     
                     if (!indices || !weights || i >= indices->readable().size())
                         continue;
@@ -411,9 +422,8 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                     if (idx >= 0 && weight > 0.0f && idx < staticPos.size())
                     {
                         // Simply apply the translation from rest to animated position
-                        V3f bind_offset = positions[idx] - staticPos[idx];
                         V3f offset = animatedPos[idx] - staticPos[idx];
-                        totalOffset += bind_offset + offset * weight;
+                        totalOffset += offset * weight;
                         totalWeight += weight;
                     }
                 }
