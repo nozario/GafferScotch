@@ -34,8 +34,8 @@ namespace
     {
         struct Entry
         {
-            const int *indices;
-            const float *weights;
+            std::vector<int> indices;
+            std::vector<float> weights;
             size_t count;
         };
         std::vector<Entry> influences;
@@ -44,11 +44,6 @@ namespace
         {
             influences.reserve(size);
         }
-
-        void add(const int *idx, const float *wgt, size_t cnt)
-        {
-            influences.push_back({idx, wgt, cnt});
-        }
     };
 
     bool getInfluenceData(const Primitive *primitive, int maxInfluences, InfluenceData &data)
@@ -56,10 +51,10 @@ namespace
         data.influences.clear();
         data.influences.reserve(maxInfluences);
 
-        for (int i = 0; i < maxInfluences; ++i)
+        for (int i = 1; i <= maxInfluences; ++i)
         {
-            std::string indexName = "captureIndex" + std::to_string(i + 1);
-            std::string weightName = "captureWeight" + std::to_string(i + 1);
+            std::string indexName = "captureIndex" + std::to_string(i);
+            std::string weightName = "captureWeight" + std::to_string(i);
 
             auto indexIt = primitive->variables.find(indexName);
             auto weightIt = primitive->variables.find(weightName);
@@ -73,7 +68,12 @@ namespace
             if (!indices || !weights)
                 continue;
 
-            data.add(&indices->readable()[0], &weights->readable()[0], indices->readable().size());
+            InfluenceData::Entry entry;
+            entry.indices = indices->readable();
+            entry.weights = weights->readable();
+            entry.count = indices->readable().size();
+            
+            data.influences.push_back(std::move(entry));
         }
 
         return !data.influences.empty();
@@ -395,41 +395,35 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                  {
                      for (size_t i = range.begin(); i != range.end(); ++i)
                      {
-                         // Initialize delta to zero
                          V3f delta(0, 0, 0);
-                         
-                         // Get the number of influences for this vertex
-                         const int numInfluences = influences[i];
-                         if (numInfluences == 0)
-                             continue;
+                         float totalWeight = 0.0f;
 
-                         // Process all influences for this vertex
+                         // Process each influence set
                          for (const auto &influence : influenceData.influences)
                          {
-                             const int *indices = influence.indices;
-                             const float *weights = influence.weights;
-                             
-                             // Only process valid influences
-                             if (i < influence.count)
+                             if (i >= influence.count)
+                                 continue;
+
+                             const int sourceIndex = influence.indices[i];
+                             const float weight = influence.weights[i];
+
+                             if (sourceIndex >= 0 && weight > 0.0f)
                              {
-                                 const int sourceIndex = indices[i];
-                                 const float weight = weights[i];
+                                 // Calculate delta between static and animated positions
+                                 const V3f &staticPoint = staticPos[sourceIndex];
+                                 const V3f &animatedPoint = animatedPos[sourceIndex];
                                  
-                                 if (sourceIndex >= 0 && weight > 0.0f)
-                                 {
-                                     // Create temporary V3f objects
-                                     V3f staticPoint(staticPos[sourceIndex].x, staticPos[sourceIndex].y, staticPos[sourceIndex].z);
-                                     V3f animatedPoint(animatedPos[sourceIndex].x, animatedPos[sourceIndex].y, animatedPos[sourceIndex].z);
-                                     V3f influenceDelta = animatedPoint - staticPoint;
-                                     
-                                     // Apply weighted delta
-                                     delta += influenceDelta * weight;
-                                 }
+                                 // Accumulate weighted delta
+                                 delta += (animatedPoint - staticPoint) * weight;
+                                 totalWeight += weight;
                              }
                          }
 
-                         // Apply the accumulated delta to the position
-                         positions[i] += delta;
+                         // Apply accumulated delta with proper weight normalization
+                         if (totalWeight > 0.0f)
+                         {
+                             positions[i] += delta;  // Weights are already normalized from CaptureWeights
+                         }
                      }
                  });
 
