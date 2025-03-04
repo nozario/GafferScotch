@@ -417,10 +417,10 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                                  
                                  if (sourceIndex >= 0 && weight > 0.0f)
                                  {
-                                     // Calculate the delta between static and animated positions
-                                     const V3f &staticPos = staticPos[sourceIndex];
-                                     const V3f &animatedPos = animatedPos[sourceIndex];
-                                     V3f influenceDelta = animatedPos - staticPos;
+                                     // Create temporary V3f objects
+                                     V3f staticPoint(staticPos[sourceIndex].x, staticPos[sourceIndex].y, staticPos[sourceIndex].z);
+                                     V3f animatedPoint(animatedPos[sourceIndex].x, animatedPos[sourceIndex].y, animatedPos[sourceIndex].z);
+                                     V3f influenceDelta = animatedPoint - staticPoint;
                                      
                                      // Apply weighted delta
                                      delta += influenceDelta * weight;
