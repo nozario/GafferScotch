@@ -340,6 +340,20 @@ Imath::Box3f PointDeform::computeProcessedObjectBound(const ScenePath &path, con
     return result;
 }
 
+struct ThreadData {
+    std::vector<std::pair<int, float>> pointInfluences;
+    V3f delta;
+    float totalWeight;
+    
+    ThreadData(size_t maxInfluences) 
+        : pointInfluences()
+        , delta(0)
+        , totalWeight(0)
+    {
+        pointInfluences.reserve(maxInfluences);
+    }
+};
+
 IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
 {
     const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject);
@@ -410,21 +424,20 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
     parallel_for(blocked_range<size_t>(0, numPoints, 1024),
                  [&](const blocked_range<size_t> &range)
                  {
-                     std::vector<std::pair<int, float>> pointInfluences;
-                     pointInfluences.reserve(maxInfluences);
+                     // Create thread-local data
+                     ThreadData threadData(maxInfluences);
 
                      for (size_t i = range.begin(); i != range.end(); ++i)
                      {
-                         V3f delta(0, 0, 0);
-                         float totalWeight = 0.0f;
-
+                         threadData.delta = V3f(0);
+                         threadData.totalWeight = 0.0f;
+                         
                          V3f currentPos = positions[i];
                          
-                         // Get all influences for this specific point
-                         influenceData.getPointInfluences(i, pointInfluences);
+                         // Use thread-local storage
+                         influenceData.getPointInfluences(i, threadData.pointInfluences);
 
-                         // Process all influences for this point
-                         for (const auto &[sourceIndex, weight] : pointInfluences)
+                         for (const auto &[sourceIndex, weight] : threadData.pointInfluences)
                          {
                              const V3f &staticPoint = staticPos[sourceIndex];
                              const V3f &animatedPoint = animatedPos[sourceIndex];
@@ -440,26 +453,23 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                              // Apply translation after local space transform
                              newPos += translation;
                              
-                             // Calculate delta
-                             V3f influenceDelta = newPos - currentPos;
-                             
-                             // Accumulate weighted delta
-                             delta += influenceDelta * weight;
-                             totalWeight += weight;
+                             // Calculate and accumulate delta
+                             threadData.delta += (newPos - currentPos) * weight;
+                             threadData.totalWeight += weight;
                          }
 
-                         if (totalWeight > 0.0f)
+                         if (threadData.totalWeight > 0.0f)
                          {
-                             delta /= totalWeight;
-                             positions[i] += delta;
+                             threadData.delta /= threadData.totalWeight;
+                             positions[i] += threadData.delta;
                          }
 
                          if (i < 5) {  // Only log first 5 points
                              std::cout << "\nPoint " << i << " processing:" << std::endl;
                              std::cout << "  Initial pos: " << currentPos << std::endl;
-                             std::cout << "  Num influences: " << pointInfluences.size() << std::endl;
+                             std::cout << "  Num influences: " << threadData.pointInfluences.size() << std::endl;
                              
-                             for (const auto &[sourceIndex, weight] : pointInfluences) {
+                             for (const auto &[sourceIndex, weight] : threadData.pointInfluences) {
                                  std::cout << "  Influence " << sourceIndex << ":" << std::endl;
                                  std::cout << "    Weight: " << weight << std::endl;
                                  std::cout << "    Static pos: " << staticPos[sourceIndex] << std::endl;
@@ -476,8 +486,8 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                                  std::cout << "    Delta: " << influenceDelta << std::endl;
                              }
                              
-                             std::cout << "  Final delta: " << delta << std::endl;
-                             std::cout << "  Total weight: " << totalWeight << std::endl;
+                             std::cout << "  Final delta: " << threadData.delta << std::endl;
+                             std::cout << "  Total weight: " << threadData.totalWeight << std::endl;
                          }
                      }
                  });
