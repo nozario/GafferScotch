@@ -340,20 +340,6 @@ Imath::Box3f PointDeform::computeProcessedObjectBound(const ScenePath &path, con
     return result;
 }
 
-struct ThreadData {
-    std::vector<std::pair<int, float>> pointInfluences;
-    V3f delta;
-    float totalWeight;
-    
-    ThreadData(size_t maxInfluences) 
-        : pointInfluences()
-        , delta(0)
-        , totalWeight(0)
-    {
-        pointInfluences.reserve(maxInfluences);
-    }
-};
-
 IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
 {
     const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject);
@@ -362,18 +348,18 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
 
     const ScenePath deformerPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
 
+    // Get static and animated deformer objects
     ConstObjectPtr staticDeformerObject = staticDeformerPlug()->object(deformerPath);
-    const Primitive *staticDeformerPrimitive = runTimeCast<const Primitive>(staticDeformerObject.get());
-    if (!staticDeformerPrimitive)
-        return inputObject;
-
     ConstObjectPtr animatedDeformerObject = animatedDeformerPlug()->object(deformerPath);
+
+    const Primitive *staticDeformerPrimitive = runTimeCast<const Primitive>(staticDeformerObject.get());
     const Primitive *animatedDeformerPrimitive = runTimeCast<const Primitive>(animatedDeformerObject.get());
-    if (!animatedDeformerPrimitive)
+
+    if (!staticDeformerPrimitive || !animatedDeformerPrimitive)
         return inputObject;
 
+    // Get position data from input mesh
     PrimitivePtr result = inputPrimitive->copy();
-
     auto pIt = result->variables.find("P");
     if (pIt == result->variables.end())
         return result;
@@ -382,24 +368,15 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
     if (!positionData)
         return result;
 
-    AlignedVector<V3f> positions(positionData->readable().begin(), positionData->readable().end());
-
+    // Get position data from static and animated deformers
     auto staticPIt = staticDeformerPrimitive->variables.find("P");
-    if (staticPIt == staticDeformerPrimitive->variables.end())
-        return result;
-
-    const V3fVectorData *staticPositions = runTimeCast<const V3fVectorData>(staticPIt->second.data.get());
-    if (!staticPositions)
-        return result;
-
     auto animatedPIt = animatedDeformerPrimitive->variables.find("P");
-    if (animatedPIt == animatedDeformerPrimitive->variables.end())
+    
+    if (staticPIt == staticDeformerPrimitive->variables.end() || 
+        animatedPIt == animatedDeformerPrimitive->variables.end())
         return result;
 
-    const V3fVectorData *animatedPositions = runTimeCast<const V3fVectorData>(animatedPIt->second.data.get());
-    if (!animatedPositions)
-        return result;
-
+    // Get the number of influences per point
     auto captureInfluencesIt = inputPrimitive->variables.find("captureInfluences");
     if (captureInfluencesIt == inputPrimitive->variables.end())
         return result;
@@ -408,84 +385,96 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
     if (!captureInfluences)
         return result;
 
-    const std::vector<int> &influences = captureInfluences->readable();
-    const std::vector<V3f> &staticPos = staticPositions->readable();
-    const std::vector<V3f> &animatedPos = animatedPositions->readable();
+    const std::vector<int> &numInfluences = captureInfluences->readable();
 
-    int maxInfluences = 0;
-    for (int numInf : influences)
-        maxInfluences = std::max(maxInfluences, numInf);
+    const V3fVectorData *staticPositions = runTimeCast<const V3fVectorData>(staticPIt->second.data.get());
+    const V3fVectorData *animatedPositions = runTimeCast<const V3fVectorData>(animatedPIt->second.data.get());
 
-    InfluenceData influenceData;
-    if (!getInfluenceData(inputPrimitive, maxInfluences, influenceData))
+    if (!staticPositions || !animatedPositions)
         return result;
 
-    const size_t numPoints = positions.size();
-    parallel_for(blocked_range<size_t>(0, numPoints, 1024),
-                 [&](const blocked_range<size_t> &range)
-                 {
-                     // Create thread-local data
-                     ThreadData threadData(maxInfluences);
+    const std::vector<V3f> &staticPos = staticPositions->readable();
+    const std::vector<V3f> &animatedPos = animatedPositions->readable();
+    std::vector<V3f> &positions = positionData->writable();
 
-                     for (size_t i = range.begin(); i != range.end(); ++i)
-                     {
-                         threadData.delta = V3f(0);
-                         threadData.totalWeight = 0.0f;
-                         
-                         const V3f currentPos = positions[i];
-                         V3f finalPosition = V3f(0);
-                         
-                         // Get all influences for this point
-                         influenceData.getPointInfluences(i, threadData.pointInfluences);
+    // Process each point in parallel
+    parallel_for(blocked_range<size_t>(0, positions.size()),
+        [&](const blocked_range<size_t> &range)
+        {
+            // Thread local storage for influence data
+            std::vector<std::pair<int, float>> influences;
+            influences.reserve(10); // Still reasonable to reserve some space
 
-                         if (threadData.pointInfluences.empty()) {
-                             continue;  // Skip points with no influences
-                         }
+            for (size_t i = range.begin(); i != range.end(); ++i)
+            {
+                influences.clear();
+                V3f delta(0);
+                float totalWeight = 0;
 
-                         for (const auto &[sourceIndex, weight] : threadData.pointInfluences)
-                         {
-                             if (sourceIndex >= staticPos.size() || weight <= 0.0f) {
-                                 continue;
-                             }
+                // Get actual number of influences for this point
+                const int maxInfluences = (i < numInfluences.size()) ? numInfluences[i] : 0;
 
-                             const V3f &staticPoint = staticPos[sourceIndex];
-                             const V3f &animatedPoint = animatedPos[sourceIndex];
-                             
-                             // Calculate the vector from the rest position to the current point
-                             V3f restOffset = currentPos - staticPoint;
-                             
-                             // Calculate how this influence point has moved
-                             V3f deformerMotion = animatedPoint - staticPoint;
-                             
-                             // The deformed position maintains the same relative offset from the moved influence point
-                             V3f deformedPos = animatedPoint + restOffset;
-                             
-                             // Accumulate weighted position
-                             finalPosition += deformedPos * weight;
-                             threadData.totalWeight += weight;
+                // Gather influences for current point
+                for (int j = 1; j <= maxInfluences; ++j)
+                {
+                    std::string indexName = "captureIndex" + std::to_string(j);
+                    std::string weightName = "captureWeight" + std::to_string(j);
 
-                             // Debug logging for first few points
-                             if (i < 5) {
-                                 std::cout << "    Rest offset: " << restOffset << std::endl;
-                                 std::cout << "    Deformer motion: " << deformerMotion << std::endl;
-                                 std::cout << "    Deformed pos: " << deformedPos << std::endl;
-                             }
-                         }
+                    auto indexIt = inputPrimitive->variables.find(indexName);
+                    auto weightIt = inputPrimitive->variables.find(weightName);
 
-                         if (threadData.totalWeight > 0.0f)
-                         {
-                             // Normalize by total weight
-                             finalPosition /= threadData.totalWeight;
-                             positions[i] = finalPosition;
-                         }
-                     }
-                 });
+                    if (indexIt == inputPrimitive->variables.end() || 
+                        weightIt == inputPrimitive->variables.end())
+                        continue;
 
-    positionData->writable().assign(positions.begin(), positions.end());
+                    const IntVectorData *indices = runTimeCast<const IntVectorData>(indexIt->second.data.get());
+                    const FloatVectorData *weights = runTimeCast<const FloatVectorData>(weightIt->second.data.get());
 
+                    if (!indices || !weights || i >= indices->readable().size())
+                        continue;
+
+                    int idx = indices->readable()[i];
+                    float weight = weights->readable()[i];
+
+                    if (idx >= 0 && weight > 0.0f && idx < staticPos.size())
+                    {
+                        influences.emplace_back(idx, weight);
+                    }
+                }
+
+                // Calculate deformation
+                for (const auto &influence : influences)
+                {
+                    int idx = influence.first;
+                    float weight = influence.second;
+
+                    const V3f &staticPoint = staticPos[idx];
+                    const V3f &animatedPoint = animatedPos[idx];
+                    
+                    delta += (animatedPoint - staticPoint) * weight;
+                    totalWeight += weight;
+                }
+
+                // Apply deformation
+                if (totalWeight > 0)
+                {
+                    positions[i] += delta;
+                }
+            }
+        }
+    );
+
+    // Clean up attributes if requested
     if (cleanupAttributesPlug()->getValue())
     {
         result->variables.erase("captureInfluences");
+        // Get max influences across all points to know how many attributes to clean
+        int maxInfluences = 0;
+        for (int n : numInfluences)
+        {
+            maxInfluences = std::max(maxInfluences, n);
+        }
+        
         for (int i = 1; i <= maxInfluences; ++i)
         {
             result->variables.erase("captureIndex" + std::to_string(i));
