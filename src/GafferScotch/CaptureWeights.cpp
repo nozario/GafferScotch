@@ -14,6 +14,7 @@
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
 #include <tbb/enumerable_thread_specific.h>
+#include <limits>
 
 using namespace Gaffer;
 using namespace GafferScene;
@@ -347,6 +348,10 @@ namespace
                                  float expandedRadius2 = radius2;
                                  const float maxExpandedRadius2 = radius2 * 4.0f;
                                  
+                                 // Track closest valid point for fallback
+                                 float closestValidDist2 = (std::numeric_limits<float>::max)();
+                                 int closestValidIndex = -1;
+                                 
                                  while (tls.validNeighbours.size() < static_cast<size_t>(minPoints) && 
                                         expandedRadius2 <= maxExpandedRadius2)
                                  {
@@ -355,10 +360,6 @@ namespace
                                      
                                      tls.neighbours.clear();
                                      unsigned int extraFound = tree.nearestNNeighbours(targetPos, maxPoints * 4, tls.neighbours);
-                                     
-                                     // Track closest valid point for fallback
-                                     float closestValidDist2 = std::numeric_limits<float>::max();
-                                     int closestValidIndex = -1;
                                      
                                      for (size_t j = 0; j < extraFound; ++j)
                                      {
@@ -385,13 +386,13 @@ namespace
                                              }
                                          }
                                      }
-                                     
-                                     // Ensure at least one influence by using closest valid point
-                                     if (tls.validNeighbours.empty() && closestValidIndex >= 0)
-                                     {
-                                         tls.validNeighbours.emplace_back(closestValidDist2, closestValidIndex);
-                                         maxDistSquared = closestValidDist2;
-                                     }
+                                 }
+                                 
+                                 // Ensure at least one influence by using closest valid point
+                                 if (tls.validNeighbours.empty() && closestValidIndex >= 0)
+                                 {
+                                     tls.validNeighbours.emplace_back(closestValidDist2, closestValidIndex);
+                                     maxDistSquared = closestValidDist2;
                                  }
                              }
 
