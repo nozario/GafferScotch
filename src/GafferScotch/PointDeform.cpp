@@ -451,13 +451,25 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                              const V3f &staticPoint = staticPos[sourceIndex];
                              const V3f &animatedPoint = animatedPos[sourceIndex];
                              
-                             // Calculate the transformation from rest to animated space
-                             V3f localPos = currentPos - staticPoint;  // Move to local space relative to rest position
-                             V3f deformedPos = animatedPoint + localPos;  // Apply deformation
+                             // Calculate the vector from the rest position to the current point
+                             V3f restOffset = currentPos - staticPoint;
+                             
+                             // Calculate how this influence point has moved
+                             V3f deformerMotion = animatedPoint - staticPoint;
+                             
+                             // The deformed position maintains the same relative offset from the moved influence point
+                             V3f deformedPos = animatedPoint + restOffset;
                              
                              // Accumulate weighted position
                              finalPosition += deformedPos * weight;
                              threadData.totalWeight += weight;
+
+                             // Debug logging for first few points
+                             if (i < 5) {
+                                 std::cout << "    Rest offset: " << restOffset << std::endl;
+                                 std::cout << "    Deformer motion: " << deformerMotion << std::endl;
+                                 std::cout << "    Deformed pos: " << deformedPos << std::endl;
+                             }
                          }
 
                          if (threadData.totalWeight > 0.0f)
@@ -465,28 +477,6 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                              // Normalize by total weight
                              finalPosition /= threadData.totalWeight;
                              positions[i] = finalPosition;
-                         }
-
-                         // Debug logging for first few points
-                         if (i < 5) {
-                             std::cout << "\nPoint " << i << " processing:" << std::endl;
-                             std::cout << "  Initial pos: " << currentPos << std::endl;
-                             std::cout << "  Num influences: " << threadData.pointInfluences.size() << std::endl;
-                             std::cout << "  Total weight: " << threadData.totalWeight << std::endl;
-                             std::cout << "  Final position: " << positions[i] << std::endl;
-                             std::cout << "  Verification - position in array: " << positions[i] << std::endl;
-                             
-                             // Verify the position was actually updated
-                             if (positions[i] != finalPosition) {
-                                 std::cout << "  WARNING: Position update mismatch!" << std::endl;
-                             }
-
-                             for (const auto &[sourceIndex, weight] : threadData.pointInfluences) {
-                                 std::cout << "  Influence " << sourceIndex << ":" << std::endl;
-                                 std::cout << "    Weight: " << weight << std::endl;
-                                 std::cout << "    Static pos: " << staticPos[sourceIndex] << std::endl;
-                                 std::cout << "    Animated pos: " << animatedPos[sourceIndex] << std::endl;
-                             }
                          }
                      }
                  });
