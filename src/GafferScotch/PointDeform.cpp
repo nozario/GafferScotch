@@ -17,6 +17,9 @@
 #include <tbb/blocked_range.h>
 #include <tbb/cache_aligned_allocator.h>
 
+#include <iostream>
+#include <iomanip>
+
 using namespace Gaffer;
 using namespace GafferScene;
 using namespace GafferScotch;
@@ -445,6 +448,32 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                          {
                              delta /= totalWeight;
                              positions[i] += delta;
+                         }
+
+                         if (i < 5) {  // Only log first 5 points
+                             std::cout << "\nPoint " << i << " processing:" << std::endl;
+                             std::cout << "  Initial pos: " << currentPos << std::endl;
+                             std::cout << "  Num influences: " << pointInfluences.size() << std::endl;
+                             
+                             for (const auto &[sourceIndex, weight] : pointInfluences) {
+                                 std::cout << "  Influence " << sourceIndex << ":" << std::endl;
+                                 std::cout << "    Weight: " << weight << std::endl;
+                                 std::cout << "    Static pos: " << staticPos[sourceIndex] << std::endl;
+                                 std::cout << "    Animated pos: " << animatedPos[sourceIndex] << std::endl;
+                                 
+                                 // Log intermediate calculations
+                                 V3f localPos = currentPos - staticPos[sourceIndex];
+                                 V3f newPos = localPos + staticPos[sourceIndex];
+                                 newPos += (animatedPos[sourceIndex] - staticPos[sourceIndex]);
+                                 V3f influenceDelta = newPos - currentPos;
+                                 
+                                 std::cout << "    Local pos: " << localPos << std::endl;
+                                 std::cout << "    New pos: " << newPos << std::endl;
+                                 std::cout << "    Delta: " << influenceDelta << std::endl;
+                             }
+                             
+                             std::cout << "  Final delta: " << delta << std::endl;
+                             std::cout << "  Total weight: " << totalWeight << std::endl;
                          }
                      }
                  });
