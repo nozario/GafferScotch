@@ -368,8 +368,16 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
     if (!positionData)
         return result;
 
-    const V3fVectorData *staticPositions = runTimeCast<const V3fVectorData>(staticDeformerPrimitive->variables["P"].data.get());
-    const V3fVectorData *animatedPositions = runTimeCast<const V3fVectorData>(animatedDeformerPrimitive->variables["P"].data.get());
+    // Use find() for static and animated positions
+    auto staticPIt = staticDeformerPrimitive->variables.find("P");
+    auto animatedPIt = animatedDeformerPrimitive->variables.find("P");
+    
+    if (staticPIt == staticDeformerPrimitive->variables.end() || 
+        animatedPIt == animatedDeformerPrimitive->variables.end())
+        return result;
+
+    const V3fVectorData *staticPositions = runTimeCast<const V3fVectorData>(staticPIt->second.data.get());
+    const V3fVectorData *animatedPositions = runTimeCast<const V3fVectorData>(animatedPIt->second.data.get());
     
     if (!staticPositions || !animatedPositions)
         return result;
