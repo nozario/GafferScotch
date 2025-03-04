@@ -405,6 +405,7 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                 // Process each influence
                 const int maxInfluences = (i < numInfluences.size()) ? numInfluences[i] : 0;
                 
+                V3f finalPosition = positions[i];
                 for (int j = 1; j <= maxInfluences; ++j)
                 {
                     // Use find() instead of operator[]
@@ -430,8 +431,9 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                     if (idx >= 0 && weight > 0.0f && idx < staticPos.size())
                     {
                         // Simply apply the translation from rest to animated position
+                        V3f bind_offset = positions[idx] - staticPos[idx];
                         V3f offset = animatedPos[idx] - staticPos[idx];
-                        totalOffset += offset * weight;
+                        totalOffset += bind_offset + offset * weight;
                         totalWeight += weight;
                     }
                 }
@@ -439,7 +441,7 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                 // Apply the weighted offset to the input position
                 if (totalWeight > 0)
                 {
-                    positions[i] += totalOffset;
+                    positions[i] += finalPosition + totalOffset;
                 }
             }
         }
