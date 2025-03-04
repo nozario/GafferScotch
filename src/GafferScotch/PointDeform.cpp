@@ -415,6 +415,8 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                          V3f delta(0, 0, 0);
                          float totalWeight = 0.0f;
 
+                         V3f currentPos = positions[i];
+                         
                          // Get all influences for this specific point
                          influenceData.getPointInfluences(i, pointInfluences);
 
@@ -424,7 +426,18 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                              const V3f &staticPoint = staticPos[sourceIndex];
                              const V3f &animatedPoint = animatedPos[sourceIndex];
                              
-                             delta += (animatedPoint - staticPoint) * weight;
+                             // Move to local space of influence point
+                             V3f localPos = currentPos - staticPoint;
+                             
+                             // Move back to world space and add translation
+                             V3f newPos = localPos + staticPoint;
+                             newPos += (animatedPoint - staticPoint);
+                             
+                             // Calculate delta for this influence
+                             V3f influenceDelta = newPos - currentPos;
+                             
+                             // Accumulate weighted delta
+                             delta += influenceDelta * weight;
                              totalWeight += weight;
                          }
 
