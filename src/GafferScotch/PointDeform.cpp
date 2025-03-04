@@ -393,33 +393,43 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
     parallel_for(blocked_range<size_t>(0, numPoints, 1024),
                  [&](const blocked_range<size_t> &range)
                  {
-                     V3f delta;
-                     float totalWeight;
-
                      for (size_t i = range.begin(); i != range.end(); ++i)
                      {
-                         delta.setValue(0, 0, 0);
-                         totalWeight = 0;
+                         // Initialize delta to zero
+                         V3f delta(0, 0, 0);
+                         
+                         // Get the number of influences for this vertex
+                         const int numInfluences = influences[i];
+                         if (numInfluences == 0)
+                             continue;
 
+                         // Process all influences for this vertex
                          for (const auto &influence : influenceData.influences)
                          {
-                             computeDeformation(
-                                 positions[i],
-                                 &staticPos[0],
-                                 &animatedPos[0],
-                                 influence,
-                                 i,
-                                 delta,
-                                 totalWeight);
+                             const int *indices = influence.indices;
+                             const float *weights = influence.weights;
+                             
+                             // Only process valid influences
+                             if (i < influence.count)
+                             {
+                                 const int sourceIndex = indices[i];
+                                 const float weight = weights[i];
+                                 
+                                 if (sourceIndex >= 0 && weight > 0.0f)
+                                 {
+                                     // Calculate the delta between static and animated positions
+                                     const V3f &staticPos = staticPos[sourceIndex];
+                                     const V3f &animatedPos = animatedPos[sourceIndex];
+                                     V3f influenceDelta = animatedPos - staticPos;
+                                     
+                                     // Apply weighted delta
+                                     delta += influenceDelta * weight;
+                                 }
+                             }
                          }
 
-                         if (totalWeight > 0)
-                         {
-                             const float invWeight = 1.0f / totalWeight;
-                             positions[i].x += delta.x * invWeight;
-                             positions[i].y += delta.y * invWeight;
-                             positions[i].z += delta.z * invWeight;
-                         }
+                         // Apply the accumulated delta to the position
+                         positions[i] += delta;
                      }
                  });
 
