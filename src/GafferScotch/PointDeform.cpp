@@ -429,14 +429,18 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                              const V3f &staticPoint = staticPos[sourceIndex];
                              const V3f &animatedPoint = animatedPos[sourceIndex];
                              
-                             // Move to local space of influence point
-                             V3f localPos = currentPos - staticPoint;
+                             // First calculate pure translation like VEX
+                             V3f translation = animatedPoint - staticPoint;
                              
-                             // Move back to world space and add translation
-                             V3f newPos = localPos + staticPoint;
-                             newPos += (animatedPoint - staticPoint);
+                             // Move to and from local space (preparing for future xform support)
+                             V3f newPos = currentPos;
+                             newPos -= staticPoint;  // to local
+                             newPos += staticPoint;  // back to world
                              
-                             // Calculate delta for this influence
+                             // Apply translation after local space transform
+                             newPos += translation;
+                             
+                             // Calculate delta
                              V3f influenceDelta = newPos - currentPos;
                              
                              // Accumulate weighted delta
@@ -462,13 +466,13 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                                  std::cout << "    Animated pos: " << animatedPos[sourceIndex] << std::endl;
                                  
                                  // Log intermediate calculations
-                                 V3f localPos = currentPos - staticPos[sourceIndex];
-                                 V3f newPos = localPos + staticPos[sourceIndex];
-                                 newPos += (animatedPos[sourceIndex] - staticPos[sourceIndex]);
+                                 V3f translation = animatedPos[sourceIndex] - staticPos[sourceIndex];
+                                 V3f newPos = currentPos - staticPos[sourceIndex];
+                                 newPos += staticPos[sourceIndex];
+                                 newPos += translation;
                                  V3f influenceDelta = newPos - currentPos;
                                  
-                                 std::cout << "    Local pos: " << localPos << std::endl;
-                                 std::cout << "    New pos: " << newPos << std::endl;
+                                 std::cout << "    Local pos: " << newPos << std::endl;
                                  std::cout << "    Delta: " << influenceDelta << std::endl;
                              }
                              
