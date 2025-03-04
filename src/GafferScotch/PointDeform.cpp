@@ -442,26 +442,26 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                              const V3f &staticPoint = staticPos[sourceIndex];
                              const V3f &animatedPoint = animatedPos[sourceIndex];
                              
-                             // First calculate pure translation like VEX
+                             // Calculate translation delta (like VEX diff)
                              V3f translation = animatedPoint - staticPoint;
                              
-                             // Move to and from local space (preparing for future xform support)
+                             // Calculate new position for current point (like VEX newp)
                              V3f newPos = currentPos;
-                             newPos -= staticPoint;  // to local
-                             newPos += staticPoint;  // back to world
+                             newPos -= staticPoint;  // To local space
+                             newPos += staticPoint;  // Back to world space
+                             newPos += translation;  // Apply translation
                              
-                             // Apply translation after local space transform
-                             newPos += translation;
+                             // Get delta between new and current pos (like VEX diff = newp - @P)
+                             V3f pointDelta = newPos - currentPos;
                              
-                             // Calculate and accumulate delta
-                             threadData.delta += (newPos - currentPos) * weight;
-                             threadData.totalWeight += weight;
+                             // Accumulate weighted delta
+                             threadData.delta += pointDelta * weight;
                          }
 
                          if (threadData.totalWeight > 0.0f)
                          {
                              threadData.delta /= threadData.totalWeight;
-                             positions[i] += threadData.delta;
+                             positions[i] += threadData.delta;  // Apply final delta to position
                          }
 
                          if (i < 5) {  // Only log first 5 points
