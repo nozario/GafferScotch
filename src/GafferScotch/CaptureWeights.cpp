@@ -35,7 +35,7 @@ namespace
         std::vector<int> influenceCounts; // size = numVertices
 
         BatchResults(size_t numVertices, int maxPoints)
-            : allIndices(numVertices * maxPoints, -1), allWeights(numVertices * maxPoints, 0.0f), influenceCounts(numVertices, 0)
+            : allIndices(numVertices * maxPoints, 0), allWeights(numVertices * maxPoints, 0.0f), influenceCounts(numVertices, 0)
         {
         }
 
@@ -429,7 +429,7 @@ namespace
                                  }
                                  else
                                  {
-                                     indices[j] = -1;
+                                     indices[j] = 0;
                                      weights[j] = 0.0f;
                                  }
                              }

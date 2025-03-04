@@ -34,15 +34,29 @@ namespace
     {
         struct Entry
         {
-            std::vector<int> indices;
-            std::vector<float> weights;
+            const int *indices;      // Points to the array of indices for this influence level
+            const float *weights;    // Points to the array of weights for this influence level
             size_t count;
         };
         std::vector<Entry> influences;
 
-        void reserve(size_t size)
+        // Add a method to get all influences for a specific point
+        void getPointInfluences(size_t pointIndex, std::vector<std::pair<int, float>> &pointInfluences) const
         {
-            influences.reserve(size);
+            pointInfluences.clear();
+            for (const auto &influence : influences)
+            {
+                if (pointIndex >= influence.count)
+                    continue;
+
+                const int idx = influence.indices[pointIndex];
+                const float weight = influence.weights[pointIndex];
+                
+                if (idx >= 0 && weight > 0.0f)
+                {
+                    pointInfluences.emplace_back(idx, weight);
+                }
+            }
         }
     };
 
@@ -69,8 +83,8 @@ namespace
                 continue;
 
             InfluenceData::Entry entry;
-            entry.indices = indices->readable();
-            entry.weights = weights->readable();
+            entry.indices = indices->readable().data();
+            entry.weights = weights->readable().data();
             entry.count = indices->readable().size();
             
             data.influences.push_back(std::move(entry));
@@ -393,27 +407,25 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
     parallel_for(blocked_range<size_t>(0, numPoints, 1024),
                  [&](const blocked_range<size_t> &range)
                  {
+                     std::vector<std::pair<int, float>> pointInfluences;
+                     pointInfluences.reserve(maxInfluences);
+
                      for (size_t i = range.begin(); i != range.end(); ++i)
                      {
                          V3f delta(0, 0, 0);
                          float totalWeight = 0.0f;
 
-                         for (const auto &influence : influenceData.influences)
+                         // Get all influences for this specific point
+                         influenceData.getPointInfluences(i, pointInfluences);
+
+                         // Process all influences for this point
+                         for (const auto &[sourceIndex, weight] : pointInfluences)
                          {
-                             if (i >= influence.count)
-                                 continue;
-
-                             const int sourceIndex = influence.indices[i];
-                             const float weight = influence.weights[i];
-
-                             if (sourceIndex >= 0 && weight > 0.0f)
-                             {
-                                 const V3f &staticPoint = staticPos[sourceIndex];
-                                 const V3f &animatedPoint = animatedPos[sourceIndex];
-                                 
-                                 delta += (animatedPoint - staticPoint) * weight;
-                                 totalWeight += weight;
-                             }
+                             const V3f &staticPoint = staticPos[sourceIndex];
+                             const V3f &animatedPoint = animatedPos[sourceIndex];
+                             
+                             delta += (animatedPoint - staticPoint) * weight;
+                             totalWeight += weight;
                          }
 
                          if (totalWeight > 0.0f)
