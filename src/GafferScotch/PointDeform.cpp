@@ -432,62 +432,61 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                          threadData.delta = V3f(0);
                          threadData.totalWeight = 0.0f;
                          
-                         V3f currentPos = positions[i];
+                         const V3f currentPos = positions[i];
+                         V3f finalPosition = V3f(0);
                          
-                         // Use thread-local storage
+                         // Get all influences for this point
                          influenceData.getPointInfluences(i, threadData.pointInfluences);
+
+                         if (threadData.pointInfluences.empty()) {
+                             continue;  // Skip points with no influences
+                         }
 
                          for (const auto &[sourceIndex, weight] : threadData.pointInfluences)
                          {
+                             if (sourceIndex >= staticPos.size() || weight <= 0.0f) {
+                                 continue;
+                             }
+
                              const V3f &staticPoint = staticPos[sourceIndex];
                              const V3f &animatedPoint = animatedPos[sourceIndex];
                              
-                             // Calculate translation delta (like VEX diff)
-                             V3f translation = animatedPoint - staticPoint;
+                             // Calculate the transformation from rest to animated space
+                             V3f localPos = currentPos - staticPoint;  // Move to local space relative to rest position
+                             V3f deformedPos = animatedPoint + localPos;  // Apply deformation
                              
-                             // Calculate new position for current point (like VEX newp)
-                             V3f newPos = currentPos;
-                             newPos -= staticPoint;  // To local space
-                             newPos += staticPoint;  // Back to world space
-                             newPos += translation;  // Apply translation
-                             
-                             // Get delta between new and current pos (like VEX diff = newp - @P)
-                             V3f pointDelta = newPos - currentPos;
-                             
-                             // Accumulate weighted delta
-                             threadData.delta += pointDelta * weight;
+                             // Accumulate weighted position
+                             finalPosition += deformedPos * weight;
+                             threadData.totalWeight += weight;
                          }
 
                          if (threadData.totalWeight > 0.0f)
                          {
-                             threadData.delta /= threadData.totalWeight;
-                             positions[i] += threadData.delta;  // Apply final delta to position
+                             // Normalize by total weight
+                             finalPosition /= threadData.totalWeight;
+                             positions[i] = finalPosition;
                          }
 
-                         if (i < 5) {  // Only log first 5 points
+                         // Debug logging for first few points
+                         if (i < 5) {
                              std::cout << "\nPoint " << i << " processing:" << std::endl;
                              std::cout << "  Initial pos: " << currentPos << std::endl;
                              std::cout << "  Num influences: " << threadData.pointInfluences.size() << std::endl;
+                             std::cout << "  Total weight: " << threadData.totalWeight << std::endl;
+                             std::cout << "  Final position: " << positions[i] << std::endl;
+                             std::cout << "  Verification - position in array: " << positions[i] << std::endl;
                              
+                             // Verify the position was actually updated
+                             if (positions[i] != finalPosition) {
+                                 std::cout << "  WARNING: Position update mismatch!" << std::endl;
+                             }
+
                              for (const auto &[sourceIndex, weight] : threadData.pointInfluences) {
                                  std::cout << "  Influence " << sourceIndex << ":" << std::endl;
                                  std::cout << "    Weight: " << weight << std::endl;
                                  std::cout << "    Static pos: " << staticPos[sourceIndex] << std::endl;
                                  std::cout << "    Animated pos: " << animatedPos[sourceIndex] << std::endl;
-                                 
-                                 // Log intermediate calculations
-                                 V3f translation = animatedPos[sourceIndex] - staticPos[sourceIndex];
-                                 V3f newPos = currentPos - staticPos[sourceIndex];
-                                 newPos += staticPos[sourceIndex];
-                                 newPos += translation;
-                                 V3f influenceDelta = newPos - currentPos;
-                                 
-                                 std::cout << "    Local pos: " << newPos << std::endl;
-                                 std::cout << "    Delta: " << influenceDelta << std::endl;
                              }
-                             
-                             std::cout << "  Final delta: " << threadData.delta << std::endl;
-                             std::cout << "  Total weight: " << threadData.totalWeight << std::endl;
                          }
                      }
                  });
