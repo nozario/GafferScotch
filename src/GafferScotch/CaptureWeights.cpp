@@ -347,25 +347,25 @@ namespace
                              {
                                  float expandedRadius2 = radius2;
                                  const float maxExpandedRadius2 = radius2 * 4.0f;
-                                 
+
                                  // Track closest valid point for fallback
                                  float closestValidDist2 = (std::numeric_limits<float>::max)();
                                  int closestValidIndex = -1;
-                                 
-                                 while (tls.validNeighbours.size() < static_cast<size_t>(minPoints) && 
+
+                                 while (tls.validNeighbours.size() < static_cast<size_t>(minPoints) &&
                                         expandedRadius2 <= maxExpandedRadius2)
                                  {
                                      // Use smaller expansion steps
                                      expandedRadius2 *= 1.2f;
-                                     
+
                                      tls.neighbours.clear();
                                      unsigned int extraFound = tree.nearestNNeighbours(targetPos, maxPoints * 4, tls.neighbours);
-                                     
+
                                      for (size_t j = 0; j < extraFound; ++j)
                                      {
                                          const V3fTree::Neighbour &neighbour = tls.neighbours[j];
                                          const int sourceIndex = neighbour.point - sourcePoints.begin();
-                                         
+
                                          // Always track closest valid point
                                          if (piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
                                          {
@@ -375,8 +375,8 @@ namespace
                                                  closestValidIndex = sourceIndex;
                                              }
                                          }
-                                         
-                                         if (neighbour.distSquared > radius2 && 
+
+                                         if (neighbour.distSquared > radius2 &&
                                              neighbour.distSquared <= expandedRadius2)
                                          {
                                              if (piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
@@ -387,25 +387,25 @@ namespace
                                          }
                                      }
                                  }
-                                 
+
                                  // Ensure at least one influence by using closest valid point
                                  if (tls.validNeighbours.empty() && closestValidIndex >= 0)
                                  {
                                      tls.validNeighbours.emplace_back(closestValidDist2, closestValidIndex);
                                      maxDistSquared = closestValidDist2;
                                  }
-                                 
+
                                  // ADDED FALLBACK: If we still have no valid neighbors, use closest points regardless of piece
                                  if (tls.validNeighbours.empty() && !tls.fallbackNeighbours.empty())
                                  {
                                      std::sort(tls.fallbackNeighbours.begin(), tls.fallbackNeighbours.end());
-                                     
+
                                      // Use up to minPoints from fallback neighbors
-                                     size_t numToUse = std::min(tls.fallbackNeighbours.size(), static_cast<size_t>(minPoints));
+                                     size_t numToUse = std::min<size_t>(tls.fallbackNeighbours.size(), static_cast<size_t>(minPoints));
                                      for (size_t j = 0; j < numToUse; ++j)
                                      {
                                          tls.validNeighbours.push_back(tls.fallbackNeighbours[j]);
-                                         maxDistSquared = std::max(maxDistSquared, tls.fallbackNeighbours[j].first);
+                                         maxDistSquared = std::max<float>(maxDistSquared, tls.fallbackNeighbours[j].first);
                                      }
                                  }
                              }
