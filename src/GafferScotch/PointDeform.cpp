@@ -440,7 +440,7 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
                          // Apply the weighted offset to the input position
                          if (totalWeight > 0)
                          {
-                             positions[i] += finalPosition + totalOffset;
+                             positions[i] += totalOffset;
                          }
                      }
                  });
