@@ -302,14 +302,14 @@ namespace
         BatchResults &results)
     {
         V3fTree tree(sourcePoints.begin(), sourcePoints.end(), 8);
-
         const float radius2 = radius * radius;
-        const float invRadius2 = 1.0f / radius2;
+        
+        // Always search for more points than we need to ensure we have enough candidates
+        const unsigned int searchCount = maxPoints * 8;
 
         enumerable_thread_specific<ThreadLocalStorage> threadStorage(maxPoints);
 
-        const size_t numVertices = targetPoints.size();
-        parallel_for(blocked_range<size_t>(0, numVertices, 1024),
+        parallel_for(blocked_range<size_t>(0, targetPoints.size(), 1024),
                      [&](const blocked_range<size_t> &range)
                      {
                          ThreadLocalStorage &tls = threadStorage.local();
@@ -317,165 +317,93 @@ namespace
                          for (size_t i = range.begin(); i != range.end(); ++i)
                          {
                              const V3f &targetPos = targetPoints[i];
-
                              tls.neighbours.clear();
                              tls.validNeighbours.clear();
-                             tls.fallbackNeighbours.clear();
                              tls.vertexWeights.clear();
 
-                             // First search within radius
-                             unsigned int found = tree.nearestNNeighbours(targetPos, maxPoints * 2, tls.neighbours);
+                             // Get nearest neighbors in a single query
+                             unsigned int found = tree.nearestNNeighbours(targetPos, searchCount, tls.neighbours);
 
-                             float maxDistSquared = radius2;
-                             for (size_t j = 0; j < found; ++j)
+                             // If we have piece attributes, filter by them first
+                             if (sourcePiece && targetPiece)
                              {
-                                 const V3fTree::Neighbour &neighbour = tls.neighbours[j];
-
-                                 // Collect all points within radius as fallback, regardless of piece matching
-                                 if (neighbour.distSquared <= radius2)
+                                 for (size_t j = 0; j < found; ++j)
                                  {
+                                     const V3fTree::Neighbour &neighbour = tls.neighbours[j];
                                      const int sourceIndex = neighbour.point - sourcePoints.begin();
-                                     tls.fallbackNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
-
-                                     // Collect points with matching piece attributes as valid
+                                     
                                      if (piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
                                      {
                                          tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
                                      }
                                  }
-                             }
 
-                             // Try expanding radius if needed
-                             if (tls.validNeighbours.size() < static_cast<size_t>(minPoints))
-                             {
-                                 float expandedRadius2 = radius2;
-                                 const float maxExpandedRadius2 = radius2 * 4.0f;
-
-                                 // Track closest valid point for fallback
-                                 float closestValidDist2 = (std::numeric_limits<float>::max)();
-                                 int closestValidIndex = -1;
-
-                                 while (tls.validNeighbours.size() < static_cast<size_t>(minPoints) &&
-                                        expandedRadius2 <= maxExpandedRadius2)
+                                 // If we don't have enough valid neighbors with matching pieces,
+                                 // fall back to closest points regardless of piece
+                                 if (tls.validNeighbours.size() < static_cast<size_t>(minPoints))
                                  {
-                                     // Use smaller expansion steps
-                                     expandedRadius2 *= 1.2f;
-
-                                     tls.neighbours.clear();
-                                     unsigned int extraFound = tree.nearestNNeighbours(targetPos, maxPoints * 4, tls.neighbours);
-
-                                     for (size_t j = 0; j < extraFound; ++j)
+                                     tls.validNeighbours.clear();
+                                     for (size_t j = 0; j < found && j < static_cast<size_t>(maxPoints); ++j)
                                      {
                                          const V3fTree::Neighbour &neighbour = tls.neighbours[j];
                                          const int sourceIndex = neighbour.point - sourcePoints.begin();
-
-                                         // Always track closest valid point
-                                         if (piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
-                                         {
-                                             if (neighbour.distSquared < closestValidDist2)
-                                             {
-                                                 closestValidDist2 = neighbour.distSquared;
-                                                 closestValidIndex = sourceIndex;
-                                             }
-                                         }
-
-                                         if (neighbour.distSquared > radius2 &&
-                                             neighbour.distSquared <= expandedRadius2)
-                                         {
-                                             if (piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
-                                             {
-                                                 tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
-                                                 maxDistSquared = std::max<float>(maxDistSquared, neighbour.distSquared);
-                                             }
-                                         }
-                                     }
-                                 }
-
-                                 // Ensure at least one influence by using closest valid point
-                                 if (tls.validNeighbours.empty() && closestValidIndex >= 0)
-                                 {
-                                     tls.validNeighbours.emplace_back(closestValidDist2, closestValidIndex);
-                                     maxDistSquared = closestValidDist2;
-                                 }
-
-                                 // ADDED FALLBACK: If we still have no valid neighbors, use closest points regardless of piece
-                                 if (tls.validNeighbours.empty() && !tls.fallbackNeighbours.empty())
-                                 {
-                                     std::sort(tls.fallbackNeighbours.begin(), tls.fallbackNeighbours.end());
-
-                                     // Use up to minPoints from fallback neighbors
-                                     size_t numToUse = std::min<size_t>(tls.fallbackNeighbours.size(), static_cast<size_t>(minPoints));
-                                     for (size_t j = 0; j < numToUse; ++j)
-                                     {
-                                         tls.validNeighbours.push_back(tls.fallbackNeighbours[j]);
-                                         maxDistSquared = std::max<float>(maxDistSquared, tls.fallbackNeighbours[j].first);
+                                         tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
                                      }
                                  }
                              }
-
-                             // FINAL FALLBACK: If we still have no valid neighbors and no fallbacks in radius,
-                             // find the absolute nearest points regardless of radius or piece
-                             if (tls.validNeighbours.empty())
+                             else
                              {
-                                 // Clear to ensure we start fresh
-                                 tls.neighbours.clear();
-                                 tls.fallbackNeighbours.clear();
-                                 
-                                 // Get the absolute nearest points
-                                 unsigned int absoluteFound = tree.nearestNNeighbours(targetPos, minPoints, tls.neighbours);
-                                 
-                                 if (absoluteFound > 0)
+                                 // No piece attributes - just use the nearest points
+                                 for (size_t j = 0; j < found && j < static_cast<size_t>(maxPoints); ++j)
                                  {
-                                     // First try to use nearest points with matching pieces
-                                     for (size_t j = 0; j < absoluteFound; ++j)
-                                     {
-                                         const V3fTree::Neighbour &neighbour = tls.neighbours[j];
-                                         const int sourceIndex = neighbour.point - sourcePoints.begin();
-                                         
-                                         if (piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
-                                         {
-                                             tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
-                                             maxDistSquared = std::max<float>(maxDistSquared, neighbour.distSquared);
-                                         }
-                                         
-                                         // Always collect fallbacks
-                                         tls.fallbackNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
-                                     }
-                                     
-                                     // If still no valid neighbors, use the absolute nearest regardless of piece
-                                     if (tls.validNeighbours.empty() && !tls.fallbackNeighbours.empty())
-                                     {
-                                         std::sort(tls.fallbackNeighbours.begin(), tls.fallbackNeighbours.end());
-                                         
-                                         size_t numToUse = std::min<size_t>(tls.fallbackNeighbours.size(), static_cast<size_t>(minPoints));
-                                         for (size_t j = 0; j < numToUse; ++j)
-                                         {
-                                             tls.validNeighbours.push_back(tls.fallbackNeighbours[j]);
-                                             maxDistSquared = std::max<float>(maxDistSquared, tls.fallbackNeighbours[j].first);
-                                         }
-                                     }
+                                     const V3fTree::Neighbour &neighbour = tls.neighbours[j];
+                                     const int sourceIndex = neighbour.point - sourcePoints.begin();
+                                     tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
                                  }
                              }
 
+                             // Sort by distance and limit to maxPoints
                              std::sort(tls.validNeighbours.begin(), tls.validNeighbours.end());
-
                              if (tls.validNeighbours.size() > static_cast<size_t>(maxPoints))
                              {
                                  tls.validNeighbours.resize(maxPoints);
                              }
 
+                             // Calculate weights based on distance
                              float totalWeight = 0.0f;
-                             const float invMaxDistSquared = 1.0f / maxDistSquared;
+                             float maxDistSquared = radius2;
 
+                             // Find max distance among valid neighbors within radius
                              for (const auto &neighbour : tls.validNeighbours)
                              {
-                                 float weight = calculateWeight(neighbour.first, invMaxDistSquared);
+                                 if (neighbour.first <= radius2)
+                                 {
+                                     maxDistSquared = std::max(maxDistSquared, neighbour.first);
+                                 }
+                             }
+
+                             // Calculate weights with smooth falloff
+                             const float invMaxDistSquared = 1.0f / maxDistSquared;
+                             for (const auto &neighbour : tls.validNeighbours)
+                             {
+                                 float weight;
+                                 if (neighbour.first <= radius2)
+                                 {
+                                     // Use smooth falloff for points within radius
+                                     weight = calculateWeight(neighbour.first, invMaxDistSquared);
+                                 }
+                                 else
+                                 {
+                                     // Use inverse distance falloff for points outside radius
+                                     weight = radius2 / neighbour.first;
+                                 }
                                  totalWeight += weight;
                                  tls.vertexWeights.push_back(weight);
                              }
 
                              results.influenceCounts[i] = tls.validNeighbours.size();
 
+                             // Normalize weights
                              const float invTotalWeight = totalWeight > 0.0f ? 1.0f / totalWeight : 0.0f;
 
                              int *indices = results.getIndices(i, maxPoints);
