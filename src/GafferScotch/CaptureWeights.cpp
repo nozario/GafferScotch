@@ -394,6 +394,20 @@ namespace
                                      tls.validNeighbours.emplace_back(closestValidDist2, closestValidIndex);
                                      maxDistSquared = closestValidDist2;
                                  }
+                                 
+                                 // ADDED FALLBACK: If we still have no valid neighbors, use closest points regardless of piece
+                                 if (tls.validNeighbours.empty() && !tls.fallbackNeighbours.empty())
+                                 {
+                                     std::sort(tls.fallbackNeighbours.begin(), tls.fallbackNeighbours.end());
+                                     
+                                     // Use up to minPoints from fallback neighbors
+                                     size_t numToUse = std::min(tls.fallbackNeighbours.size(), static_cast<size_t>(minPoints));
+                                     for (size_t j = 0; j < numToUse; ++j)
+                                     {
+                                         tls.validNeighbours.push_back(tls.fallbackNeighbours[j]);
+                                         maxDistSquared = std::max(maxDistSquared, tls.fallbackNeighbours[j].first);
+                                     }
+                                 }
                              }
 
                              std::sort(tls.validNeighbours.begin(), tls.validNeighbours.end());
