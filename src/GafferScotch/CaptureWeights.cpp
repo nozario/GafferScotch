@@ -303,7 +303,7 @@ namespace
     {
         V3fTree tree(sourcePoints.begin(), sourcePoints.end(), 8);
         const float radius2 = radius * radius;
-        
+
         // Always search for more points than we need to ensure we have enough candidates
         const unsigned int searchCount = maxPoints * 8;
 
@@ -331,7 +331,7 @@ namespace
                                  {
                                      const V3fTree::Neighbour &neighbour = tls.neighbours[j];
                                      const int sourceIndex = neighbour.point - sourcePoints.begin();
-                                     
+
                                      if (piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
                                      {
                                          tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
@@ -378,7 +378,7 @@ namespace
                              {
                                  if (neighbour.first <= radius2)
                                  {
-                                     maxDistSquared = std::max(maxDistSquared, neighbour.first);
+                                     maxDistSquared = std::max<float>(maxDistSquared, neighbour.first);
                                  }
                              }
 
