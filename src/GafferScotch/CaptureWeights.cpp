@@ -72,15 +72,130 @@ namespace
         {
             enum class Type { None, Int, Float, String, Vector };
             
-            Type type = Type::None;
-            union {
+            Type type;
+            union Values {
                 int intValue;
                 float floatValue;
                 V3f vectorValue;
-            };
+                
+                Values() : intValue(0) {}  // Default constructor initializes first member
+                ~Values() {}  // Destructor needed for proper cleanup
+            } values;
             std::string stringValue;  // Separate since it can't be in union
             
-            PieceValue() : type(Type::None), intValue(0) {}
+            // Default constructor
+            PieceValue() : type(Type::None) {}
+            
+            // Copy constructor
+            PieceValue(const PieceValue& other) : type(other.type), stringValue(other.stringValue)
+            {
+                switch (type) {
+                    case Type::Int:
+                        values.intValue = other.values.intValue;
+                        break;
+                    case Type::Float:
+                        values.floatValue = other.values.floatValue;
+                        break;
+                    case Type::Vector:
+                        new (&values.vectorValue) V3f(other.values.vectorValue);
+                        break;
+                    default:
+                        values.intValue = 0;
+                        break;
+                }
+            }
+            
+            // Move constructor
+            PieceValue(PieceValue&& other) noexcept
+                : type(other.type)
+                , stringValue(std::move(other.stringValue))
+            {
+                switch (type) {
+                    case Type::Int:
+                        values.intValue = other.values.intValue;
+                        break;
+                    case Type::Float:
+                        values.floatValue = other.values.floatValue;
+                        break;
+                    case Type::Vector:
+                        new (&values.vectorValue) V3f(std::move(other.values.vectorValue));
+                        break;
+                    default:
+                        values.intValue = 0;
+                        break;
+                }
+                other.type = Type::None;
+            }
+            
+            // Copy assignment operator
+            PieceValue& operator=(const PieceValue& other)
+            {
+                if (this != &other) {
+                    // Clean up old value if needed
+                    if (type == Type::Vector) {
+                        values.vectorValue.~V3f();
+                    }
+                    
+                    type = other.type;
+                    stringValue = other.stringValue;
+                    
+                    switch (type) {
+                        case Type::Int:
+                            values.intValue = other.values.intValue;
+                            break;
+                        case Type::Float:
+                            values.floatValue = other.values.floatValue;
+                            break;
+                        case Type::Vector:
+                            new (&values.vectorValue) V3f(other.values.vectorValue);
+                            break;
+                        default:
+                            values.intValue = 0;
+                            break;
+                    }
+                }
+                return *this;
+            }
+            
+            // Move assignment operator
+            PieceValue& operator=(PieceValue&& other) noexcept
+            {
+                if (this != &other) {
+                    // Clean up old value if needed
+                    if (type == Type::Vector) {
+                        values.vectorValue.~V3f();
+                    }
+                    
+                    type = other.type;
+                    stringValue = std::move(other.stringValue);
+                    
+                    switch (type) {
+                        case Type::Int:
+                            values.intValue = other.values.intValue;
+                            break;
+                        case Type::Float:
+                            values.floatValue = other.values.floatValue;
+                            break;
+                        case Type::Vector:
+                            new (&values.vectorValue) V3f(std::move(other.values.vectorValue));
+                            break;
+                        default:
+                            values.intValue = 0;
+                            break;
+                    }
+                    
+                    other.type = Type::None;
+                }
+                return *this;
+            }
+            
+            // Destructor
+            ~PieceValue()
+            {
+                if (type == Type::Vector) {
+                    values.vectorValue.~V3f();
+                }
+            }
             
             bool operator==(const PieceValue& other) const 
             {
@@ -89,13 +204,13 @@ namespace
                 switch (type) 
                 {
                     case Type::Int:
-                        return intValue == other.intValue;
+                        return values.intValue == other.values.intValue;
                     case Type::Float:
-                        return std::abs(floatValue - other.floatValue) < 1e-6f;
+                        return std::abs(values.floatValue - other.values.floatValue) < 1e-6f;
                     case Type::String:
                         return stringValue == other.stringValue;
                     case Type::Vector:
-                        return (vectorValue - other.vectorValue).length() < 1e-6f;
+                        return (values.vectorValue - other.values.vectorValue).length() < 1e-6f;
                     default:
                         return true;  // None type always matches
                 }
@@ -113,7 +228,7 @@ namespace
             if (getPieceValueInt(*var, index, intValue))
             {
                 result.type = PieceValue::Type::Int;
-                result.intValue = intValue;
+                result.values.intValue = intValue;
                 return result;
             }
             
@@ -121,7 +236,7 @@ namespace
             if (getPieceValueFloat(*var, index, floatValue))
             {
                 result.type = PieceValue::Type::Float;
-                result.floatValue = floatValue;
+                result.values.floatValue = floatValue;
                 return result;
             }
             
@@ -137,7 +252,7 @@ namespace
             if (getPieceValueV3f(*var, index, vectorValue))
             {
                 result.type = PieceValue::Type::Vector;
-                result.vectorValue = vectorValue;
+                result.values.vectorValue = vectorValue;
                 return result;
             }
             
