@@ -17,6 +17,9 @@
 #include <tbb/blocked_range.h>
 #include <tbb/cache_aligned_allocator.h>
 
+#include <iostream>
+#include <iomanip>
+
 using namespace Gaffer;
 using namespace GafferScene;
 using namespace GafferScotch;
@@ -34,20 +37,29 @@ namespace
     {
         struct Entry
         {
-            const int *indices;
-            const float *weights;
+            const int *indices;   // Points to the array of indices for this influence level
+            const float *weights; // Points to the array of weights for this influence level
             size_t count;
         };
         std::vector<Entry> influences;
 
-        void reserve(size_t size)
+        // Add a method to get all influences for a specific point
+        void getPointInfluences(size_t pointIndex, std::vector<std::pair<int, float>> &pointInfluences) const
         {
-            influences.reserve(size);
-        }
+            pointInfluences.clear();
+            for (const auto &influence : influences)
+            {
+                if (pointIndex >= influence.count)
+                    continue;
 
-        void add(const int *idx, const float *wgt, size_t cnt)
-        {
-            influences.push_back({idx, wgt, cnt});
+                const int idx = influence.indices[pointIndex];
+                const float weight = influence.weights[pointIndex];
+
+                if (idx >= 0 && weight > 0.0f)
+                {
+                    pointInfluences.emplace_back(idx, weight);
+                }
+            }
         }
     };
 
@@ -56,10 +68,10 @@ namespace
         data.influences.clear();
         data.influences.reserve(maxInfluences);
 
-        for (int i = 0; i < maxInfluences; ++i)
+        for (int i = 1; i <= maxInfluences; ++i)
         {
-            std::string indexName = "captureIndex" + std::to_string(i + 1);
-            std::string weightName = "captureWeight" + std::to_string(i + 1);
+            std::string indexName = "captureIndex" + std::to_string(i);
+            std::string weightName = "captureWeight" + std::to_string(i);
 
             auto indexIt = primitive->variables.find(indexName);
             auto weightIt = primitive->variables.find(weightName);
@@ -73,7 +85,12 @@ namespace
             if (!indices || !weights)
                 continue;
 
-            data.add(&indices->readable()[0], &weights->readable()[0], indices->readable().size());
+            InfluenceData::Entry entry;
+            entry.indices = indices->readable().data();
+            entry.weights = weights->readable().data();
+            entry.count = indices->readable().size();
+
+            data.influences.push_back(std::move(entry));
         }
 
         return !data.influences.empty();
@@ -216,14 +233,14 @@ void PointDeform::hashProcessedObject(const ScenePath &path, const Gaffer::Conte
 
     const ScenePath deformerPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
     ConstObjectPtr inputObject = inPlug()->object(path);
-    
+
     const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
     if (!inputPrimitive)
     {
         h.append(inPlug()->objectHash(path));
         return;
     }
-    
+
     ConstObjectPtr staticDeformerObject = staticDeformerPlug()->object(deformerPath);
     ConstObjectPtr animatedDeformerObject = animatedDeformerPlug()->object(deformerPath);
 
@@ -259,55 +276,55 @@ Imath::Box3f PointDeform::computeProcessedObjectBound(const ScenePath &path, con
     {
         return inputBound;
     }
-    
+
     ConstObjectPtr inputObject = inPlug()->objectPlug()->getValue();
     const Primitive *inputPrimitive = runTimeCast<const Primitive>(inputObject.get());
     if (!inputPrimitive)
     {
         return inputBound;
     }
-    
+
     const ScenePath deformerPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
-    
+
     ConstObjectPtr staticObj = staticDeformerPlug()->object(deformerPath);
     ConstObjectPtr animatedObj = animatedDeformerPlug()->object(deformerPath);
-    
+
     const Primitive *staticDeformerPrimitive = runTimeCast<const Primitive>(staticObj.get());
     const Primitive *animatedDeformerPrimitive = runTimeCast<const Primitive>(animatedObj.get());
-    
+
     if (!staticDeformerPrimitive || !animatedDeformerPrimitive)
     {
         return inputBound;
     }
-    
+
     // Get the positions from both deformers
     auto staticPIt = staticDeformerPrimitive->variables.find("P");
     auto animatedPIt = animatedDeformerPrimitive->variables.find("P");
-    
-    if (staticPIt == staticDeformerPrimitive->variables.end() || 
+
+    if (staticPIt == staticDeformerPrimitive->variables.end() ||
         animatedPIt == animatedDeformerPrimitive->variables.end())
     {
         return inputBound;
     }
-    
+
     const V3fVectorData *staticPositions = runTimeCast<const V3fVectorData>(staticPIt->second.data.get());
     const V3fVectorData *animatedPositions = runTimeCast<const V3fVectorData>(animatedPIt->second.data.get());
-    
+
     if (!staticPositions || !animatedPositions)
     {
         return inputBound;
     }
-    
+
     const std::vector<V3f> &staticPos = staticPositions->readable();
     const std::vector<V3f> &animatedPos = animatedPositions->readable();
-    
+
     if (staticPos.size() != animatedPos.size() || staticPos.empty())
     {
         return inputBound;
     }
-    
+
     V3f maxDisplacement(0, 0, 0);
-    
+
     for (size_t i = 0; i < staticPos.size(); ++i)
     {
         V3f displacement = animatedPos[i] - staticPos[i];
@@ -315,11 +332,11 @@ Imath::Box3f PointDeform::computeProcessedObjectBound(const ScenePath &path, con
         maxDisplacement.y = std::max(maxDisplacement.y, std::abs(displacement.y));
         maxDisplacement.z = std::max(maxDisplacement.z, std::abs(displacement.z));
     }
-    
+
     Box3f result = inputBound;
     result.min -= maxDisplacement;
     result.max += maxDisplacement;
-    
+
     return result;
 }
 
@@ -331,18 +348,18 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
 
     const ScenePath deformerPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
 
+    // Get static and animated deformer objects
     ConstObjectPtr staticDeformerObject = staticDeformerPlug()->object(deformerPath);
-    const Primitive *staticDeformerPrimitive = runTimeCast<const Primitive>(staticDeformerObject.get());
-    if (!staticDeformerPrimitive)
-        return inputObject;
-
     ConstObjectPtr animatedDeformerObject = animatedDeformerPlug()->object(deformerPath);
+
+    const Primitive *staticDeformerPrimitive = runTimeCast<const Primitive>(staticDeformerObject.get());
     const Primitive *animatedDeformerPrimitive = runTimeCast<const Primitive>(animatedDeformerObject.get());
-    if (!animatedDeformerPrimitive)
+
+    if (!staticDeformerPrimitive || !animatedDeformerPrimitive)
         return inputObject;
 
+    // Get all position data
     PrimitivePtr result = inputPrimitive->copy();
-
     auto pIt = result->variables.find("P");
     if (pIt == result->variables.end())
         return result;
@@ -351,84 +368,87 @@ IECore::ConstObjectPtr PointDeform::computeProcessedObject(const ScenePath &path
     if (!positionData)
         return result;
 
-    AlignedVector<V3f> positions(positionData->readable().begin(), positionData->readable().end());
-
+    // Use find() for static and animated positions
     auto staticPIt = staticDeformerPrimitive->variables.find("P");
-    if (staticPIt == staticDeformerPrimitive->variables.end())
+    auto animatedPIt = animatedDeformerPrimitive->variables.find("P");
+
+    if (staticPIt == staticDeformerPrimitive->variables.end() ||
+        animatedPIt == animatedDeformerPrimitive->variables.end())
         return result;
 
     const V3fVectorData *staticPositions = runTimeCast<const V3fVectorData>(staticPIt->second.data.get());
-    if (!staticPositions)
-        return result;
-
-    auto animatedPIt = animatedDeformerPrimitive->variables.find("P");
-    if (animatedPIt == animatedDeformerPrimitive->variables.end())
-        return result;
-
     const V3fVectorData *animatedPositions = runTimeCast<const V3fVectorData>(animatedPIt->second.data.get());
-    if (!animatedPositions)
+
+    if (!staticPositions || !animatedPositions)
         return result;
 
+    const std::vector<V3f> &staticPos = staticPositions->readable();
+    const std::vector<V3f> &animatedPos = animatedPositions->readable();
+    std::vector<V3f> &positions = positionData->writable();
+
+    // Get influence data
     auto captureInfluencesIt = inputPrimitive->variables.find("captureInfluences");
     if (captureInfluencesIt == inputPrimitive->variables.end())
         return result;
 
-    const IntVectorData *captureInfluences = runTimeCast<const IntVectorData>(captureInfluencesIt->second.data.get());
-    if (!captureInfluences)
-        return result;
+    const std::vector<int> &numInfluences = runTimeCast<const IntVectorData>(captureInfluencesIt->second.data.get())->readable();
 
-    const std::vector<int> &influences = captureInfluences->readable();
-    const std::vector<V3f> &staticPos = staticPositions->readable();
-    const std::vector<V3f> &animatedPos = animatedPositions->readable();
-
-    int maxInfluences = 0;
-    for (int numInf : influences)
-        maxInfluences = std::max(maxInfluences, numInf);
-
-    InfluenceData influenceData;
-    if (!getInfluenceData(inputPrimitive, maxInfluences, influenceData))
-        return result;
-
-    const size_t numPoints = positions.size();
-    parallel_for(blocked_range<size_t>(0, numPoints, 1024),
+    // Process each point in parallel
+    parallel_for(blocked_range<size_t>(0, positions.size()),
                  [&](const blocked_range<size_t> &range)
                  {
-                     V3f delta;
-                     float totalWeight;
-
                      for (size_t i = range.begin(); i != range.end(); ++i)
                      {
-                         delta.setValue(0, 0, 0);
-                         totalWeight = 0;
+                         V3f totalOffset(0);
+                         float totalWeight = 0;
 
-                         for (const auto &influence : influenceData.influences)
+                         // Process each influence
+                         const int maxInfluences = (i < numInfluences.size()) ? numInfluences[i] : 0;
+
+                         V3f finalPosition = positions[i];
+                         for (int j = 1; j <= maxInfluences; ++j)
                          {
-                             computeDeformation(
-                                 positions[i],
-                                 &staticPos[0],
-                                 &animatedPos[0],
-                                 influence,
-                                 i,
-                                 delta,
-                                 totalWeight);
+                             // Use find() instead of operator[]
+                             std::string indexName = "captureIndex" + std::to_string(j);
+                             std::string weightName = "captureWeight" + std::to_string(j);
+
+                             auto indexIt = inputPrimitive->variables.find(indexName);
+                             auto weightIt = inputPrimitive->variables.find(weightName);
+
+                             if (indexIt == inputPrimitive->variables.end() ||
+                                 weightIt == inputPrimitive->variables.end())
+                                 continue;
+
+                             const IntVectorData *indices = runTimeCast<const IntVectorData>(indexIt->second.data.get());
+                             const FloatVectorData *weights = runTimeCast<const FloatVectorData>(weightIt->second.data.get());
+
+                             if (!indices || !weights || i >= indices->readable().size())
+                                 continue;
+
+                             const int idx = indices->readable()[i];
+                             const float weight = weights->readable()[i];
+
+                             if (idx >= 0 && weight > 0.0f && idx < staticPos.size())
+                             {
+                                 // Simply apply the translation from rest to animated position
+                                 V3f offset = animatedPos[idx] - staticPos[idx];
+                                 totalOffset += offset * weight;
+                                 totalWeight += weight;
+                             }
                          }
 
+                         // Apply the weighted offset to the input position
                          if (totalWeight > 0)
                          {
-                             const float invWeight = 1.0f / totalWeight;
-                             positions[i].x += delta.x * invWeight;
-                             positions[i].y += delta.y * invWeight;
-                             positions[i].z += delta.z * invWeight;
+                             positions[i] += totalOffset;
                          }
                      }
                  });
 
-    positionData->writable().assign(positions.begin(), positions.end());
-
     if (cleanupAttributesPlug()->getValue())
     {
         result->variables.erase("captureInfluences");
-        for (int i = 1; i <= maxInfluences; ++i)
+        for (int i = 1; i <= *std::max_element(numInfluences.begin(), numInfluences.end()); ++i)
         {
             result->variables.erase("captureIndex" + std::to_string(i));
             result->variables.erase("captureWeight" + std::to_string(i));
