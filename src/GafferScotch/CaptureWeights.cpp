@@ -27,6 +27,14 @@ using namespace tbb;
 
 namespace
 {
+    // Forward declare helper functions
+    bool getPieceValueInt(const PrimitiveVariable &var, size_t index, int &value);
+    bool getPieceValueFloat(const PrimitiveVariable &var, size_t index, float &value);
+    bool getPieceValueString(const PrimitiveVariable &var, size_t index, std::string &value);
+    bool getPieceValueV3f(const PrimitiveVariable &var, size_t index, V3f &value);
+    bool piecesMatch(const PrimitiveVariable *sourcePiece, size_t sourceIndex,
+                     const PrimitiveVariable *targetPiece, size_t targetIndex);
+
     // Point cloud adaptor for nanoflann
     struct PointCloudAdaptor
     {
@@ -110,9 +118,8 @@ namespace
             SearchResult result;
             std::vector<std::pair<size_t, float>> matches;
             
-            nanoflann::SearchParams params;
-            params.sorted = true;
-
+            // No SearchParams needed for nanoflann
+            
             const float queryPt[3] = {queryPoint.x, queryPoint.y, queryPoint.z};
             
             // Use radius search if we have a finite radius
@@ -120,19 +127,29 @@ namespace
                 matches.reserve(maxPoints * 2);  // Reserve extra space
                 const float radiusSquared = radius * radius;
                 
-                m_kdtree.radiusSearch(queryPt, radiusSquared, matches, params);
+                std::vector<std::pair<size_t, float>> radiusMatches;
+                m_kdtree.radiusSearch(queryPt, radiusSquared, radiusMatches);
+                
+                // Sort by distance and limit to maxPoints
+                std::sort(radiusMatches.begin(), radiusMatches.end(),
+                    [](const auto& a, const auto& b) { return a.second < b.second; });
+                    
+                if (radiusMatches.size() > maxPoints) {
+                    radiusMatches.resize(maxPoints);
+                }
+                matches = std::move(radiusMatches);
             } else {
                 // Use k-nearest neighbor search for unlimited radius
-                matches.resize(maxPoints);
+                std::vector<size_t> indices(maxPoints);
                 std::vector<float> distances(maxPoints);
                 
-                size_t found = m_kdtree.knnSearch(queryPt, maxPoints, &matches[0].first, &matches[0].second);
-                matches.resize(found);
-            }
-
-            // Limit to maxPoints
-            if (matches.size() > maxPoints) {
-                matches.resize(maxPoints);
+                size_t found = m_kdtree.knnSearch(queryPt, maxPoints, indices.data(), distances.data());
+                
+                // Convert to pair format
+                matches.reserve(found);
+                for (size_t i = 0; i < found; ++i) {
+                    matches.emplace_back(indices[i], distances[i]);
+                }
             }
 
             result.matches = std::move(matches);
