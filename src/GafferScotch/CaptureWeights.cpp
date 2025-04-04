@@ -1,6 +1,7 @@
 #include <math.h>
 #include "GafferScotch/CaptureWeights.h"
 #include "GafferScotch/ScenePathUtil.h"
+#include "GafferScotch/nanoflann.hpp"
 
 #include "IECore/NullObject.h"
 #include "IECore/KDTree.h"
@@ -26,7 +27,166 @@ using namespace tbb;
 
 namespace
 {
-    using V3fTree = IECore::V3fTree;
+    // Point cloud adaptor for nanoflann
+    struct PointCloudAdaptor
+    {
+        const std::vector<V3f>& points;
+
+        PointCloudAdaptor(const std::vector<V3f>& pts) : points(pts) {}
+
+        inline size_t kdtree_get_point_count() const { return points.size(); }
+
+        inline float kdtree_get_pt(const size_t idx, const size_t dim) const
+        {
+            return dim == 0 ? points[idx].x : (dim == 1 ? points[idx].y : points[idx].z);
+        }
+
+        template <class BBOX>
+        bool kdtree_get_bbox(BBOX&) const { return false; }
+    };
+
+    using KDTreeType = nanoflann::KDTreeSingleIndexAdaptor<
+        nanoflann::L2_Simple_Adaptor<float, PointCloudAdaptor>,
+        PointCloudAdaptor,
+        3 /* dimensionality */
+    >;
+
+    struct SearchResult {
+        std::vector<std::pair<size_t, float>> matches;  // index and squared distance
+        float effectiveRadius;
+    };
+
+    class CapturePointFinder
+    {
+    public:
+        CapturePointFinder(const std::vector<V3f>& sourcePoints)
+            : m_adaptor(sourcePoints)
+            , m_kdtree(3, m_adaptor, nanoflann::KDTreeSingleIndexAdaptorParams(10))
+        {
+            m_kdtree.buildIndex();
+        }
+
+        SearchResult findPoints(
+            const V3f& queryPoint,
+            float radius,
+            int maxPoints,
+            int minPoints,
+            const PrimitiveVariable* sourcePiece,
+            const PrimitiveVariable* targetPiece,
+            size_t targetIndex
+        ) {
+            SearchResult result;
+            
+            // First attempt: search with given radius
+            if (sourcePiece && targetPiece) {
+                result = findPointsWithPiece(queryPoint, radius, maxPoints, sourcePiece, targetPiece, targetIndex);
+            } else {
+                result = findNearestPoints(queryPoint, radius, maxPoints);
+            }
+
+            // If we don't have enough points, do an unlimited radius search
+            if (result.matches.size() < minPoints) {
+                const float unlimitedRadius = std::numeric_limits<float>::max();
+                result = findNearestPoints(queryPoint, unlimitedRadius, minPoints);
+                
+                // Set radius to 1.1 * distance to furthest point (like Houdini)
+                if (!result.matches.empty()) {
+                    float maxDist = std::sqrt(result.matches.back().second);
+                    result.effectiveRadius = maxDist * 1.1f;
+                }
+            } else {
+                result.effectiveRadius = radius;
+            }
+
+            return result;
+        }
+
+    private:
+        PointCloudAdaptor m_adaptor;
+        KDTreeType m_kdtree;
+
+        SearchResult findNearestPoints(const V3f& queryPoint, float radius, int maxPoints)
+        {
+            SearchResult result;
+            std::vector<std::pair<size_t, float>> matches;
+            
+            nanoflann::SearchParams params;
+            params.sorted = true;
+
+            const float queryPt[3] = {queryPoint.x, queryPoint.y, queryPoint.z};
+            
+            // Use radius search if we have a finite radius
+            if (radius < std::numeric_limits<float>::max()) {
+                matches.reserve(maxPoints * 2);  // Reserve extra space
+                const float radiusSquared = radius * radius;
+                
+                m_kdtree.radiusSearch(queryPt, radiusSquared, matches, params);
+            } else {
+                // Use k-nearest neighbor search for unlimited radius
+                matches.resize(maxPoints);
+                std::vector<float> distances(maxPoints);
+                
+                size_t found = m_kdtree.knnSearch(queryPt, maxPoints, &matches[0].first, &matches[0].second);
+                matches.resize(found);
+            }
+
+            // Limit to maxPoints
+            if (matches.size() > maxPoints) {
+                matches.resize(maxPoints);
+            }
+
+            result.matches = std::move(matches);
+            return result;
+        }
+
+        SearchResult findPointsWithPiece(
+            const V3f& queryPoint,
+            float radius,
+            int maxPoints,
+            const PrimitiveVariable* sourcePiece,
+            const PrimitiveVariable* targetPiece,
+            size_t targetIndex
+        ) {
+            SearchResult result;
+            
+            // Start with more candidates than needed
+            int candidateMultiplier = 4;
+            int maxCandidates = maxPoints * candidateMultiplier;
+            
+            while (true) {
+                // Get candidates
+                auto candidates = findNearestPoints(queryPoint, radius, maxCandidates);
+                
+                // Filter by piece attribute
+                std::vector<std::pair<size_t, float>> matchingPieces;
+                matchingPieces.reserve(candidates.matches.size());
+                
+                for (const auto& match : candidates.matches) {
+                    if (piecesMatch(sourcePiece, match.first, targetPiece, targetIndex)) {
+                        matchingPieces.push_back(match);
+                    }
+                }
+                
+                // If we have enough matching pieces or can't get more candidates
+                if (matchingPieces.size() >= maxPoints || 
+                    candidates.matches.size() < maxCandidates) {
+                    
+                    // Limit to maxPoints
+                    if (matchingPieces.size() > maxPoints) {
+                        matchingPieces.resize(maxPoints);
+                    }
+                    
+                    result.matches = std::move(matchingPieces);
+                    result.effectiveRadius = radius;
+                    return result;
+                }
+                
+                // Try with more candidates
+                candidateMultiplier *= 2;
+                maxCandidates = maxPoints * candidateMultiplier;
+            }
+        }
+    };
 
     struct BatchResults
     {
@@ -35,7 +195,9 @@ namespace
         std::vector<int> influenceCounts; // size = numVertices
 
         BatchResults(size_t numVertices, int maxPoints)
-            : allIndices(numVertices * maxPoints, 0), allWeights(numVertices * maxPoints, 0.0f), influenceCounts(numVertices, 0)
+            : allIndices(numVertices * maxPoints, 0)
+            , allWeights(numVertices * maxPoints, 0.0f)
+            , influenceCounts(numVertices, 0)
         {
         }
 
@@ -50,28 +212,11 @@ namespace
         }
     };
 
-    struct ThreadLocalStorage
+    inline float calculateWeight(float distSquared, float radius)
     {
-        std::vector<V3fTree::Neighbour> neighbours;
-        std::vector<std::pair<float, int>> validNeighbours;
-        std::vector<std::pair<float, int>> fallbackNeighbours;
-        std::vector<float> vertexWeights;
-
-        ThreadLocalStorage(int maxPoints)
-        {
-            neighbours.reserve(maxPoints * 4);
-            validNeighbours.reserve(maxPoints * 4);
-            fallbackNeighbours.reserve(maxPoints * 4);
-            vertexWeights.reserve(maxPoints);
-        }
-    };
-
-    inline float calculateWeight(float distSquared, float invMaxDistSquared)
-    {
-        float normalizedDist = sqrt(distSquared * invMaxDistSquared);
-        // Smoother falloff using cubic function
-        float t = 1.0f - normalizedDist;
-        return t * t * (3.0f - 2.0f * t);
+        float r2 = distSquared / (radius * radius);
+        float weight = 1.0f - r2;
+        return weight * weight;
     }
 
     bool getPieceValueInt(const PrimitiveVariable &var, size_t index, int &value)
@@ -291,139 +436,64 @@ namespace
         }
     }
 
-    void computeCaptureWeightss(
-        const std::vector<V3f> &sourcePoints,
-        const std::vector<V3f> &targetPoints,
+    void computeCaptureWeights(
+        const std::vector<V3f>& sourcePoints,
+        const std::vector<V3f>& targetPoints,
         float radius,
         int maxPoints,
         int minPoints,
-        const PrimitiveVariable *sourcePiece,
-        const PrimitiveVariable *targetPiece,
-        BatchResults &results)
+        const PrimitiveVariable* sourcePiece,
+        const PrimitiveVariable* targetPiece,
+        BatchResults& results)
     {
-        V3fTree tree(sourcePoints.begin(), sourcePoints.end(), 16);
-        const float radiusSquared = radius * radius;
-        const float invRadiusSquared = 1.0f / radiusSquared;
+        // Create point finder
+        CapturePointFinder pointFinder(sourcePoints);
 
-        // Get many more neighbors than needed to maximize chance of finding matching pieces
-        const int candidateMultiplier = 10; // Get 10x more candidates than maxPoints
-        const int maxCandidates = maxPoints * candidateMultiplier;
-
-        enumerable_thread_specific<ThreadLocalStorage> threadStorage(maxPoints);
-
+        // Process each target point in parallel
         parallel_for(blocked_range<size_t>(0, targetPoints.size(), 1024),
-                     [&](const blocked_range<size_t> &range)
-                     {
-                         ThreadLocalStorage &tls = threadStorage.local();
+            [&](const blocked_range<size_t>& range)
+            {
+                for (size_t i = range.begin(); i != range.end(); ++i)
+                {
+                    const V3f& targetPoint = targetPoints[i];
 
-                         for (size_t i = range.begin(); i != range.end(); ++i)
-                         {
-                             const V3f &targetPoint = targetPoints[i];
+                    // Find nearest points
+                    auto searchResult = pointFinder.findPoints(
+                        targetPoint, radius, maxPoints, minPoints,
+                        sourcePiece, targetPiece, i
+                    );
 
-                             // Step 1: Find many nearest neighbors without initial radius constraint
-                             tls.neighbours.clear();
-                             tls.validNeighbours.clear();
-                             tls.fallbackNeighbours.clear();
-                             tls.vertexWeights.clear();
+                    // Store influence count
+                    results.influenceCounts[i] = searchResult.matches.size();
 
-                             unsigned int found = tree.nearestNNeighbours(targetPoint, maxCandidates, tls.neighbours);
+                    // Calculate and normalize weights
+                    float totalWeight = 0.0f;
+                    std::vector<float> weights;
+                    weights.reserve(searchResult.matches.size());
 
-                             // Step 2: Filter neighbors
-                             if (sourcePiece && targetPiece)
-                             {
-                                 // We have piece attributes - try to match them
-                                 for (size_t j = 0; j < found; ++j)
-                                 {
-                                     const V3fTree::Neighbour &neighbour = tls.neighbours[j];
-                                     const int sourceIndex = neighbour.point - sourcePoints.begin();
+                    for (const auto& match : searchResult.matches) {
+                        float weight = calculateWeight(match.second, searchResult.effectiveRadius);
+                        weights.push_back(weight);
+                        totalWeight += weight;
+                    }
 
-                                     // Consider only points within maximum radius for fallbacks
-                                     if (neighbour.distSquared <= radiusSquared)
-                                     {
-                                         tls.fallbackNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
-                                     }
+                    // Store results
+                    int* indices = results.getIndices(i, maxPoints);
+                    float* outWeights = results.getWeights(i, maxPoints);
 
-                                     // For valid neighbors, check piece matching
-                                     if (piecesMatch(sourcePiece, sourceIndex, targetPiece, i))
-                                     {
-                                         tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
-                                     }
-                                 }
+                    const float invTotalWeight = totalWeight > 0.0f ? 1.0f / totalWeight : 0.0f;
 
-                                 // If we don't have enough valid neighbors with matching pieces,
-                                 // fall back to closest points regardless of piece but within radius
-                                 if (tls.validNeighbours.size() < static_cast<size_t>(minPoints))
-                                 {
-
-                                     // Cap to maxPoints
-                                     if (tls.fallbackNeighbours.size() > static_cast<size_t>(maxPoints))
-                                     {
-                                         tls.fallbackNeighbours.resize(maxPoints);
-                                     }
-
-                                     // Use fallbacks instead
-                                     std::swap(tls.validNeighbours, tls.fallbackNeighbours);
-                                 }
-                                 else
-                                 {
-                                     if (tls.validNeighbours.size() > static_cast<size_t>(maxPoints))
-                                     {
-                                         tls.validNeighbours.resize(maxPoints);
-                                     }
-                                 }
-                             }
-                             else
-                             {
-                                 // No piece attributes - just use the nearest points within radius
-                                 for (size_t j = 0; j < found; ++j)
-                                 {
-                                     const V3fTree::Neighbour &neighbour = tls.neighbours[j];
-                                     if (neighbour.distSquared <= radiusSquared)
-                                     {
-                                         const int sourceIndex = neighbour.point - sourcePoints.begin();
-                                         tls.validNeighbours.emplace_back(neighbour.distSquared, sourceIndex);
-                                     }
-                                 }
-                                 if (tls.validNeighbours.size() > static_cast<size_t>(maxPoints))
-                                 {
-                                     tls.validNeighbours.resize(maxPoints);
-                                 }
-                             }
-
-                             // Calculate weights based on distance
-                             float totalWeight = 0.0f;
-
-                             for (const auto &neighbour : tls.validNeighbours)
-                             {
-                                 float weight = calculateWeight(neighbour.first, invRadiusSquared);
-                                 tls.vertexWeights.push_back(weight);
-                                 totalWeight += weight;
-                             }
-
-                             // Store results
-                             results.influenceCounts[i] = tls.validNeighbours.size();
-
-                             // Normalize weights
-                             const float invTotalWeight = totalWeight > 0.0f ? 1.0f / totalWeight : 0.0f;
-
-                             int *indices = results.getIndices(i, maxPoints);
-                             float *weights = results.getWeights(i, maxPoints);
-
-                             for (int j = 0; j < maxPoints; ++j)
-                             {
-                                 if (j < tls.validNeighbours.size())
-                                 {
-                                     indices[j] = tls.validNeighbours[j].second;
-                                     weights[j] = tls.vertexWeights[j] * invTotalWeight;
-                                 }
-                                 else
-                                 {
-                                     indices[j] = 0;
-                                     weights[j] = 0.0f;
-                                 }
-                             }
-                         }
-                     });
+                    for (size_t j = 0; j < maxPoints; ++j) {
+                        if (j < searchResult.matches.size()) {
+                            indices[j] = searchResult.matches[j].first;
+                            outWeights[j] = weights[j] * invTotalWeight;
+                        } else {
+                            indices[j] = 0;
+                            outWeights[j] = 0.0f;
+                        }
+                    }
+                }
+            });
     }
 }
 
@@ -651,7 +721,7 @@ IECore::ConstObjectPtr CaptureWeights::computeProcessedObject(const ScenePath &p
 
     BatchResults results(targetPoints.size(), maxPoints);
 
-    computeCaptureWeightss(sourcePoints, targetPoints, radius, maxPoints, minPoints,
+    computeCaptureWeights(sourcePoints, targetPoints, radius, maxPoints, minPoints,
                            sourcePiece, targetPiece, results);
 
     PrimitivePtr resultPrimitive = inputPrimitive->copy();
