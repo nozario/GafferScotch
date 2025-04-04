@@ -118,8 +118,6 @@ namespace
             SearchResult result;
             std::vector<std::pair<size_t, float>> matches;
             
-            // No SearchParams needed for nanoflann
-            
             const float queryPt[3] = {queryPoint.x, queryPoint.y, queryPoint.z};
             
             // Use radius search if we have a finite radius
@@ -127,23 +125,29 @@ namespace
                 matches.reserve(maxPoints * 2);  // Reserve extra space
                 const float radiusSquared = radius * radius;
                 
-                std::vector<std::pair<size_t, float>> radiusMatches;
+                // Use nanoflann's ResultItem type for radius search
+                std::vector<nanoflann::ResultItem<uint32_t, float>> radiusMatches;
                 m_kdtree.radiusSearch(queryPt, radiusSquared, radiusMatches);
                 
+                // Convert to our format and sort
+                matches.reserve(radiusMatches.size());
+                for (const auto& match : radiusMatches) {
+                    matches.emplace_back(match.first, match.second);
+                }
+                
                 // Sort by distance and limit to maxPoints
-                std::sort(radiusMatches.begin(), radiusMatches.end(),
+                std::sort(matches.begin(), matches.end(),
                     [](const auto& a, const auto& b) { return a.second < b.second; });
                     
-                if (radiusMatches.size() > maxPoints) {
-                    radiusMatches.resize(maxPoints);
+                if (matches.size() > maxPoints) {
+                    matches.resize(maxPoints);
                 }
-                matches = std::move(radiusMatches);
             } else {
                 // Use k-nearest neighbor search for unlimited radius
-                std::vector<size_t> indices(maxPoints);
+                std::vector<uint32_t> indices(maxPoints);
                 std::vector<float> distances(maxPoints);
                 
-                size_t found = m_kdtree.knnSearch(queryPt, maxPoints, indices.data(), distances.data());
+                size_t found = m_kdtree.knnSearch(queryPt, static_cast<size_t>(maxPoints), indices.data(), distances.data());
                 
                 // Convert to pair format
                 matches.reserve(found);
