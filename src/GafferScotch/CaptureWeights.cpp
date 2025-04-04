@@ -64,6 +64,165 @@ namespace
         float effectiveRadius;
     };
 
+    class PieceAttributeHandler
+    {
+    public:
+        // Represents a piece value that can be int, float, string, or V3f
+        struct PieceValue 
+        {
+            enum class Type { None, Int, Float, String, Vector };
+            
+            Type type = Type::None;
+            union {
+                int intValue;
+                float floatValue;
+                V3f vectorValue;
+            };
+            std::string stringValue;  // Separate since it can't be in union
+            
+            PieceValue() : type(Type::None), intValue(0) {}
+            
+            bool operator==(const PieceValue& other) const 
+            {
+                if (type != other.type) return false;
+                
+                switch (type) 
+                {
+                    case Type::Int:
+                        return intValue == other.intValue;
+                    case Type::Float:
+                        return std::abs(floatValue - other.floatValue) < 1e-6f;
+                    case Type::String:
+                        return stringValue == other.stringValue;
+                    case Type::Vector:
+                        return (vectorValue - other.vectorValue).length() < 1e-6f;
+                    default:
+                        return true;  // None type always matches
+                }
+            }
+        };
+
+        static PieceValue getPieceValue(const PrimitiveVariable* var, size_t index)
+        {
+            if (!var) return PieceValue();
+            
+            PieceValue result;
+            
+            // Try each type in order
+            int intValue;
+            if (getPieceValueInt(*var, index, intValue))
+            {
+                result.type = PieceValue::Type::Int;
+                result.intValue = intValue;
+                return result;
+            }
+            
+            float floatValue;
+            if (getPieceValueFloat(*var, index, floatValue))
+            {
+                result.type = PieceValue::Type::Float;
+                result.floatValue = floatValue;
+                return result;
+            }
+            
+            std::string stringValue;
+            if (getPieceValueString(*var, index, stringValue))
+            {
+                result.type = PieceValue::Type::String;
+                result.stringValue = stringValue;
+                return result;
+            }
+            
+            V3f vectorValue;
+            if (getPieceValueV3f(*var, index, vectorValue))
+            {
+                result.type = PieceValue::Type::Vector;
+                result.vectorValue = vectorValue;
+                return result;
+            }
+            
+            return result;
+        }
+
+        struct SearchContext
+        {
+            const PrimitiveVariable* sourcePiece;
+            const PrimitiveVariable* targetPiece;
+            size_t targetIndex;
+            PieceValue targetValue;
+            bool hasValidPieces;
+            
+            SearchContext(
+                const PrimitiveVariable* srcPiece,
+                const PrimitiveVariable* tgtPiece,
+                size_t tgtIndex
+            ) : sourcePiece(srcPiece)
+              , targetPiece(tgtPiece)
+              , targetIndex(tgtIndex)
+            {
+                hasValidPieces = (sourcePiece && targetPiece);
+                if (hasValidPieces) {
+                    targetValue = getPieceValue(targetPiece, targetIndex);
+                }
+            }
+            
+            bool piecesMatch(size_t sourceIndex) const
+            {
+                if (!hasValidPieces) return true;
+                
+                PieceValue sourceValue = getPieceValue(sourcePiece, sourceIndex);
+                return sourceValue == targetValue;
+            }
+        };
+
+        static std::vector<std::pair<size_t, float>> filterByPiece(
+            const std::vector<std::pair<size_t, float>>& candidates,
+            const SearchContext& context,
+            int minPoints
+        ) {
+            if (!context.hasValidPieces) return candidates;
+            
+            std::vector<std::pair<size_t, float>> matching;
+            std::vector<std::pair<size_t, float>> nonMatching;
+            matching.reserve(candidates.size());
+            nonMatching.reserve(candidates.size());
+            
+            // First pass: separate matching and non-matching pieces
+            for (const auto& candidate : candidates)
+            {
+                if (context.piecesMatch(candidate.first)) {
+                    matching.push_back(candidate);
+                } else {
+                    nonMatching.push_back(candidate);
+                }
+            }
+            
+            // If we have enough matching pieces, use only those
+            if (matching.size() >= minPoints) {
+                return matching;
+            }
+            
+            // Otherwise, add closest non-matching pieces as fallback
+            std::sort(nonMatching.begin(), nonMatching.end(),
+                [](const auto& a, const auto& b) { return a.second < b.second; });
+                
+            size_t needed = minPoints - matching.size();
+            if (needed > nonMatching.size()) needed = nonMatching.size();
+            
+            matching.insert(
+                matching.end(),
+                nonMatching.begin(),
+                nonMatching.begin() + needed
+            );
+            
+            // Sort final results by distance
+            std::sort(matching.begin(), matching.end(),
+                [](const auto& a, const auto& b) { return a.second < b.second; });
+                
+            return matching;
+        }
+    };
+
     class CapturePointFinder
     {
     public:
@@ -83,27 +242,38 @@ namespace
             const PrimitiveVariable* targetPiece,
             size_t targetIndex
         ) {
-            SearchResult result;
+            // Create search context for piece matching
+            PieceAttributeHandler::SearchContext context(sourcePiece, targetPiece, targetIndex);
             
-            // First attempt: search with given radius
-            if (sourcePiece && targetPiece) {
-                result = findPointsWithPiece(queryPoint, radius, maxPoints, sourcePiece, targetPiece, targetIndex);
-            } else {
-                result = findNearestPoints(queryPoint, radius, maxPoints);
-            }
-
-            // If we don't have enough points, do an unlimited radius search
+            // Phase 1: Try with given radius
+            SearchResult result = findPointsWithPiece(
+                queryPoint, radius, maxPoints, context
+            );
+            
+            // Phase 2: If we don't have enough points, do unlimited radius search
             if (result.matches.size() < minPoints) {
+                // Use unlimited radius to find at least minPoints
                 const float unlimitedRadius = std::numeric_limits<float>::max();
-                result = findNearestPoints(queryPoint, unlimitedRadius, minPoints);
+                result = findPointsWithPiece(
+                    queryPoint, unlimitedRadius, minPoints, context
+                );
                 
-                // Set radius to 1.1 * distance to furthest point (like Houdini)
+                // Adjust radius to 1.1 * distance to furthest point (like Houdini)
                 if (!result.matches.empty()) {
                     float maxDist = std::sqrt(result.matches.back().second);
                     result.effectiveRadius = maxDist * 1.1f;
+                    
+                    // Recompute weights using the adjusted radius
+                    for (auto& match : result.matches) {
+                        match.second = std::sqrt(match.second) / result.effectiveRadius;
+                    }
                 }
             } else {
+                // Using original radius, normalize distances
                 result.effectiveRadius = radius;
+                for (auto& match : result.matches) {
+                    match.second = std::sqrt(match.second) / radius;
+                }
             }
 
             return result;
@@ -163,38 +333,31 @@ namespace
         SearchResult findPointsWithPiece(
             const V3f& queryPoint,
             float radius,
-            int maxPoints,
-            const PrimitiveVariable* sourcePiece,
-            const PrimitiveVariable* targetPiece,
-            size_t targetIndex
+            int numPoints,
+            const PieceAttributeHandler::SearchContext& context
         ) {
             SearchResult result;
             
             // Start with more candidates than needed
             int candidateMultiplier = 4;
-            int maxCandidates = maxPoints * candidateMultiplier;
+            int maxCandidates = numPoints * candidateMultiplier;
             
             while (true) {
                 // Get candidates
                 auto candidates = findNearestPoints(queryPoint, radius, maxCandidates);
                 
                 // Filter by piece attribute
-                std::vector<std::pair<size_t, float>> matchingPieces;
-                matchingPieces.reserve(candidates.matches.size());
-                
-                for (const auto& match : candidates.matches) {
-                    if (piecesMatch(sourcePiece, match.first, targetPiece, targetIndex)) {
-                        matchingPieces.push_back(match);
-                    }
-                }
+                auto matchingPieces = PieceAttributeHandler::filterByPiece(
+                    candidates.matches, context, numPoints
+                );
                 
                 // If we have enough matching pieces or can't get more candidates
-                if (matchingPieces.size() >= maxPoints || 
+                if (matchingPieces.size() >= numPoints || 
                     candidates.matches.size() < maxCandidates) {
                     
-                    // Limit to maxPoints
-                    if (matchingPieces.size() > maxPoints) {
-                        matchingPieces.resize(maxPoints);
+                    // Limit to numPoints
+                    if (matchingPieces.size() > numPoints) {
+                        matchingPieces.resize(numPoints);
                     }
                     
                     result.matches = std::move(matchingPieces);
@@ -204,7 +367,7 @@ namespace
                 
                 // Try with more candidates
                 candidateMultiplier *= 2;
-                maxCandidates = maxPoints * candidateMultiplier;
+                maxCandidates = numPoints * candidateMultiplier;
             }
         }
     };
