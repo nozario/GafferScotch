@@ -4,9 +4,11 @@ __import__("GafferUI")
 __import__("GafferScene")
 __import__("GafferSceneUI")
 
+from . import (
+    CaptureWeightsUI,
+    CurvesPostProcessUI,
+    PointDeformUI,
+    RigidAttachCurvesUI,
+    RigidDeformCurvesUI,
+)
 from ._IconPath import ICON_NAME, ICON_PATH
-
-from . import CaptureWeightsUI
-from . import PointDeformUI
-from . import RigidAttachCurvesUI
-from . import RigidDeformCurvesUI

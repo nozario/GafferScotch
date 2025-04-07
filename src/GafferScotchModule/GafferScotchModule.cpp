@@ -6,6 +6,7 @@
 #include "GafferScotch/PointDeform.h"
 #include "GafferScotch/RigidAttachCurves.h"
 #include "GafferScotch/RigidDeformCurves.h"
+#include "GafferScotch/CurvesPostProcess.h"
 
 using namespace boost::python;
 using namespace GafferBindings;
@@ -17,4 +18,5 @@ BOOST_PYTHON_MODULE(GafferScotchModule)
     GafferBindings::DependencyNodeClass<PointDeform>();
     GafferBindings::DependencyNodeClass<RigidAttachCurves>();
     GafferBindings::DependencyNodeClass<RigidDeformCurves>();
+    GafferBindings::DependencyNodeClass<CurvesPostProcess>();
 }

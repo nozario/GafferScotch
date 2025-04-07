@@ -13,6 +13,7 @@ namespace GafferScotch
         PointDeformTypeId = 121002,
         RigidAttachCurvesTypeId = 110703,
         RigidDeformCurvesTypeId = 110704,
+        CurvesPostProcessTypeId = 121005,
 
         LastTypeId = 121499,
     };
