@@ -640,3 +640,60 @@ IECore::ConstObjectPtr RigidAttachCurves::computeProcessedObject(const ScenePath
 
     return outputCurves;
 }
+
+Imath::Box3f RigidAttachCurves::computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const
+{
+    // Get the input object
+    ConstObjectPtr inputObject = inPlug()->object(path);
+    const CurvesPrimitive *curves = runTimeCast<const CurvesPrimitive>(inputObject.get());
+
+    if (!curves)
+    {
+        return inPlug()->bound(path);
+    }
+
+    // Get the rest mesh path based on mode
+    ScenePath restPath;
+    const bool useBindAttr = useBindAttrPlug()->getValue();
+    if (useBindAttr)
+    {
+        // Try to get path from attribute
+        const std::string bindAttrName = bindAttrPlug()->getValue();
+        if (!bindAttrName.empty())
+        {
+            auto it = curves->variables.find(bindAttrName);
+            if (it != curves->variables.end())
+            {
+                if (const StringData *pathData = runTimeCast<const StringData>(it->second.data.get()))
+                {
+                    restPath = GafferScotch::makeScenePath(pathData->readable());
+                }
+                else if (const StringVectorData *pathVectorData = runTimeCast<const StringVectorData>(it->second.data.get()))
+                {
+                    const std::vector<std::string> &paths = pathVectorData->readable();
+                    if (!paths.empty())
+                    {
+                        restPath = GafferScotch::makeScenePath(paths[0]); // Use first path for now
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        // Use path from plug
+        restPath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
+    }
+
+    // Get animated mesh using resolved path
+    ConstObjectPtr animatedMeshObj = staticDeformerPlug()->object(restPath);
+    const MeshPrimitive *animatedMesh = runTimeCast<const MeshPrimitive>(animatedMeshObj.get());
+
+    if (!animatedMesh)
+    {
+        return inPlug()->bound(path);
+    }
+
+    // Use the animated mesh's bounds directly since curves are bound to its surface
+    return animatedMesh->bound();
+}
