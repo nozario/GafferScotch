@@ -23,5 +23,3 @@ except ImportError as e:
         f"Directory contents: {os.listdir(os.path.dirname(os.path.abspath(__file__)))}"
     )
     raise
-
-__import__("IECore").loadConfig("GAFFER_STARTUP_PATHS", subdirectory="GafferScotch")

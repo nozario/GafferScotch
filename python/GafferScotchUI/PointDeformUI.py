@@ -1,9 +1,10 @@
+import Gaffer
 import IECore
 import imath
 
-import Gaffer
 import GafferScotch
-from . import ICON_PATH
+
+from ._IconPath import ICON_PATH
 
 Gaffer.Metadata.registerNode(
     GafferScotch.PointDeform,
@@ -14,7 +15,7 @@ Gaffer.Metadata.registerNode(
     1. The mesh/points/curve to deform (input)
     2. The static reference deformer (staticDeformer)
     3. The animated deformer (animatedDeformer)
-    
+
     The vertices of both deformers should match the indices baked into the capture attributes,
     otherwise the node will error.
     """,

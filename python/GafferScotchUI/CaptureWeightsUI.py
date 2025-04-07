@@ -1,9 +1,10 @@
+import Gaffer
 import IECore
 import imath
 
-import Gaffer
 import GafferScotch
-from . import ICON_PATH
+
+from ._IconPath import ICON_PATH
 
 Gaffer.Metadata.registerNode(
     GafferScotch.CaptureWeights,
@@ -12,7 +13,7 @@ Gaffer.Metadata.registerNode(
     Computes influence weights for each point/vertex based on proximity to source points.
     For each target point, finds the closest source points within a specified radius and
     computes weights based on distance. The weights use a quadratic falloff function.
-    
+
     The node outputs two array primitive variables:
     - captureIndices: Array of influencing point indices
     - captureWeights: Array of corresponding weights

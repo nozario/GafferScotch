@@ -1,7 +1,7 @@
+import GafferScotchUI
 import GafferUI
 
 import GafferScotch
-import GafferScotchUI
 
 nodeMenu = GafferUI.NodeMenu.acquire(application)
 nodeMenu.append(
@@ -25,4 +25,10 @@ nodeMenu.append(
     "/GafferScotch/RigidDeformCurves",
     GafferScotch.RigidDeformCurves,
     searchText="RigidDeformCurves",
+)
+
+nodeMenu.append(
+    "/GafferScotch/CurvesPostProcess",
+    GafferScotch.CurvesPostProcess,
+    searchText="CurvesPostProcess",
 )

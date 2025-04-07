@@ -4,7 +4,7 @@ import imath
 
 import GafferScotch
 
-from . import ICON_PATH
+from ._IconPath import ICON_PATH
 
 Gaffer.Metadata.registerNode(
     GafferScotch.RigidAttachCurves,

@@ -11,4 +11,3 @@ from . import (
     RigidAttachCurvesUI,
     RigidDeformCurvesUI,
 )
-from ._IconPath import ICON_NAME, ICON_PATH
