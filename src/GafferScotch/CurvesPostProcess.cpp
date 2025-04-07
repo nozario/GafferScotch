@@ -365,21 +365,19 @@ void CurvesPostProcess::applyEndPointsFix(IECoreScene::CurvesPrimitivePtr curves
                 std::nth_element(distances.begin(), distances.begin() + distances.size() / 2, distances.end());
                 float medianDistance = distances[distances.size() / 2];
 
-                // Inner parallel loop over points
-                parallel_for(blocked_range<size_t>(1, vertCount),
-                    [&](const blocked_range<size_t> &pointRange)
+                // Focus on the last 2-5 points
+                int startFixIndex = std::max(vertCount - 5, 1);
+                for (int i = startFixIndex; i < vertCount; ++i)
+                {
+                    float distance = (pos[offset + i] - pos[offset + i - 1]).length();
+                    if (distance > 1.2f * medianDistance) // Adjusted threshold factor
                     {
-                        for (size_t i = pointRange.begin(); i != pointRange.end(); ++i)
-                        {
-                            float distance = (pos[offset + i] - pos[offset + i - 1]).length();
-                            if (distance > 1.5f * medianDistance) // Threshold factor
-                            {
-                                // Realign point closer to the previous point
-                                V3f direction = (pos[offset + i] - pos[offset + i - 1]).normalized();
-                                pos[offset + i] = pos[offset + i - 1] + direction * medianDistance;
-                            }
-                        }
-                    });
+                        // Weighted realignment
+                        float weight = 1.0f - (i - startFixIndex) / float(vertCount - startFixIndex);
+                        V3f direction = (pos[offset + i] - pos[offset + i - 1]).normalized();
+                        pos[offset + i] = pos[offset + i - 1] + direction * medianDistance * weight;
+                    }
+                }
 
                 offset += vertCount;
             }
