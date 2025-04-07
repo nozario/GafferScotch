@@ -2,16 +2,7 @@
 #include "GafferScotch/PointDeform.h"
 #include "GafferScotch/ScenePathUtil.h"
 
-#include "IECore/NullObject.h"
-#include "IECoreScene/PointsPrimitive.h"
-#include "IECoreScene/MeshPrimitive.h"
-#include "IECoreScene/CurvesPrimitive.h"
 #include "IECoreScene/Primitive.h"
-#include "IECore/VectorTypedData.h"
-#include "IECore/MatrixAlgo.h"
-#include "IECore/TransformationMatrixData.h"
-#include "Imath/ImathVec.h"
-#include "Imath/ImathMatrix.h"
 
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>

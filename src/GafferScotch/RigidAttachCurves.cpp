@@ -1,19 +1,14 @@
 #include "GafferScotch/RigidAttachCurves.h"
 #include "GafferScotch/ScenePathUtil.h"
 
-#include "IECore/NullObject.h"
 #include "IECoreScene/CurvesPrimitive.h"
 #include "IECoreScene/MeshPrimitive.h"
 #include "IECoreScene/MeshPrimitiveEvaluator.h"
 #include "IECoreScene/PrimitiveVariable.h"
-#include "IECore/VectorTypedData.h"
-#include "IECore/StringAlgo.h"
-#include "Imath/ImathVec.h"
 #include "IECoreScene/MeshAlgo.h"
 
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
-#include <tbb/cache_aligned_allocator.h>
 
 using namespace Gaffer;
 using namespace GafferScene;
@@ -55,10 +50,10 @@ namespace
         {
             // First, normalize the normal to ensure we have a unit vector
             normal = safeNormalize(normal);
-            
+
             // Make tangent orthogonal to normal and normalize it
             tangent = safeNormalize(tangent - normal * (tangent.dot(normal)));
-            
+
             // Use cross product to get a perfectly orthogonal bitangent
             bitangent = normal.cross(tangent);
         }
@@ -502,7 +497,7 @@ void RigidAttachCurves::computeBindings(const MeshPrimitive *restMesh,
 
                          // Store original position before orthonormalization
                          V3f origPosition = binding.restFrame.position;
-                         
+
                          // Orthonormalize frame for proper coordinate system
                          binding.restFrame.orthonormalize();
                          binding.valid = true;

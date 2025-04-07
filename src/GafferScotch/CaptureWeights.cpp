@@ -3,18 +3,13 @@
 #include "GafferScotch/ScenePathUtil.h"
 #include "GafferScotch/nanoflann.hpp"
 
-#include "IECore/NullObject.h"
-#include "IECore/KDTree.h"
 #include "IECoreScene/PointsPrimitive.h"
 #include "IECoreScene/MeshPrimitive.h"
 #include "IECoreScene/CurvesPrimitive.h"
 #include "IECoreScene/Primitive.h"
-#include "IECore/VectorTypedData.h"
-#include "Imath/ImathVec.h"
 
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
-#include <tbb/enumerable_thread_specific.h>
 #include <limits>
 
 using namespace Gaffer;
@@ -38,9 +33,9 @@ namespace
     // Point cloud adaptor for nanoflann
     struct PointCloudAdaptor
     {
-        const std::vector<V3f>& points;
+        const std::vector<V3f> &points;
 
-        PointCloudAdaptor(const std::vector<V3f>& pts) : points(pts) {}
+        PointCloudAdaptor(const std::vector<V3f> &pts) : points(pts) {}
 
         inline size_t kdtree_get_point_count() const { return points.size(); }
 
@@ -50,17 +45,18 @@ namespace
         }
 
         template <class BBOX>
-        bool kdtree_get_bbox(BBOX&) const { return false; }
+        bool kdtree_get_bbox(BBOX &) const { return false; }
     };
 
     using KDTreeType = nanoflann::KDTreeSingleIndexAdaptor<
         nanoflann::L2_Simple_Adaptor<float, PointCloudAdaptor>,
         PointCloudAdaptor,
         3 /* dimensionality */
-    >;
+        >;
 
-    struct SearchResult {
-        std::vector<std::pair<size_t, float>> matches;  // index and squared distance
+    struct SearchResult
+    {
+        std::vector<std::pair<size_t, float>> matches; // index and squared distance
         float effectiveRadius;
     };
 
@@ -68,28 +64,90 @@ namespace
     {
     public:
         // Represents a piece value that can be int, float, string, or V3f
-        struct PieceValue 
+        struct PieceValue
         {
-            enum class Type { None, Int, Float, String, Vector };
-            
+            enum class Type
+            {
+                None,
+                Int,
+                Float,
+                String,
+                Vector
+            };
+
             Type type;
-            union Values {
+            union Values
+            {
                 int intValue;
                 float floatValue;
                 V3f vectorValue;
-                
-                Values() : intValue(0) {}  // Default constructor initializes first member
-                ~Values() {}  // Destructor needed for proper cleanup
+
+                Values() : intValue(0) {} // Default constructor initializes first member
+                ~Values() {}              // Destructor needed for proper cleanup
             } values;
-            std::string stringValue;  // Separate since it can't be in union
-            
+            std::string stringValue; // Separate since it can't be in union
+
             // Default constructor
             PieceValue() : type(Type::None) {}
-            
+
             // Copy constructor
-            PieceValue(const PieceValue& other) : type(other.type), stringValue(other.stringValue)
+            PieceValue(const PieceValue &other) : type(other.type), stringValue(other.stringValue)
             {
-                switch (type) {
+                switch (type)
+                {
+                case Type::Int:
+                    values.intValue = other.values.intValue;
+                    break;
+                case Type::Float:
+                    values.floatValue = other.values.floatValue;
+                    break;
+                case Type::Vector:
+                    new (&values.vectorValue) V3f(other.values.vectorValue);
+                    break;
+                default:
+                    values.intValue = 0;
+                    break;
+                }
+            }
+
+            // Move constructor
+            PieceValue(PieceValue &&other) noexcept
+                : type(other.type), stringValue(std::move(other.stringValue))
+            {
+                switch (type)
+                {
+                case Type::Int:
+                    values.intValue = other.values.intValue;
+                    break;
+                case Type::Float:
+                    values.floatValue = other.values.floatValue;
+                    break;
+                case Type::Vector:
+                    new (&values.vectorValue) V3f(std::move(other.values.vectorValue));
+                    break;
+                default:
+                    values.intValue = 0;
+                    break;
+                }
+                other.type = Type::None;
+            }
+
+            // Copy assignment operator
+            PieceValue &operator=(const PieceValue &other)
+            {
+                if (this != &other)
+                {
+                    // Clean up old value if needed
+                    if (type == Type::Vector)
+                    {
+                        values.vectorValue.~V3f();
+                    }
+
+                    type = other.type;
+                    stringValue = other.stringValue;
+
+                    switch (type)
+                    {
                     case Type::Int:
                         values.intValue = other.values.intValue;
                         break;
@@ -102,15 +160,27 @@ namespace
                     default:
                         values.intValue = 0;
                         break;
+                    }
                 }
+                return *this;
             }
-            
-            // Move constructor
-            PieceValue(PieceValue&& other) noexcept
-                : type(other.type)
-                , stringValue(std::move(other.stringValue))
+
+            // Move assignment operator
+            PieceValue &operator=(PieceValue &&other) noexcept
             {
-                switch (type) {
+                if (this != &other)
+                {
+                    // Clean up old value if needed
+                    if (type == Type::Vector)
+                    {
+                        values.vectorValue.~V3f();
+                    }
+
+                    type = other.type;
+                    stringValue = std::move(other.stringValue);
+
+                    switch (type)
+                    {
                     case Type::Int:
                         values.intValue = other.values.intValue;
                         break;
@@ -123,106 +193,50 @@ namespace
                     default:
                         values.intValue = 0;
                         break;
-                }
-                other.type = Type::None;
-            }
-            
-            // Copy assignment operator
-            PieceValue& operator=(const PieceValue& other)
-            {
-                if (this != &other) {
-                    // Clean up old value if needed
-                    if (type == Type::Vector) {
-                        values.vectorValue.~V3f();
                     }
-                    
-                    type = other.type;
-                    stringValue = other.stringValue;
-                    
-                    switch (type) {
-                        case Type::Int:
-                            values.intValue = other.values.intValue;
-                            break;
-                        case Type::Float:
-                            values.floatValue = other.values.floatValue;
-                            break;
-                        case Type::Vector:
-                            new (&values.vectorValue) V3f(other.values.vectorValue);
-                            break;
-                        default:
-                            values.intValue = 0;
-                            break;
-                    }
-                }
-                return *this;
-            }
-            
-            // Move assignment operator
-            PieceValue& operator=(PieceValue&& other) noexcept
-            {
-                if (this != &other) {
-                    // Clean up old value if needed
-                    if (type == Type::Vector) {
-                        values.vectorValue.~V3f();
-                    }
-                    
-                    type = other.type;
-                    stringValue = std::move(other.stringValue);
-                    
-                    switch (type) {
-                        case Type::Int:
-                            values.intValue = other.values.intValue;
-                            break;
-                        case Type::Float:
-                            values.floatValue = other.values.floatValue;
-                            break;
-                        case Type::Vector:
-                            new (&values.vectorValue) V3f(std::move(other.values.vectorValue));
-                            break;
-                        default:
-                            values.intValue = 0;
-                            break;
-                    }
-                    
+
                     other.type = Type::None;
                 }
                 return *this;
             }
-            
+
             // Destructor
             ~PieceValue()
             {
-                if (type == Type::Vector) {
+                if (type == Type::Vector)
+                {
                     values.vectorValue.~V3f();
                 }
             }
-            
-            bool operator==(const PieceValue& other) const 
+
+            bool operator==(const PieceValue &other) const
             {
-                if (type != other.type) return false;
-                
-                switch (type) 
+                if (type != other.type)
+                    return false;
+
+                switch (type)
                 {
-                    case Type::Int:
-                        return values.intValue == other.values.intValue;
-                    case Type::Float:
-                        return std::abs(values.floatValue - other.values.floatValue) < 1e-6f;
-                    case Type::String:
-                        return stringValue == other.stringValue;
-                    case Type::Vector:
-                        return (values.vectorValue - other.values.vectorValue).length() < 1e-6f;
-                    default:
-                        return true;  // None type always matches
+                case Type::Int:
+                    return values.intValue == other.values.intValue;
+                case Type::Float:
+                    return std::abs(values.floatValue - other.values.floatValue) < 1e-6f;
+                case Type::String:
+                    return stringValue == other.stringValue;
+                case Type::Vector:
+                    return (values.vectorValue - other.values.vectorValue).length() < 1e-6f;
+                default:
+                    return true; // None type always matches
                 }
             }
         };
 
-        static PieceValue getPieceValue(const PrimitiveVariable* var, size_t index)
+        static PieceValue getPieceValue(const PrimitiveVariable *var, size_t index)
         {
-            if (!var) return PieceValue();
-            
+            if (!var)
+                return PieceValue();
+
             PieceValue result;
-            
+
             // Try each type in order
             int intValue;
             if (getPieceValueInt(*var, index, intValue))
@@ -231,7 +245,7 @@ namespace
                 result.values.intValue = intValue;
                 return result;
             }
-            
+
             float floatValue;
             if (getPieceValueFloat(*var, index, floatValue))
             {
@@ -239,7 +253,7 @@ namespace
                 result.values.floatValue = floatValue;
                 return result;
             }
-            
+
             std::string stringValue;
             if (getPieceValueString(*var, index, stringValue))
             {
@@ -247,7 +261,7 @@ namespace
                 result.stringValue = stringValue;
                 return result;
             }
-            
+
             V3f vectorValue;
             if (getPieceValueV3f(*var, index, vectorValue))
             {
@@ -255,85 +269,91 @@ namespace
                 result.values.vectorValue = vectorValue;
                 return result;
             }
-            
+
             return result;
         }
 
         struct SearchContext
         {
-            const PrimitiveVariable* sourcePiece;
-            const PrimitiveVariable* targetPiece;
+            const PrimitiveVariable *sourcePiece;
+            const PrimitiveVariable *targetPiece;
             size_t targetIndex;
             PieceValue targetValue;
             bool hasValidPieces;
-            
+
             SearchContext(
-                const PrimitiveVariable* srcPiece,
-                const PrimitiveVariable* tgtPiece,
-                size_t tgtIndex
-            ) : sourcePiece(srcPiece)
-              , targetPiece(tgtPiece)
-              , targetIndex(tgtIndex)
+                const PrimitiveVariable *srcPiece,
+                const PrimitiveVariable *tgtPiece,
+                size_t tgtIndex) : sourcePiece(srcPiece), targetPiece(tgtPiece), targetIndex(tgtIndex)
             {
                 hasValidPieces = (sourcePiece && targetPiece);
-                if (hasValidPieces) {
+                if (hasValidPieces)
+                {
                     targetValue = getPieceValue(targetPiece, targetIndex);
                 }
             }
-            
+
             bool piecesMatch(size_t sourceIndex) const
             {
-                if (!hasValidPieces) return true;
-                
+                if (!hasValidPieces)
+                    return true;
+
                 PieceValue sourceValue = getPieceValue(sourcePiece, sourceIndex);
                 return sourceValue == targetValue;
             }
         };
 
         static std::vector<std::pair<size_t, float>> filterByPiece(
-            const std::vector<std::pair<size_t, float>>& candidates,
-            const SearchContext& context,
-            int minPoints
-        ) {
-            if (!context.hasValidPieces) return candidates;
-            
+            const std::vector<std::pair<size_t, float>> &candidates,
+            const SearchContext &context,
+            int minPoints)
+        {
+            if (!context.hasValidPieces)
+                return candidates;
+
             std::vector<std::pair<size_t, float>> matching;
             std::vector<std::pair<size_t, float>> nonMatching;
             matching.reserve(candidates.size());
             nonMatching.reserve(candidates.size());
-            
+
             // First pass: separate matching and non-matching pieces
-            for (const auto& candidate : candidates)
+            for (const auto &candidate : candidates)
             {
-                if (context.piecesMatch(candidate.first)) {
+                if (context.piecesMatch(candidate.first))
+                {
                     matching.push_back(candidate);
-                } else {
+                }
+                else
+                {
                     nonMatching.push_back(candidate);
                 }
             }
-            
+
             // If we have enough matching pieces, use only those
-            if (matching.size() >= minPoints) {
+            if (matching.size() >= minPoints)
+            {
                 return matching;
             }
-            
+
             // Otherwise, add closest non-matching pieces as fallback
             std::sort(nonMatching.begin(), nonMatching.end(),
-                [](const auto& a, const auto& b) { return a.second < b.second; });
-                
+                      [](const auto &a, const auto &b)
+                      { return a.second < b.second; });
+
             size_t needed = minPoints - matching.size();
-            if (needed > nonMatching.size()) needed = nonMatching.size();
-            
+            if (needed > nonMatching.size())
+                needed = nonMatching.size();
+
             matching.insert(
                 matching.end(),
                 nonMatching.begin(),
-                nonMatching.begin() + needed
-            );
-            
+                nonMatching.begin() + needed);
+
             // Sort final results by distance
             std::sort(matching.begin(), matching.end(),
-                [](const auto& a, const auto& b) { return a.second < b.second; });
-                
+                      [](const auto &a, const auto &b)
+                      { return a.second < b.second; });
+
             return matching;
         }
     };
@@ -341,52 +361,55 @@ namespace
     class CapturePointFinder
     {
     public:
-        CapturePointFinder(const std::vector<V3f>& sourcePoints)
-            : m_adaptor(sourcePoints)
-            , m_kdtree(3, m_adaptor, nanoflann::KDTreeSingleIndexAdaptorParams(10))
+        CapturePointFinder(const std::vector<V3f> &sourcePoints)
+            : m_adaptor(sourcePoints), m_kdtree(3, m_adaptor, nanoflann::KDTreeSingleIndexAdaptorParams(10))
         {
             m_kdtree.buildIndex();
         }
 
         SearchResult findPoints(
-            const V3f& queryPoint,
+            const V3f &queryPoint,
             float radius,
             int maxPoints,
             int minPoints,
-            const PrimitiveVariable* sourcePiece,
-            const PrimitiveVariable* targetPiece,
-            size_t targetIndex
-        ) {
+            const PrimitiveVariable *sourcePiece,
+            const PrimitiveVariable *targetPiece,
+            size_t targetIndex)
+        {
             // Create search context for piece matching
             PieceAttributeHandler::SearchContext context(sourcePiece, targetPiece, targetIndex);
-            
+
             // Phase 1: Try with given radius
             SearchResult result = findPointsWithPiece(
-                queryPoint, radius, maxPoints, context
-            );
-            
+                queryPoint, radius, maxPoints, context);
+
             // Phase 2: If we don't have enough points, do unlimited radius search
-            if (result.matches.size() < minPoints) {
+            if (result.matches.size() < minPoints)
+            {
                 // Use unlimited radius to find at least minPoints
                 const float unlimitedRadius = std::numeric_limits<float>::max();
                 result = findPointsWithPiece(
-                    queryPoint, unlimitedRadius, minPoints, context
-                );
-                
+                    queryPoint, unlimitedRadius, minPoints, context);
+
                 // Adjust radius to 1.1 * distance to furthest point (like Houdini)
-                if (!result.matches.empty()) {
+                if (!result.matches.empty())
+                {
                     float maxDist = std::sqrt(result.matches.back().second);
                     result.effectiveRadius = maxDist * 1.1f;
-                    
+
                     // Recompute weights using the adjusted radius
-                    for (auto& match : result.matches) {
+                    for (auto &match : result.matches)
+                    {
                         match.second = std::sqrt(match.second) / result.effectiveRadius;
                     }
                 }
-            } else {
+            }
+            else
+            {
                 // Using original radius, normalize distances
                 result.effectiveRadius = radius;
-                for (auto& match : result.matches) {
+                for (auto &match : result.matches)
+                {
                     match.second = std::sqrt(match.second) / radius;
                 }
             }
@@ -398,45 +421,52 @@ namespace
         PointCloudAdaptor m_adaptor;
         KDTreeType m_kdtree;
 
-        SearchResult findNearestPoints(const V3f& queryPoint, float radius, int maxPoints)
+        SearchResult findNearestPoints(const V3f &queryPoint, float radius, int maxPoints)
         {
             SearchResult result;
             std::vector<std::pair<size_t, float>> matches;
-            
+
             const float queryPt[3] = {queryPoint.x, queryPoint.y, queryPoint.z};
-            
+
             // Use radius search if we have a finite radius
-            if (radius < std::numeric_limits<float>::max()) {
-                matches.reserve(maxPoints * 2);  // Reserve extra space
+            if (radius < std::numeric_limits<float>::max())
+            {
+                matches.reserve(maxPoints * 2); // Reserve extra space
                 const float radiusSquared = radius * radius;
-                
+
                 // Use nanoflann's ResultItem type for radius search
                 std::vector<nanoflann::ResultItem<uint32_t, float>> radiusMatches;
                 m_kdtree.radiusSearch(queryPt, radiusSquared, radiusMatches);
-                
+
                 // Convert to our format and sort
                 matches.reserve(radiusMatches.size());
-                for (const auto& match : radiusMatches) {
+                for (const auto &match : radiusMatches)
+                {
                     matches.emplace_back(match.first, match.second);
                 }
-                
+
                 // Sort by distance and limit to maxPoints
                 std::sort(matches.begin(), matches.end(),
-                    [](const auto& a, const auto& b) { return a.second < b.second; });
-                    
-                if (matches.size() > maxPoints) {
+                          [](const auto &a, const auto &b)
+                          { return a.second < b.second; });
+
+                if (matches.size() > maxPoints)
+                {
                     matches.resize(maxPoints);
                 }
-            } else {
+            }
+            else
+            {
                 // Use k-nearest neighbor search for unlimited radius
                 std::vector<uint32_t> indices(maxPoints);
                 std::vector<float> distances(maxPoints);
-                
+
                 size_t found = m_kdtree.knnSearch(queryPt, static_cast<size_t>(maxPoints), indices.data(), distances.data());
-                
+
                 // Convert to pair format
                 matches.reserve(found);
-                for (size_t i = 0; i < found; ++i) {
+                for (size_t i = 0; i < found; ++i)
+                {
                     matches.emplace_back(indices[i], distances[i]);
                 }
             }
@@ -446,40 +476,42 @@ namespace
         }
 
         SearchResult findPointsWithPiece(
-            const V3f& queryPoint,
+            const V3f &queryPoint,
             float radius,
             int numPoints,
-            const PieceAttributeHandler::SearchContext& context
-        ) {
+            const PieceAttributeHandler::SearchContext &context)
+        {
             SearchResult result;
-            
+
             // Start with more candidates than needed
             int candidateMultiplier = 4;
             int maxCandidates = numPoints * candidateMultiplier;
-            
-            while (true) {
+
+            while (true)
+            {
                 // Get candidates
                 auto candidates = findNearestPoints(queryPoint, radius, maxCandidates);
-                
+
                 // Filter by piece attribute
                 auto matchingPieces = PieceAttributeHandler::filterByPiece(
-                    candidates.matches, context, numPoints
-                );
-                
+                    candidates.matches, context, numPoints);
+
                 // If we have enough matching pieces or can't get more candidates
-                if (matchingPieces.size() >= numPoints || 
-                    candidates.matches.size() < maxCandidates) {
-                    
+                if (matchingPieces.size() >= numPoints ||
+                    candidates.matches.size() < maxCandidates)
+                {
+
                     // Limit to numPoints
-                    if (matchingPieces.size() > numPoints) {
+                    if (matchingPieces.size() > numPoints)
+                    {
                         matchingPieces.resize(numPoints);
                     }
-                    
+
                     result.matches = std::move(matchingPieces);
                     result.effectiveRadius = radius;
                     return result;
                 }
-                
+
                 // Try with more candidates
                 candidateMultiplier *= 2;
                 maxCandidates = numPoints * candidateMultiplier;
@@ -494,9 +526,7 @@ namespace
         std::vector<int> influenceCounts; // size = numVertices
 
         BatchResults(size_t numVertices, int maxPoints)
-            : allIndices(numVertices * maxPoints, 0)
-            , allWeights(numVertices * maxPoints, 0.0f)
-            , influenceCounts(numVertices, 0)
+            : allIndices(numVertices * maxPoints, 0), allWeights(numVertices * maxPoints, 0.0f), influenceCounts(numVertices, 0)
         {
         }
 
@@ -736,63 +766,67 @@ namespace
     }
 
     void computeCaptureWeights(
-        const std::vector<V3f>& sourcePoints,
-        const std::vector<V3f>& targetPoints,
+        const std::vector<V3f> &sourcePoints,
+        const std::vector<V3f> &targetPoints,
         float radius,
         int maxPoints,
         int minPoints,
-        const PrimitiveVariable* sourcePiece,
-        const PrimitiveVariable* targetPiece,
-        BatchResults& results)
+        const PrimitiveVariable *sourcePiece,
+        const PrimitiveVariable *targetPiece,
+        BatchResults &results)
     {
         // Create point finder
         CapturePointFinder pointFinder(sourcePoints);
 
         // Process each target point in parallel
         parallel_for(blocked_range<size_t>(0, targetPoints.size(), 1024),
-            [&](const blocked_range<size_t>& range)
-            {
-                for (size_t i = range.begin(); i != range.end(); ++i)
-                {
-                    const V3f& targetPoint = targetPoints[i];
+                     [&](const blocked_range<size_t> &range)
+                     {
+                         for (size_t i = range.begin(); i != range.end(); ++i)
+                         {
+                             const V3f &targetPoint = targetPoints[i];
 
-                    // Find nearest points
-                    auto searchResult = pointFinder.findPoints(
-                        targetPoint, radius, maxPoints, minPoints,
-                        sourcePiece, targetPiece, i
-                    );
+                             // Find nearest points
+                             auto searchResult = pointFinder.findPoints(
+                                 targetPoint, radius, maxPoints, minPoints,
+                                 sourcePiece, targetPiece, i);
 
-                    // Store influence count
-                    results.influenceCounts[i] = searchResult.matches.size();
+                             // Store influence count
+                             results.influenceCounts[i] = searchResult.matches.size();
 
-                    // Calculate and normalize weights
-                    float totalWeight = 0.0f;
-                    std::vector<float> weights;
-                    weights.reserve(searchResult.matches.size());
+                             // Calculate and normalize weights
+                             float totalWeight = 0.0f;
+                             std::vector<float> weights;
+                             weights.reserve(searchResult.matches.size());
 
-                    for (const auto& match : searchResult.matches) {
-                        float weight = calculateWeight(match.second, searchResult.effectiveRadius);
-                        weights.push_back(weight);
-                        totalWeight += weight;
-                    }
+                             for (const auto &match : searchResult.matches)
+                             {
+                                 float weight = calculateWeight(match.second, searchResult.effectiveRadius);
+                                 weights.push_back(weight);
+                                 totalWeight += weight;
+                             }
 
-                    // Store results
-                    int* indices = results.getIndices(i, maxPoints);
-                    float* outWeights = results.getWeights(i, maxPoints);
+                             // Store results
+                             int *indices = results.getIndices(i, maxPoints);
+                             float *outWeights = results.getWeights(i, maxPoints);
 
-                    const float invTotalWeight = totalWeight > 0.0f ? 1.0f / totalWeight : 0.0f;
+                             const float invTotalWeight = totalWeight > 0.0f ? 1.0f / totalWeight : 0.0f;
 
-                    for (size_t j = 0; j < maxPoints; ++j) {
-                        if (j < searchResult.matches.size()) {
-                            indices[j] = searchResult.matches[j].first;
-                            outWeights[j] = weights[j] * invTotalWeight;
-                        } else {
-                            indices[j] = 0;
-                            outWeights[j] = 0.0f;
-                        }
-                    }
-                }
-            });
+                             for (size_t j = 0; j < maxPoints; ++j)
+                             {
+                                 if (j < searchResult.matches.size())
+                                 {
+                                     indices[j] = searchResult.matches[j].first;
+                                     outWeights[j] = weights[j] * invTotalWeight;
+                                 }
+                                 else
+                                 {
+                                     indices[j] = 0;
+                                     outWeights[j] = 0.0f;
+                                 }
+                             }
+                         }
+                     });
     }
 }
 
@@ -1021,7 +1055,7 @@ IECore::ConstObjectPtr CaptureWeights::computeProcessedObject(const ScenePath &p
     BatchResults results(targetPoints.size(), maxPoints);
 
     computeCaptureWeights(sourcePoints, targetPoints, radius, maxPoints, minPoints,
-                           sourcePiece, targetPiece, results);
+                          sourcePiece, targetPiece, results);
 
     PrimitivePtr resultPrimitive = inputPrimitive->copy();
 

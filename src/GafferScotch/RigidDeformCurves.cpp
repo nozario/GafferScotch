@@ -1,19 +1,13 @@
 #include "GafferScotch/RigidDeformCurves.h"
 #include "GafferScotch/ScenePathUtil.h"
 
-#include "IECore/NullObject.h"
 #include "IECoreScene/CurvesPrimitive.h"
 #include "IECoreScene/MeshPrimitive.h"
-#include "IECoreScene/MeshPrimitiveEvaluator.h"
 #include "IECoreScene/PrimitiveVariable.h"
-#include "IECore/VectorTypedData.h"
-#include "IECore/StringAlgo.h"
-#include "Imath/ImathVec.h"
 #include "IECoreScene/MeshAlgo.h"
 
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
-#include <tbb/cache_aligned_allocator.h>
 
 using namespace Gaffer;
 using namespace GafferScene;
@@ -967,14 +961,14 @@ void RigidDeformCurves::deformCurves(
                                      {
                                          // Get point relative to curve root
                                          V3f p = positions[j];
-                                         
+
                                          // Get delta from root point
                                          V3f delta = p - rootPoint;
-                                         
+
                                          // Apply the transformation to the delta
                                          V3f transformedDelta;
                                          Transform.multDirMatrix(delta, transformedDelta);
-                                         
+
                                          // Apply transformed delta to new position
                                          positions[j] = deformedFrame.position + transformedDelta;
                                      }
