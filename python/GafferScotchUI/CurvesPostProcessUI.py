@@ -89,5 +89,19 @@ Gaffer.Metadata.registerNode(
             "plugValueWidget:type",
             "GafferUI.NumericPlugValueWidget",
         ],
+        "endPointsFixTolerance": [
+            "description",
+            """
+            Tolerance factor for detecting outliers in the end points fix process.
+            This value determines how much a point's distance can exceed the median
+            distance before it is considered an outlier.
+            """,
+            "layout:section",
+            "End Points Fix",
+            "nodule:type",
+            "",
+            "plugValueWidget:type",
+            "GafferUI.NumericPlugValueWidget",
+        ],
     },
 )

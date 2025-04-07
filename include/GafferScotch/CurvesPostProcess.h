@@ -39,6 +39,9 @@ public:
     Gaffer::BoolPlug *enableEndPointsFixPlug();
     const Gaffer::BoolPlug *enableEndPointsFixPlug() const;
 
+    Gaffer::FloatPlug *endPointsFixTolerancePlug();
+    const Gaffer::FloatPlug *endPointsFixTolerancePlug() const;
+
     void affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const override;
 
 protected:
