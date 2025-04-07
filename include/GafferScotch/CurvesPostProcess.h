@@ -35,6 +35,10 @@ public:
     Gaffer::IntPlug *iterationsPlug();
     const Gaffer::IntPlug *iterationsPlug() const;
 
+    // End Points Fix
+    Gaffer::BoolPlug *enableEndPointsFixPlug();
+    const Gaffer::BoolPlug *enableEndPointsFixPlug() const;
+
     void affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const override;
 
 protected:
@@ -51,6 +55,9 @@ private:
         float mu,
         int iterations
     ) const;
+
+    // Apply end points fix to CurvesPrimitive
+    void applyEndPointsFix(IECoreScene::CurvesPrimitivePtr curves) const;
 
     static size_t g_firstPlugIndex;
 };

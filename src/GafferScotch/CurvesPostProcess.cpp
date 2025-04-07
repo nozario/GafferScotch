@@ -84,6 +84,9 @@ CurvesPostProcess::CurvesPostProcess(const std::string &name)
     addChild(new FloatPlug("lambda", Plug::In, 0.5f, 0.0f, 2.0f));
     addChild(new FloatPlug("mu", Plug::In, -0.53f, -2.0f, 0.0f));
     addChild(new IntPlug("iterations", Plug::In, 10, 1, 100));
+
+    // End Points Fix
+    addChild(new BoolPlug("enableEndPointsFix", Plug::In, false));
 }
 
 BoolPlug *CurvesPostProcess::enableTaubinSmoothingPlug()
@@ -126,6 +129,16 @@ const IntPlug *CurvesPostProcess::iterationsPlug() const
     return getChild<IntPlug>(g_firstPlugIndex + 3);
 }
 
+BoolPlug *CurvesPostProcess::enableEndPointsFixPlug()
+{
+    return getChild<BoolPlug>(g_firstPlugIndex + 4);
+}
+
+const BoolPlug *CurvesPostProcess::enableEndPointsFixPlug() const
+{
+    return getChild<BoolPlug>(g_firstPlugIndex + 4);
+}
+
 void CurvesPostProcess::affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const
 {
     ObjectProcessor::affects(input, outputs);
@@ -133,7 +146,8 @@ void CurvesPostProcess::affects(const Gaffer::Plug *input, AffectedPlugsContaine
     if (input == enableTaubinSmoothingPlug() ||
         input == lambdaPlug() ||
         input == muPlug() ||
-        input == iterationsPlug())
+        input == iterationsPlug() ||
+        input == enableEndPointsFixPlug())
     {
         outputs.push_back(outPlug()->objectPlug());
     }
@@ -144,7 +158,8 @@ bool CurvesPostProcess::affectsProcessedObject(const Gaffer::Plug *input) const
     return input == enableTaubinSmoothingPlug() ||
            input == lambdaPlug() ||
            input == muPlug() ||
-           input == iterationsPlug();
+           input == iterationsPlug() ||
+           input == enableEndPointsFixPlug();
 }
 
 void CurvesPostProcess::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
@@ -180,6 +195,12 @@ IECore::ConstObjectPtr CurvesPostProcess::computeProcessedObject(const ScenePath
         const int iterations = iterationsPlug()->getValue();
 
         applyTaubinSmoothing(result, lambda, mu, iterations);
+    }
+
+    // Apply end points fix if enabled
+    if (enableEndPointsFixPlug()->getValue())
+    {
+        applyEndPointsFix(result);
     }
 
     return result;
@@ -289,4 +310,78 @@ void CurvesPostProcess::applyTaubinSmoothing(
         // Copy new positions to current positions
         pos.swap(newPos);
     }
+}
+
+void CurvesPostProcess::applyEndPointsFix(IECoreScene::CurvesPrimitivePtr curves) const
+{
+    auto pIt = curves->variables.find("P");
+    if (pIt == curves->variables.end())
+    {
+        return;
+    }
+
+    V3fVectorDataPtr positions = runTimeCast<V3fVectorData>(pIt->second.data);
+    if (!positions)
+    {
+        return;
+    }
+
+    std::vector<V3f> &pos = positions->writable();
+    const std::vector<int> &vertsPerCurve = curves->verticesPerCurve()->readable();
+
+    // Skip if empty
+    if (pos.empty() || vertsPerCurve.empty())
+    {
+        return;
+    }
+
+    // Outer parallel loop over curves
+    parallel_for(blocked_range<size_t>(0, vertsPerCurve.size()),
+        [&](const blocked_range<size_t> &curveRange)
+        {
+            size_t offset = 0;
+            for (size_t curveIndex = 0; curveIndex < curveRange.begin(); ++curveIndex)
+            {
+                offset += vertsPerCurve[curveIndex];
+            }
+
+            for (size_t curveIndex = curveRange.begin(); curveIndex != curveRange.end(); ++curveIndex)
+            {
+                int vertCount = vertsPerCurve[curveIndex];
+                if (vertCount < 2)
+                {
+                    offset += vertCount;
+                    continue;
+                }
+
+                // Calculate distances between consecutive points
+                std::vector<float> distances(vertCount - 1);
+                for (int i = 0; i < vertCount - 1; ++i)
+                {
+                    distances[i] = (pos[offset + i + 1] - pos[offset + i]).length();
+                }
+
+                // Calculate median distance
+                std::nth_element(distances.begin(), distances.begin() + distances.size() / 2, distances.end());
+                float medianDistance = distances[distances.size() / 2];
+
+                // Inner parallel loop over points
+                parallel_for(blocked_range<size_t>(1, vertCount),
+                    [&](const blocked_range<size_t> &pointRange)
+                    {
+                        for (size_t i = pointRange.begin(); i != pointRange.end(); ++i)
+                        {
+                            float distance = (pos[offset + i] - pos[offset + i - 1]).length();
+                            if (distance > 1.5f * medianDistance) // Threshold factor
+                            {
+                                // Realign point closer to the previous point
+                                V3f direction = (pos[offset + i] - pos[offset + i - 1]).normalized();
+                                pos[offset + i] = pos[offset + i - 1] + direction * medianDistance;
+                            }
+                        }
+                    });
+
+                offset += vertCount;
+            }
+        });
 } 

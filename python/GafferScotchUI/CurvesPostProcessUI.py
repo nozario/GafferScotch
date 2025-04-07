@@ -20,7 +20,7 @@ Gaffer.Metadata.registerNode(
     # Taubin Smoothing
     "layout:section:Taubin Smoothing:summary",
     "Options for applying Taubin smoothing to curves",
-    plugs = {
+    plugs={
         "enableTaubinSmoothing": [
             "description",
             """
@@ -29,6 +29,20 @@ Gaffer.Metadata.registerNode(
             """,
             "layout:section",
             "Taubin Smoothing",
+            "nodule:type",
+            "",
+            "plugValueWidget:type",
+            "GafferUI.BoolPlugValueWidget",
+        ],
+        "enableEndPointsFix": [
+            "description",
+            """
+            Enables end points fix. This post-processing step realigns end points of curves
+            that deviate significantly from the median distance between points, helping to
+            maintain the curve's shape.
+            """,
+            "layout:section",
+            "End Points Fix",
             "nodule:type",
             "",
             "plugValueWidget:type",
