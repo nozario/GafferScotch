@@ -3,6 +3,7 @@
 #include "GafferScotch/CaptureMatrixWeights.h"
 #include "GafferScotch/ScenePathUtil.h"
 #include "GafferScotch/nanoflann.hpp"
+#include "GafferScotch/CurvesDataStructures.h"
 
 #include "IECoreScene/PointsPrimitive.h"
 #include "IECoreScene/MeshPrimitive.h"

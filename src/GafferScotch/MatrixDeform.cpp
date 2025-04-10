@@ -3,6 +3,7 @@
 #include "GafferScotch/MatrixDeform.h"
 #include "GafferScotch/ScenePathUtil.h"
 #include "GafferScotch/nanoflann.hpp"
+#include "GafferScotch/CurvesDataStructures.h"
 
 #include "IECoreScene/Primitive.h"
 #include "IECoreScene/MeshPrimitive.h"
