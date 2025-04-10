@@ -10,6 +10,7 @@
 #include "IECoreScene/Primitive.h"
 #include "IECoreScene/MeshPrimitiveEvaluator.h"
 #include "IECoreScene/PrimitiveEvaluator.h"
+#include "IECoreScene/MeshAlgo.h"
 
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
@@ -113,32 +114,95 @@ namespace
         if (!evaluator->closestPoint(point, result.get()))
             return false;
             
-        // Get position, normal, and tangent (UV derivatives)
+        // Get position and normal
         frame.position = result->point();
         frame.normal = result->normal();
         
-        // Try to get tangent from UV derivatives if available
-        V2f uv;
-        V3f dPdu, dPdv;
+        // Get triangle index and barycentric coordinates for proper tangent lookup
+        int triangleIndex = static_cast<MeshPrimitiveEvaluator::Result*>(result.get())->triangleIndex();
+        V3f baryCoords = static_cast<MeshPrimitiveEvaluator::Result*>(result.get())->barycentricCoordinates();
         
-        if (result->uv(uv) && result->uTangent(dPdu) && result->vTangent(dPdv))
-        {
-            // Use the UV derivatives for tangent/bitangent
-            frame.tangent = dPdu.normalized();
-            frame.bitangent = dPdv.normalized();
+        // Get the vertex indices for this triangle
+        const std::vector<int> &vertexIds = mesh->vertexIds()->readable();
+        const int *triangleVertices = &vertexIds[triangleIndex * 3];
+        V3i triVerts(triangleVertices[0], triangleVertices[1], triangleVertices[2]);
+        
+        // Try to calculate tangents from UVs first
+        auto uvIt = mesh->variables.find("uv");
+        if (uvIt == mesh->variables.end())
+            uvIt = mesh->variables.find("st");
+        if (uvIt == mesh->variables.end())
+            uvIt = mesh->variables.find("UV");
             
-            // Ensure orthogonal frame
+        if (uvIt != mesh->variables.end())
+        {
+            // Calculate UV-based tangents for the whole mesh
+            auto tangentResult = MeshAlgo::calculateTangents(mesh, uvIt->first, true, "P");
+            
+            // Interpolate tangent at our specific point using barycentric coordinates
+            frame.tangent = Detail::primVar<V3f>(tangentResult.first, &baryCoords[0], triangleIndex, triVerts);
+            frame.bitangent = Detail::primVar<V3f>(tangentResult.second, &baryCoords[0], triangleIndex, triVerts);
+            
+            // Ensure we have a properly orthonormal frame
             frame.orthonormalize();
             return true;
         }
         
-        // Fallback: create tangent from normal
-        if (std::abs(frame.normal.y) < 0.9f)
-            frame.tangent = V3f(0, 1, 0).cross(frame.normal).normalized();
-        else
-            frame.tangent = V3f(1, 0, 0).cross(frame.normal).normalized();
+        // If no UVs, try to calculate tangents from edges
+        auto normalIt = mesh->variables.find("N");
+        if (normalIt == mesh->variables.end())
+        {
+            // Calculate vertex normals if not present
+            PrimitiveVariable normals = MeshAlgo::calculateNormals(mesh);
+            MeshPrimitivePtr meshCopy = mesh->copy();
+            meshCopy->variables["N"] = normals;
             
-        frame.bitangent = frame.normal.cross(frame.tangent).normalized();
+            // Calculate edge-based tangents
+            auto tangentResult = MeshAlgo::calculateTangentsFromTwoEdges(meshCopy.get(), "P", "N", true, false);
+            
+            // Interpolate tangent at our specific point using barycentric coordinates
+            frame.tangent = Detail::primVar<V3f>(tangentResult.first, &baryCoords[0], triangleIndex, triVerts);
+            frame.bitangent = Detail::primVar<V3f>(tangentResult.second, &baryCoords[0], triangleIndex, triVerts);
+            
+            // Ensure we have a properly orthonormal frame
+            frame.orthonormalize();
+            return true;
+        }
+        else
+        {
+            // Calculate edge-based tangents using existing normals
+            auto tangentResult = MeshAlgo::calculateTangentsFromTwoEdges(mesh, "P", normalIt->first, true, false);
+            
+            // Interpolate tangent at our specific point using barycentric coordinates
+            frame.tangent = Detail::primVar<V3f>(tangentResult.first, &baryCoords[0], triangleIndex, triVerts);
+            frame.bitangent = Detail::primVar<V3f>(tangentResult.second, &baryCoords[0], triangleIndex, triVerts);
+            
+            // Ensure we have a properly orthonormal frame
+            frame.orthonormalize();
+            return true;
+        }
+        
+        // Fallback to simple cross-product approach (should rarely happen)
+        V3f normal = frame.normal.normalized();
+        V3f tangent;
+        
+        if (std::abs(normal.y) < 0.9f)
+        {
+            // Use up vector to create tangent
+            tangent = V3f(0, 1, 0).cross(normal).normalized();
+        }
+        else
+        {
+            // Near-vertical normal, use x axis instead
+            tangent = V3f(1, 0, 0).cross(normal).normalized();
+        }
+        
+        // Create orthogonal frame
+        frame.tangent = tangent;
+        frame.bitangent = normal.cross(tangent).normalized();
+        
+        // Ensure we have a properly orthonormal frame
+        frame.orthonormalize();
         return true;
     }
 
