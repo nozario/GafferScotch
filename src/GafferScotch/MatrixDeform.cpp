@@ -156,28 +156,9 @@ namespace
         const int *triangleVertices = &vertexIds[triangleIndex * 3];
         V3i triVerts(triangleVertices[0], triangleVertices[1], triangleVertices[2]);
         
-        // Try to calculate tangents from UVs first
-        auto uvIt = meshToUse->variables.find("uv");
-        if (uvIt == meshToUse->variables.end())
-            uvIt = meshToUse->variables.find("st");
-        if (uvIt == meshToUse->variables.end())
-            uvIt = meshToUse->variables.find("UV");
-            
-        if (uvIt != meshToUse->variables.end())
-        {
-            // Calculate UV-based tangents for the whole mesh
-            auto tangentResult = MeshAlgo::calculateTangents(meshToUse, uvIt->first, true, "P");
-            
-            // Interpolate tangent at our specific point using barycentric coordinates
-            frame.tangent = GafferScotch::Detail::primVar<V3f>(tangentResult.first, &baryCoords[0], triangleIndex, triVerts);
-            frame.bitangent = GafferScotch::Detail::primVar<V3f>(tangentResult.second, &baryCoords[0], triangleIndex, triVerts);
-            
-            // Ensure we have a properly orthonormal frame
-            frame.orthonormalize();
-            return true;
-        }
+        // Skip UV-based tangent calculation since UVs might overlap and cause issues
         
-        // If no UVs, try to calculate tangents from edges
+        // Use edge-based tangent calculation instead
         auto normalIt = meshToUse->variables.find("N");
         if (normalIt == meshToUse->variables.end())
         {
@@ -511,11 +492,12 @@ namespace
         const std::vector<std::pair<int, float>> &influences,
         bool applyRigidProjection)
     {
-        M44f avgMatrix;
-        avgMatrix.makeIdentity();
+        // Start with identity matrix
+        M44f totalXform;
+        totalXform.makeIdentity();
         float totalWeight = 0.0f;
         
-        // Calculate weighted average matrix and translation
+        // Accumulate weighted matrices directly (like Houdini's totalxform)
         for (const auto &influence : influences)
         {
             const int sourceIndex = influence.first;
@@ -526,58 +508,40 @@ namespace
                 sourceIndex >= sourceMatrices.size())
                 continue;
                 
-            const V3f &staticPoint = staticPos[sourceIndex];
-            const V3f &animatedPoint = animatedPos[sourceIndex];
+            // Get the source matrix directly
             const M44f &sourceMatrix = sourceMatrices[sourceIndex];
             
-            // Create a transform from static to animated
-            M44f staticToWorld = sourceMatrix;
-            
-            // Add the difference between static and animated positions
-            V3f translation = animatedPoint - staticPoint;
-            M44f animatedMatrix = staticToWorld;
-            animatedMatrix[0][3] += translation.x;
-            animatedMatrix[1][3] += translation.y;
-            animatedMatrix[2][3] += translation.z;
-            
-            // Calculate full transform between rest and deformed state
-            M44f transform = staticToWorld.inverse() * animatedMatrix;
-            
-            // Accumulate weighted transform
+            // Accumulate weighted matrix (just like Houdini)
             for (int i = 0; i < 4; i++)
             {
                 for (int j = 0; j < 4; j++)
                 {
-                    avgMatrix[i][j] += transform[i][j] * weight;
+                    totalXform[i][j] += sourceMatrix[i][j] * weight;
                 }
             }
             
             totalWeight += weight;
         }
         
-        // Normalize by total weight
+        // Normalize the accumulated matrix
         if (totalWeight > 0.0f)
         {
             for (int i = 0; i < 4; i++)
             {
                 for (int j = 0; j < 4; j++)
                 {
-                    avgMatrix[i][j] /= totalWeight;
+                    totalXform[i][j] /= totalWeight;
                 }
             }
             
             // Apply polar decomposition for rigid projection if requested
             if (applyRigidProjection)
             {
-                avgMatrix = polarDecomposition(avgMatrix);
+                totalXform = polarDecomposition(totalXform);
             }
         }
-        else
-        {
-            avgMatrix.makeIdentity();
-        }
         
-        return avgMatrix;
+        return totalXform;
     }
     
     // Apply weighted average matrix to a point (used in parallel processing)
@@ -590,9 +554,9 @@ namespace
     {
         if (influences.empty())
             return currentPos;
-            
-        // Find center of influence points (weighted)
-        V3f staticCenter(0, 0, 0);
+        
+        // Calculate weighted delta following Houdini's approach
+        V3f delta(0, 0, 0);
         float totalWeight = 0.0f;
         
         for (const auto &influence : influences)
@@ -602,26 +566,38 @@ namespace
             
             if (weight <= 0.0f || sourceIndex < 0 || sourceIndex >= staticPos.size())
                 continue;
-                
-            staticCenter += staticPos[sourceIndex] * weight;
+            
+            // Get static point position (oldcenter in Houdini)
+            const V3f &staticPoint = staticPos[sourceIndex];
+            
+            // Calculate difference between animated and static (diff in Houdini)
+            const V3f &animatedPoint = animatedPos[sourceIndex];
+            V3f translation = animatedPoint - staticPoint;
+            
+            // Move point to local space
+            V3f localPoint = currentPos - staticPoint;
+            
+            // Apply matrix transformation
+            V3f transformedPoint;
+            averageMatrix.multVecMatrix(localPoint, transformedPoint);
+            
+            // Move back to world space and add translation
+            transformedPoint += staticPoint + translation;
+            
+            // Calculate difference and apply weight
+            V3f pointDelta = transformedPoint - currentPos;
+            delta += pointDelta * weight;
             totalWeight += weight;
         }
         
-        if (totalWeight <= 0.0f)
-            return currentPos;
-            
-        staticCenter /= totalWeight;
+        // Apply normalized delta to current position
+        if (totalWeight > 0.0f)
+        {
+            delta /= totalWeight;
+            return currentPos + delta;
+        }
         
-        // Transform point around the center
-        V3f localPoint = currentPos - staticCenter;
-        V3f transformedPoint;
-        averageMatrix.multVecMatrix(localPoint, transformedPoint);
-        
-        // Add back to static center transformed by average matrix
-        V3f transformedCenter;
-        averageMatrix.multVecMatrix(V3f(0, 0, 0), transformedCenter);
-        
-        return transformedPoint + staticCenter + transformedCenter;
+        return currentPos;
     }
 
     void hashPositions(const IECoreScene::Primitive *primitive, IECore::MurmurHash &h)
@@ -979,25 +955,67 @@ IECore::ConstObjectPtr MatrixDeform::computeProcessedObject(const ScenePath &pat
                          influenceData.getPointInfluences(i, influences);
                          if (influences.empty())
                              continue;
-                             
-                         // Calculate weighted average matrix (Houdini-style)
-                         M44f averageMatrix = computeAverageMatrix(
-                             positions[i], 
-                             staticPos, 
-                             animatedPos, 
-                             sourceMatrices, 
-                             influences,
-                             applyRigidProjection
-                         );
                          
-                         // Apply the average matrix to transform the point
-                         positions[i] = applyAverageMatrix(
-                             positions[i],
-                             staticPos,
-                             animatedPos,
-                             averageMatrix,
-                             influences
-                         );
+                         // Following Houdini's deform.txt implementation:
+                         V3f delta(0, 0, 0);
+                         float totalWeight = 0.0f;
+                         M44f totalXform;
+                         totalXform.makeIdentity();
+                         
+                         for (const auto &influence : influences)
+                         {
+                             const int sourceIndex = influence.first;
+                             const float weight = influence.second;
+                             
+                             if (weight <= 0.0f || sourceIndex < 0 || 
+                                 sourceIndex >= staticPos.size() || 
+                                 sourceIndex >= sourceMatrices.size())
+                                 continue;
+                                 
+                             // Direct translation from Houdini's deform.txt:
+                             // Get static point position (oldcenter in Houdini)
+                             const V3f &staticPoint = staticPos[sourceIndex];
+                             
+                             // Calculate difference between animated and static (diff in Houdini)
+                             const V3f &animatedPoint = animatedPos[sourceIndex];
+                             V3f translation = animatedPoint - staticPoint;
+                             
+                             // Get matrix transformation
+                             const M44f &sourceMatrix = sourceMatrices[sourceIndex];
+                             
+                             // Compute new location according to this xform
+                             V3f newp = positions[i];
+                             newp -= staticPoint;
+                             
+                             // Apply matrix transformation
+                             V3f transformedPoint;
+                             sourceMatrix.multVecMatrix(newp, transformedPoint);
+                             
+                             // Move back to world space and add translation
+                             transformedPoint += staticPoint;
+                             transformedPoint += translation;
+                             
+                             // Calculate delta and accumulate with weight
+                             V3f pointDelta = transformedPoint - positions[i];
+                             delta += pointDelta * weight;
+                             totalWeight += weight;
+                             
+                             // Accumulate weighted matrix (for optional rigid projection)
+                             for (int j = 0; j < 4; j++)
+                             {
+                                 for (int k = 0; k < 4; k++)
+                                 {
+                                     totalXform[j][k] += sourceMatrix[j][k] * weight;
+                                 }
+                             }
+                         }
+                         
+                         // Apply normalized delta
+                         if (totalWeight > 0.0f)
+                         {
+                             delta /= totalWeight;
+                             positions[i] += delta;
+                         }
                      }
                  });
 
