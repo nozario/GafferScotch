@@ -44,64 +44,116 @@ namespace
         {
             // 1. Normalize normal vector
             float normalLength = normal.length();
-            if (normalLength > 0)
+            if (normalLength > 0.001f)
+            {
                 normal /= normalLength;
+            }
             else
-                normal = V3f(0, 1, 0); // Fallback
-
-            // 2. Find most orthogonal direction for initial tangent
-            V3f candidates[3] = {
-                V3f(1, 0, 0),
-                V3f(0, 1, 0),
-                V3f(0, 0, 1)
-            };
+            {
+                // Fallback to world up if normal is too small
+                normal = V3f(0, 1, 0);
+            }
             
-            // Find the axis most orthogonal to normal
-            float minDot = 1.0f;
-            int bestAxis = 0;
-            for (int i = 0; i < 3; ++i) {
-                float dot = std::abs(normal.dot(candidates[i]));
-                if (dot < minDot) {
-                    minDot = dot;
-                    bestAxis = i;
+            // 2. Make sure the tangent is not parallel to the normal
+            float dotNT = normal.dot(tangent);
+            if (std::abs(dotNT) > 0.999f || tangent.length() < 0.001f)
+            {
+                // Find a suitable tangent direction perpendicular to normal
+                if (std::abs(normal.y) < 0.9f)
+                {
+                    // Use world up vector to create tangent
+                    tangent = V3f(0, 1, 0).cross(normal).normalized();
+                }
+                else
+                {
+                    // Near-vertical normal, use world x instead
+                    tangent = V3f(1, 0, 0).cross(normal).normalized();
+                }
+            }
+            else
+            {
+                // Gram-Schmidt to make tangent orthogonal to normal
+                tangent -= normal * dotNT;
+                float tangentLength = tangent.length();
+                if (tangentLength > 0.001f)
+                {
+                    tangent /= tangentLength;
                 }
             }
             
-            // 3. Create bitangent as cross product of normal and most orthogonal axis
-            bitangent = normal.cross(candidates[bestAxis]).normalized();
+            // 3. Compute bitangent from normal and tangent to ensure a right-handed frame
+            bitangent = normal.cross(tangent);
             
-            // 4. Create tangent to complete the right-handed frame
-            tangent = normal.cross(bitangent).normalized();
+            // 4. Normalize the bitangent (should be already normalized from cross product)
+            float bitangentLength = bitangent.length();
+            if (bitangentLength > 0.001f)
+            {
+                bitangent /= bitangentLength;
+            }
+            
+            // 5. Final validation checks
+            if (std::abs(normal.dot(tangent)) > 0.01f || 
+                std::abs(normal.dot(bitangent)) > 0.01f ||
+                std::abs(tangent.dot(bitangent)) > 0.01f)
+            {
+                // Frame is not properly orthogonal, rebuild with standard approach
+                if (std::abs(normal.y) < 0.9f)
+                {
+                    tangent = V3f(0, 1, 0).cross(normal).normalized();
+                }
+                else
+                {
+                    tangent = V3f(1, 0, 0).cross(normal).normalized();
+                }
+                bitangent = normal.cross(tangent).normalized();
+            }
         }
 
         M44f toMatrix() const
         {
-            M44f matrix(1); // Initialize with identity
-            // Tangent row
+            // Create matrix directly based on basis vectors and position
+            // This creates a coordinate frame as expected by the deformer
+            M44f matrix;
+            
+            // First row - tangent
             matrix[0][0] = tangent.x;
-            matrix[0][1] = tangent.y;
+            matrix[0][1] = tangent.y; 
             matrix[0][2] = tangent.z;
             matrix[0][3] = 0;
             
-            // Bitangent row
+            // Second row - bitangent
             matrix[1][0] = bitangent.x;
             matrix[1][1] = bitangent.y;
             matrix[1][2] = bitangent.z;
             matrix[1][3] = 0;
             
-            // Normal row
+            // Third row - normal
             matrix[2][0] = normal.x;
             matrix[2][1] = normal.y;
             matrix[2][2] = normal.z;
             matrix[2][3] = 0;
             
-            // Position row
+            // Last row - position
             matrix[3][0] = position.x;
             matrix[3][1] = position.y;
             matrix[3][2] = position.z;
             matrix[3][3] = 1;
             
             return matrix;
+        }
+
+        V3f toLocalSpace(const V3f &point) const
+        {
+            V3f localPoint = point - position;
+            float dotNT = localPoint.dot(tangent);
+            float dotNB = localPoint.dot(bitangent);
+            float dotNN = localPoint.dot(normal);
+            return V3f(dotNT, dotNB, dotNN);
+        }
+
+        V3f toWorldSpace(const V3f &point) const
+        {
+            return position + point.x * tangent + point.y * bitangent + point.z * normal;
         }
     };
 
@@ -635,6 +687,318 @@ namespace
             h.append(&pos[0], pos.size());
         }
     }
+
+    void computeLocalFrame(LocalFrame& frame, const V3fVectorData* points, const std::vector<int>& pointIndices, const V3f* N)
+    {
+        // Use the first point as the position
+        frame.position = points->readable()[pointIndices[0]];
+        
+        // If we have a single point and a normal, use the normal
+        if (pointIndices.size() == 1 && N)
+        {
+            frame.normal = N[pointIndices[0]];
+            frame.orthonormalize();
+            return;
+        }
+        
+        // With two points, use the vector between them as tangent
+        if (pointIndices.size() == 2)
+        {
+            if (N)
+            {
+                frame.normal = N[pointIndices[0]];
+                
+                // Use direction between points for tangent
+                V3f direction = points->readable()[pointIndices[1]] - frame.position;
+                float length = direction.length();
+                
+                if (length > 0.0001f)
+                {
+                    // Project direction onto normal plane
+                    direction /= length;
+                    float dot = direction.dot(frame.normal);
+                    frame.tangent = direction - frame.normal * dot;
+                    
+                    float tangentLength = frame.tangent.length();
+                    if (tangentLength > 0.0001f)
+                    {
+                        frame.tangent /= tangentLength;
+                    }
+                    else
+                    {
+                        // If tangent is close to parallel with normal, choose arbitrary tangent
+                        frame.orthonormalize();
+                        return;
+                    }
+                    
+                    // Create bitangent from normal and tangent
+                    frame.bitangent = frame.normal.cross(frame.tangent);
+                }
+                else
+                {
+                    frame.orthonormalize();
+                }
+            }
+            else
+            {
+                // No normal provided, use direction as tangent and find suitable normal
+                V3f direction = points->readable()[pointIndices[1]] - frame.position;
+                float length = direction.length();
+                
+                if (length > 0.0001f)
+                {
+                    frame.tangent = direction / length;
+                    
+                    // Find best normal direction
+                    if (std::abs(frame.tangent.y) < 0.9f)
+                    {
+                        // Use world up to create normal
+                        frame.normal = frame.tangent.cross(V3f(0, 1, 0)).normalized();
+                    }
+                    else
+                    {
+                        // Use world x for near-vertical tangents
+                        frame.normal = frame.tangent.cross(V3f(1, 0, 0)).normalized();
+                    }
+                    
+                    frame.bitangent = frame.normal.cross(frame.tangent);
+                }
+                else
+                {
+                    // Fallback to default orientation
+                    frame.normal = V3f(0, 1, 0);
+                    frame.orthonormalize();
+                }
+            }
+            
+            return;
+        }
+        
+        // For 3+ points, use PCA to determine the frame
+        
+        // 1. Calculate centroid with a higher weight for the center point
+        V3f centroid(0, 0, 0);
+        float totalWeight = 0.0f;
+        const float centerWeight = 3.0f; // Higher weight for center point
+        
+        // Add the center point with higher weight
+        centroid += frame.position * centerWeight;
+        totalWeight += centerWeight;
+        
+        // Add other points with normal weight
+        for (size_t i = 1; i < pointIndices.size(); ++i)
+        {
+            centroid += points->readable()[pointIndices[i]];
+            totalWeight += 1.0f;
+        }
+        
+        centroid /= totalWeight;
+        
+        // 2. Build covariance matrix
+        float cov[3][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
+        
+        // Add contribution from center point with higher weight
+        V3f delta = frame.position - centroid;
+        for (int i = 0; i < 3; ++i)
+        {
+            for (int j = 0; j < 3; ++j)
+            {
+                cov[i][j] += centerWeight * delta[i] * delta[j];
+            }
+        }
+        
+        // Add contribution from other points
+        for (size_t p = 1; p < pointIndices.size(); ++p)
+        {
+            delta = points->readable()[pointIndices[p]] - centroid;
+            for (int i = 0; i < 3; ++i)
+            {
+                for (int j = 0; j < 3; ++j)
+                {
+                    cov[i][j] += delta[i] * delta[j];
+                }
+            }
+        }
+        
+        // 3. Find eigenvectors - simple power iteration for smallest eigenvector (normal)
+        V3f ev(1, 1, 1);
+        V3f lastEv;
+        
+        // Normalize covariance matrix for numerical stability
+        float maxCoeff = 0.0f;
+        for (int i = 0; i < 3; ++i)
+        {
+            for (int j = 0; j < 3; ++j)
+            {
+                maxCoeff = std::max(maxCoeff, std::abs(cov[i][j]));
+            }
+        }
+        
+        if (maxCoeff > 0.0001f)
+        {
+            for (int i = 0; i < 3; ++i)
+            {
+                for (int j = 0; j < 3; ++j)
+                {
+                    cov[i][j] /= maxCoeff;
+                }
+            }
+        }
+        
+        // Initialize ev with a vector not aligned with any of the eigenvectors
+        // for better convergence
+        ev = V3f(1.0f, 0.7f, 0.3f).normalized();
+        
+        // Power iteration to find smallest eigenvector (normal direction)
+        const int maxIter = 10;
+        const float convergenceThreshold = 0.0001f;
+        
+        for (int iter = 0; iter < maxIter; ++iter)
+        {
+            lastEv = ev;
+            
+            // Multiply by covariance matrix
+            V3f tmp(0, 0, 0);
+            for (int i = 0; i < 3; ++i)
+            {
+                for (int j = 0; j < 3; ++j)
+                {
+                    tmp[i] += cov[i][j] * ev[j];
+                }
+            }
+            
+            ev = tmp;
+            
+            // Inverse power iteration - divide by largest component
+            float maxComp = 0.0f;
+            for (int i = 0; i < 3; ++i)
+            {
+                maxComp = std::max(maxComp, std::abs(ev[i]));
+            }
+            
+            if (maxComp > 0.0001f)
+            {
+                ev /= maxComp;
+            }
+            else
+            {
+                // Random restart if we hit a zero vector
+                ev = V3f(0.1f * (iter + 1), 0.7f, 0.3f).normalized();
+            }
+            
+            // Check for convergence
+            float dot = ev.dot(lastEv);
+            if (std::abs(std::abs(dot) - 1.0f) < convergenceThreshold)
+            {
+                break;
+            }
+        }
+        
+        // Make sure sign is consistent - align with provided normal if available
+        if (N)
+        {
+            if (ev.dot(N[pointIndices[0]]) < 0)
+            {
+                ev = -ev;
+            }
+            
+            // If eigenvector is unreliable, use provided normal
+            if (ev.length() < 0.9f)
+            {
+                ev = N[pointIndices[0]];
+            }
+        }
+        
+        // Normalize the final result
+        frame.normal = ev.normalized();
+        
+        // Complete the frame
+        frame.orthonormalize();
+    }
+
+    void smoothFrames(std::vector<LocalFrame>& frames, const std::vector<std::vector<int>>& neighbors, int iterations = 2)
+    {
+        std::vector<LocalFrame> originalFrames = frames;
+        
+        // Store original positions
+        std::vector<V3f> positions;
+        for (const auto& frame : frames)
+        {
+            positions.push_back(frame.position);
+        }
+        
+        // Perform multiple smoothing iterations
+        for (int iter = 0; iter < iterations; ++iter)
+        {
+            std::vector<LocalFrame> smoothedFrames = frames;
+            
+            // For each frame
+            for (size_t i = 0; i < frames.size(); ++i)
+            {
+                if (neighbors[i].empty())
+                    continue;
+                    
+                // Get weighted average of neighboring frames
+                V3f avgNormal(0, 0, 0);
+                V3f avgTangent(0, 0, 0);
+                V3f avgBitangent(0, 0, 0);
+                float totalWeight = 0.0f;
+                
+                // Add contribution from original frame (higher weight)
+                float selfWeight = 2.0f;
+                avgNormal += originalFrames[i].normal * selfWeight;
+                avgTangent += originalFrames[i].tangent * selfWeight;
+                avgBitangent += originalFrames[i].bitangent * selfWeight;
+                totalWeight += selfWeight;
+                
+                // Add contribution from neighbors
+                for (int neighborIdx : neighbors[i])
+                {
+                    // Compute distance-based weight
+                    float dist = (positions[i] - positions[neighborIdx]).length();
+                    float weight = 1.0f / (0.1f + dist * dist);
+                    
+                    // Ensure consistent orientation relative to original frame
+                    V3f neighborNormal = frames[neighborIdx].normal;
+                    V3f neighborTangent = frames[neighborIdx].tangent;
+                    V3f neighborBitangent = frames[neighborIdx].bitangent;
+                    
+                    // Check if frames have opposite orientation
+                    if (originalFrames[i].normal.dot(neighborNormal) < 0)
+                    {
+                        // Flip orientation of neighbor's frame
+                        neighborNormal = -neighborNormal;
+                        neighborTangent = -neighborTangent;
+                        neighborBitangent = -neighborBitangent;
+                    }
+                    
+                    avgNormal += neighborNormal * weight;
+                    avgTangent += neighborTangent * weight;
+                    avgBitangent += neighborBitangent * weight;
+                    totalWeight += weight;
+                }
+                
+                // Normalize and update smoothed frame
+                if (totalWeight > 0.0f)
+                {
+                    smoothedFrames[i].normal = (avgNormal / totalWeight).normalized();
+                    smoothedFrames[i].tangent = (avgTangent / totalWeight).normalized();
+                    smoothedFrames[i].bitangent = (avgBitangent / totalWeight).normalized();
+                    
+                    // Re-orthonormalize to ensure frame consistency
+                    smoothedFrames[i].orthonormalize();
+                }
+            }
+            
+            frames = smoothedFrames;
+        }
+        
+        // Ensure positions remain unchanged
+        for (size_t i = 0; i < frames.size(); ++i)
+        {
+            frames[i].position = positions[i];
+        }
+    }
 }
 
 IE_CORE_DEFINERUNTIMETYPED(MatrixDeform);
@@ -971,13 +1335,12 @@ IECore::ConstObjectPtr MatrixDeform::computeProcessedObject(const ScenePath &pat
                          if (influences.empty())
                              continue;
                          
-                         // Building weighted transformation like RigidDeformCurves
-                         V3f delta(0, 0, 0);
+                         // Initialize new position and weight sum
+                         V3f newPosition(0, 0, 0);
                          float totalWeight = 0.0f;
                          
-                         // Track degenerate transformations
-                         bool hasDegenerate = false;
-                         
+                         // This is true cage-based deformation - preservation of shape 
+                         // through correct transformation of rest offset
                          for (const auto &influence : influences)
                          {
                              const int sourceIndex = influence.first;
@@ -988,94 +1351,32 @@ IECore::ConstObjectPtr MatrixDeform::computeProcessedObject(const ScenePath &pat
                                  sourceIndex >= sourceMatrices.size())
                                  continue;
                                  
-                             // Get rest and deformed positions
-                             const V3f &restPos = staticPos[sourceIndex];
-                             const V3f &deformedPos = animatedPos[sourceIndex];
+                             // Get rest and deformed positions for this cage/influence point
+                             const V3f &restInfluencePos = staticPos[sourceIndex];
+                             const V3f &deformedInfluencePos = animatedPos[sourceIndex];
                              
-                             // Build transformation matrix for this influence
-                             const M44f &restMatrix = sourceMatrices[sourceIndex];
+                             // Calculate the original offset from influence point to the target point in rest pose
+                             V3f restOffset = positions[i] - restInfluencePos;
                              
-                             // Create a transform from rest to deformed space - build explicitly
-                             M44f transform = restMatrix;
+                             // Transform the offset into the local space defined by the influence point's local frame
+                             V3f localRestOffset = sourceFrames[sourceIndex].toLocalSpace(restOffset);
                              
-                             // Add the translation offset from rest to deformed
-                             V3f translation = deformedPos - restPos;
-                             transform[3][0] += translation.x;
-                             transform[3][1] += translation.y;
-                             transform[3][2] += translation.z;
+                             // Transform the local offset back to global space using the influence point's local frame
+                             // This ensures the relative offset is properly preserved in the deformed space
+                             V3f transformedOffset = sourceFrames[sourceIndex].toWorldSpace(localRestOffset);
                              
-                             // Check for extreme transformations
-                             const float maxAllowedScale = 10.0f;
-                             V3f scaleX(transform[0][0], transform[0][1], transform[0][2]);
-                             V3f scaleY(transform[1][0], transform[1][1], transform[1][2]);
-                             V3f scaleZ(transform[2][0], transform[2][1], transform[2][2]);
-                             float maxScale = std::max({scaleX.length(), scaleY.length(), scaleZ.length()});
+                             // Apply the transformed offset to the deformed influence position
+                             V3f deformedPosition = deformedInfluencePos + transformedOffset;
                              
-                             if (maxScale > maxAllowedScale) {
-                                 hasDegenerate = true;
-                             }
-                             
-                             // Transform this specific point
-                             V3f localPoint = positions[i];
-                             V3f transformedPoint;
-                             
-                             // For stability, use transform relative to rest position
-                             localPoint -= restPos;
-                             transform.multVecMatrix(localPoint, transformedPoint);
-                             transformedPoint += restPos + translation;
-                             
-                             // Calculate delta and accumulate
-                             V3f pointDelta = transformedPoint - positions[i];
-                             delta += pointDelta * weight;
+                             // Weight by the influence factor
+                             newPosition += deformedPosition * weight;
                              totalWeight += weight;
                          }
                          
-                         // Apply accumulated delta
+                         // Apply the weighted position
                          if (totalWeight > 0.0f)
                          {
-                             // If degenerate transformation detected, use a more stable approach
-                             if (hasDegenerate && influences.size() > 1)
-                             {
-                                 // Use just translation for stability in degenerate cases
-                                 V3f stablePosition = positions[i];
-                                 
-                                 // Find the average of deformed positions weighted by influence
-                                 V3f avgDeformedPos(0, 0, 0);
-                                 float weightSum = 0.0f;
-                                 
-                                 for (const auto &influence : influences)
-                                 {
-                                     const int sourceIndex = influence.first;
-                                     const float weight = influence.second;
-                                     
-                                     if (weight <= 0.0f || sourceIndex < 0 || sourceIndex >= animatedPos.size())
-                                         continue;
-                                     
-                                     avgDeformedPos += animatedPos[sourceIndex] * weight;
-                                     weightSum += weight;
-                                 }
-                                 
-                                 if (weightSum > 0.0f)
-                                 {
-                                     avgDeformedPos /= weightSum;
-                                     // Preserve relative position but move to stable location
-                                     V3f offset = positions[i] - staticPos[influences[0].first];
-                                     stablePosition = avgDeformedPos + offset * 0.5f; // Scale offset for stability
-                                     positions[i] = stablePosition;
-                                 }
-                                 else
-                                 {
-                                     // Just apply the weighted delta if we can't calculate a stable position
-                                     delta /= totalWeight;
-                                     positions[i] += delta;
-                                 }
-                             }
-                             else
-                             {
-                                 // Normal case - apply weighted delta
-                                 delta /= totalWeight;
-                                 positions[i] += delta;
-                             }
+                             positions[i] = newPosition / totalWeight;
                          }
                      }
                  });
