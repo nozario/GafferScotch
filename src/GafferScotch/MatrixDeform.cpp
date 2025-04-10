@@ -42,29 +42,36 @@ namespace
 
         void orthonormalize()
         {
-            // Normalize normal vector
+            // 1. Normalize normal vector
             float normalLength = normal.length();
             if (normalLength > 0)
                 normal /= normalLength;
             else
                 normal = V3f(0, 1, 0); // Fallback
 
-            // Make tangent orthogonal to normal
-            tangent = tangent - normal * tangent.dot(normal);
-            float tangentLength = tangent.length();
-            if (tangentLength > 0)
-                tangent /= tangentLength;
-            else
-            {
-                // Find a suitable tangent direction
-                if (std::abs(normal.y) < 0.9f)
-                    tangent = V3f(0, 1, 0).cross(normal).normalized();
-                else
-                    tangent = V3f(1, 0, 0).cross(normal).normalized();
+            // 2. Find most orthogonal direction for initial tangent
+            V3f candidates[3] = {
+                V3f(1, 0, 0),
+                V3f(0, 1, 0),
+                V3f(0, 0, 1)
+            };
+            
+            // Find the axis most orthogonal to normal
+            float minDot = 1.0f;
+            int bestAxis = 0;
+            for (int i = 0; i < 3; ++i) {
+                float dot = std::abs(normal.dot(candidates[i]));
+                if (dot < minDot) {
+                    minDot = dot;
+                    bestAxis = i;
+                }
             }
-
-            // Compute bitangent to complete orthogonal frame
-            bitangent = normal.cross(tangent).normalized();
+            
+            // 3. Create bitangent as cross product of normal and most orthogonal axis
+            bitangent = normal.cross(candidates[bestAxis]).normalized();
+            
+            // 4. Create tangent to complete the right-handed frame
+            tangent = normal.cross(bitangent).normalized();
         }
 
         M44f toMatrix() const
@@ -303,6 +310,9 @@ namespace
         }
         centroid /= neighbors.size();
         
+        // Add the center point to ensure it influences the frame
+        centroid = (centroid + points[centerIdx]) * 0.5f;
+        
         // Build covariance matrix
         for (int idx : neighbors)
         {
@@ -316,30 +326,34 @@ namespace
             }
         }
         
+        // Weight the center point more heavily
+        V3f centerDiff = points[centerIdx] - centroid;
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                covariance(i, j) += centerDiff[i] * centerDiff[j] * 2.0f;
+            }
+        }
+        
         // 2. Perform eigen decomposition to get principal axes
         Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> solver(covariance);
         
         // 3. Extract principal directions (eigenvectors)
         // The eigenvectors are sorted by eigenvalue (smallest to largest)
+        // Use the smallest eigenvalue's direction as normal (typically represents the normal to the surface)
         frame.normal = V3f(solver.eigenvectors().col(0)[0], 
                           solver.eigenvectors().col(0)[1],
                           solver.eigenvectors().col(0)[2]);
                         
-        frame.bitangent = V3f(solver.eigenvectors().col(1)[0],
-                             solver.eigenvectors().col(1)[1],
-                             solver.eigenvectors().col(1)[2]);
-                        
-        frame.tangent = V3f(solver.eigenvectors().col(2)[0],
-                           solver.eigenvectors().col(2)[1],
-                           solver.eigenvectors().col(2)[2]);
-        
-        // 4. Ensure we have a right-handed coordinate system
-        if (frame.normal.cross(frame.bitangent).dot(frame.tangent) < 0)
+        // Ensure consistent orientation - point normal toward global Y if possible
+        if (frame.normal.y < 0)
         {
-            frame.tangent = -frame.tangent;
+            frame.normal = -frame.normal;
         }
         
-        // 5. Final orthonormalization for numerical stability
+        // 4. Calculate tangent and bitangent based on normal
+        // Use our improved orthonormalize method instead of directly using eigenvectors
         frame.orthonormalize();
     }
 
@@ -956,11 +970,9 @@ IECore::ConstObjectPtr MatrixDeform::computeProcessedObject(const ScenePath &pat
                          if (influences.empty())
                              continue;
                          
-                         // Following Houdini's deform.txt implementation:
+                         // Following Houdini's deform.txt implementation more closely
                          V3f delta(0, 0, 0);
                          float totalWeight = 0.0f;
-                         M44f totalXform;
-                         totalXform.makeIdentity();
                          
                          for (const auto &influence : influences)
                          {
@@ -972,7 +984,6 @@ IECore::ConstObjectPtr MatrixDeform::computeProcessedObject(const ScenePath &pat
                                  sourceIndex >= sourceMatrices.size())
                                  continue;
                                  
-                             // Direct translation from Houdini's deform.txt:
                              // Get static point position (oldcenter in Houdini)
                              const V3f &staticPoint = staticPos[sourceIndex];
                              
@@ -980,40 +991,37 @@ IECore::ConstObjectPtr MatrixDeform::computeProcessedObject(const ScenePath &pat
                              const V3f &animatedPoint = animatedPos[sourceIndex];
                              V3f translation = animatedPoint - staticPoint;
                              
-                             // Get matrix transformation
+                             // Get matrix transformation (local frame)
                              const M44f &sourceMatrix = sourceMatrices[sourceIndex];
                              
-                             // Compute new location according to this xform
+                             // Apply transform exactly as in Houdini's implementation
+                             // 1. Move to local space relative to static point
                              V3f newp = positions[i];
                              newp -= staticPoint;
                              
-                             // Apply matrix transformation
+                             // 2. Apply the local frame transformation
                              V3f transformedPoint;
                              sourceMatrix.multVecMatrix(newp, transformedPoint);
                              
-                             // Move back to world space and add translation
+                             // 3. Move back to world space
                              transformedPoint += staticPoint;
+                             
+                             // 4. Add the translation from static to animated
                              transformedPoint += translation;
                              
-                             // Calculate delta and accumulate with weight
+                             // 5. Calculate delta and apply weight
                              V3f pointDelta = transformedPoint - positions[i];
                              delta += pointDelta * weight;
                              totalWeight += weight;
-                             
-                             // Accumulate weighted matrix (for optional rigid projection)
-                             for (int j = 0; j < 4; j++)
-                             {
-                                 for (int k = 0; k < 4; k++)
-                                 {
-                                     totalXform[j][k] += sourceMatrix[j][k] * weight;
-                                 }
-                             }
                          }
                          
                          // Apply normalized delta
                          if (totalWeight > 0.0f)
                          {
+                             // Normalize the delta by total weight
                              delta /= totalWeight;
+                             
+                             // Apply the delta to the point
                              positions[i] += delta;
                          }
                      }
