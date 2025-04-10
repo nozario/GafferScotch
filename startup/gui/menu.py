@@ -10,23 +10,30 @@ nodeMenu.append(
     searchText="CaptureWeights",
 )
 nodeMenu.append(
+    "/GafferScotch/CaptureMatrixWeights",
+    GafferScotch.CaptureMatrixWeights,
+    searchText="CaptureMatrixWeights",
+)
+nodeMenu.append(
     "/GafferScotch/PointDeform",
     GafferScotch.PointDeform,
     searchText="PointDeform",
 )
-
+nodeMenu.append(
+    "/GafferScotch/MatrixDeform",
+    GafferScotch.MatrixDeform,
+    searchText="MatrixDeform",
+)
 nodeMenu.append(
     "/GafferScotch/RigidAttachCurves",
     GafferScotch.RigidAttachCurves,
     searchText="RigidAttachCurves",
 )
-
 nodeMenu.append(
     "/GafferScotch/RigidDeformCurves",
     GafferScotch.RigidDeformCurves,
     searchText="RigidDeformCurves",
 )
-
 nodeMenu.append(
     "/GafferScotch/CurvesPostProcess",
     GafferScotch.CurvesPostProcess,

@@ -5,8 +5,10 @@ __import__("GafferScene")
 __import__("GafferSceneUI")
 
 from . import (
+    CaptureMatrixWeightsUI,
     CaptureWeightsUI,
     CurvesPostProcessUI,
+    MatrixDeformUI,
     PointDeformUI,
     RigidAttachCurvesUI,
     RigidDeformCurvesUI,

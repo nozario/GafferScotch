@@ -14,6 +14,8 @@ namespace GafferScotch
         RigidAttachCurvesTypeId = 110703,
         RigidDeformCurvesTypeId = 110704,
         CurvesPostProcessTypeId = 121005,
+        CaptureMatrixWeightsTypeId = 121006,
+        MatrixDeformTypeId = 121007,
 
         LastTypeId = 121499,
     };

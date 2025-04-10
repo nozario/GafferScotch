@@ -24,6 +24,7 @@ target_compile_definitions( GafferScotch PRIVATE
 )
 target_include_directories( GafferScotch PRIVATE
     include
+    include/eigen
     ${GAFFER_ROOT}/include
     ${GAFFER_ROOT}/include/Imath
     ${GAFFER_ROOT}/include/OpenEXR
@@ -45,6 +46,7 @@ add_library( GafferScotchModule SHARED ${GafferScotchModuleSrc} )
 target_compile_definitions( GafferScotchModule PRIVATE BOOST_SIGNALS_NO_DEPRECATION_WARNING=1 -D_GLIBCXX_USE_CXX11_ABI=0 BOOST_ALL_NO_LIB=1)
 target_include_directories( GafferScotchModule PRIVATE
     include
+    include/eigen
     ${GAFFER_ROOT}/include
     ${GAFFER_ROOT}/include/boost
     ${GAFFER_ROOT}/include/Imath

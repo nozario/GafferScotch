@@ -8,8 +8,10 @@ __import__("GafferScene")
 try:
     # Import all symbols from our C++ extension module
     from .GafferScotchModule import (
+        CaptureMatrixWeights,
         CaptureWeights,
         CurvesPostProcess,
+        MatrixDeform,
         PointDeform,
         RigidAttachCurves,
         RigidDeformCurves,
