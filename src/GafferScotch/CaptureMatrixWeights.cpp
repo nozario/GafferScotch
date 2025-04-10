@@ -11,6 +11,7 @@
 #include "IECoreScene/MeshPrimitiveEvaluator.h"
 #include "IECoreScene/PrimitiveEvaluator.h"
 #include "IECoreScene/MeshAlgo.h"
+#include "IECoreScene/PrimitiveVariable.inl"
 
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
@@ -140,8 +141,8 @@ namespace
             auto tangentResult = MeshAlgo::calculateTangents(mesh, uvIt->first, true, "P");
             
             // Interpolate tangent at our specific point using barycentric coordinates
-            frame.tangent = IECoreScene::Detail::primVar<V3f>(tangentResult.first, &baryCoords[0], triangleIndex, triVerts);
-            frame.bitangent = IECoreScene::Detail::primVar<V3f>(tangentResult.second, &baryCoords[0], triangleIndex, triVerts);
+            frame.tangent = Detail::primVar<V3f>(tangentResult.first, &baryCoords[0], triangleIndex, triVerts);
+            frame.bitangent = Detail::primVar<V3f>(tangentResult.second, &baryCoords[0], triangleIndex, triVerts);
             
             // Ensure we have a properly orthonormal frame
             frame.orthonormalize();
@@ -161,8 +162,8 @@ namespace
             auto tangentResult = MeshAlgo::calculateTangentsFromTwoEdges(meshCopy.get(), "P", "N", true, false);
             
             // Interpolate tangent at our specific point using barycentric coordinates
-            frame.tangent = IECoreScene::Detail::primVar<V3f>(tangentResult.first, &baryCoords[0], triangleIndex, triVerts);
-            frame.bitangent = IECoreScene::Detail::primVar<V3f>(tangentResult.second, &baryCoords[0], triangleIndex, triVerts);
+            frame.tangent = Detail::primVar<V3f>(tangentResult.first, &baryCoords[0], triangleIndex, triVerts);
+            frame.bitangent = Detail::primVar<V3f>(tangentResult.second, &baryCoords[0], triangleIndex, triVerts);
             
             // Ensure we have a properly orthonormal frame
             frame.orthonormalize();
@@ -174,8 +175,8 @@ namespace
             auto tangentResult = MeshAlgo::calculateTangentsFromTwoEdges(mesh, "P", normalIt->first, true, false);
             
             // Interpolate tangent at our specific point using barycentric coordinates
-            frame.tangent = IECoreScene::Detail::primVar<V3f>(tangentResult.first, &baryCoords[0], triangleIndex, triVerts);
-            frame.bitangent = IECoreScene::Detail::primVar<V3f>(tangentResult.second, &baryCoords[0], triangleIndex, triVerts);
+            frame.tangent = Detail::primVar<V3f>(tangentResult.first, &baryCoords[0], triangleIndex, triVerts);
+            frame.bitangent = Detail::primVar<V3f>(tangentResult.second, &baryCoords[0], triangleIndex, triVerts);
             
             // Ensure we have a properly orthonormal frame
             frame.orthonormalize();
