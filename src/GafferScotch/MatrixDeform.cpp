@@ -76,28 +76,29 @@ namespace
 
         M44f toMatrix() const
         {
-            M44f matrix;
+            M44f matrix(1); // Initialize with identity
+            // Tangent row
+            matrix[0][0] = tangent.x;
+            matrix[0][1] = tangent.y;
+            matrix[0][2] = tangent.z;
+            matrix[0][3] = 0;
             
-            // Set rotation part (column-major order)
-            matrix[0][0] = normal.x;
-            matrix[1][0] = normal.y;
-            matrix[2][0] = normal.z;
-            matrix[3][0] = 0;
-            
-            matrix[0][1] = bitangent.x;
+            // Bitangent row
+            matrix[1][0] = bitangent.x;
             matrix[1][1] = bitangent.y;
-            matrix[2][1] = bitangent.z;
-            matrix[3][1] = 0;
+            matrix[1][2] = bitangent.z;
+            matrix[1][3] = 0;
             
-            matrix[0][2] = tangent.x;
-            matrix[1][2] = tangent.y;
-            matrix[2][2] = tangent.z;
-            matrix[3][2] = 0;
+            // Normal row
+            matrix[2][0] = normal.x;
+            matrix[2][1] = normal.y;
+            matrix[2][2] = normal.z;
+            matrix[2][3] = 0;
             
-            // Set translation part
-            matrix[0][3] = position.x;
-            matrix[1][3] = position.y;
-            matrix[2][3] = position.z;
+            // Position row
+            matrix[3][0] = position.x;
+            matrix[3][1] = position.y;
+            matrix[3][2] = position.z;
             matrix[3][3] = 1;
             
             return matrix;
@@ -970,9 +971,12 @@ IECore::ConstObjectPtr MatrixDeform::computeProcessedObject(const ScenePath &pat
                          if (influences.empty())
                              continue;
                          
-                         // Following Houdini's deform.txt implementation more closely
+                         // Building weighted transformation like RigidDeformCurves
                          V3f delta(0, 0, 0);
                          float totalWeight = 0.0f;
+                         
+                         // Track degenerate transformations
+                         bool hasDegenerate = false;
                          
                          for (const auto &influence : influences)
                          {
@@ -984,45 +988,94 @@ IECore::ConstObjectPtr MatrixDeform::computeProcessedObject(const ScenePath &pat
                                  sourceIndex >= sourceMatrices.size())
                                  continue;
                                  
-                             // Get static point position (oldcenter in Houdini)
-                             const V3f &staticPoint = staticPos[sourceIndex];
+                             // Get rest and deformed positions
+                             const V3f &restPos = staticPos[sourceIndex];
+                             const V3f &deformedPos = animatedPos[sourceIndex];
                              
-                             // Calculate difference between animated and static (diff in Houdini)
-                             const V3f &animatedPoint = animatedPos[sourceIndex];
-                             V3f translation = animatedPoint - staticPoint;
+                             // Build transformation matrix for this influence
+                             const M44f &restMatrix = sourceMatrices[sourceIndex];
                              
-                             // Get matrix transformation (local frame)
-                             const M44f &sourceMatrix = sourceMatrices[sourceIndex];
+                             // Create a transform from rest to deformed space - build explicitly
+                             M44f transform = restMatrix;
                              
-                             // Apply transform exactly as in Houdini's implementation
-                             // 1. Move to local space relative to static point
-                             V3f newp = positions[i];
-                             newp -= staticPoint;
+                             // Add the translation offset from rest to deformed
+                             V3f translation = deformedPos - restPos;
+                             transform[3][0] += translation.x;
+                             transform[3][1] += translation.y;
+                             transform[3][2] += translation.z;
                              
-                             // 2. Apply the local frame transformation
+                             // Check for extreme transformations
+                             const float maxAllowedScale = 10.0f;
+                             V3f scaleX(transform[0][0], transform[0][1], transform[0][2]);
+                             V3f scaleY(transform[1][0], transform[1][1], transform[1][2]);
+                             V3f scaleZ(transform[2][0], transform[2][1], transform[2][2]);
+                             float maxScale = std::max({scaleX.length(), scaleY.length(), scaleZ.length()});
+                             
+                             if (maxScale > maxAllowedScale) {
+                                 hasDegenerate = true;
+                             }
+                             
+                             // Transform this specific point
+                             V3f localPoint = positions[i];
                              V3f transformedPoint;
-                             sourceMatrix.multVecMatrix(newp, transformedPoint);
                              
-                             // 3. Move back to world space
-                             transformedPoint += staticPoint;
+                             // For stability, use transform relative to rest position
+                             localPoint -= restPos;
+                             transform.multVecMatrix(localPoint, transformedPoint);
+                             transformedPoint += restPos + translation;
                              
-                             // 4. Add the translation from static to animated
-                             transformedPoint += translation;
-                             
-                             // 5. Calculate delta and apply weight
+                             // Calculate delta and accumulate
                              V3f pointDelta = transformedPoint - positions[i];
                              delta += pointDelta * weight;
                              totalWeight += weight;
                          }
                          
-                         // Apply normalized delta
+                         // Apply accumulated delta
                          if (totalWeight > 0.0f)
                          {
-                             // Normalize the delta by total weight
-                             delta /= totalWeight;
-                             
-                             // Apply the delta to the point
-                             positions[i] += delta;
+                             // If degenerate transformation detected, use a more stable approach
+                             if (hasDegenerate && influences.size() > 1)
+                             {
+                                 // Use just translation for stability in degenerate cases
+                                 V3f stablePosition = positions[i];
+                                 
+                                 // Find the average of deformed positions weighted by influence
+                                 V3f avgDeformedPos(0, 0, 0);
+                                 float weightSum = 0.0f;
+                                 
+                                 for (const auto &influence : influences)
+                                 {
+                                     const int sourceIndex = influence.first;
+                                     const float weight = influence.second;
+                                     
+                                     if (weight <= 0.0f || sourceIndex < 0 || sourceIndex >= animatedPos.size())
+                                         continue;
+                                     
+                                     avgDeformedPos += animatedPos[sourceIndex] * weight;
+                                     weightSum += weight;
+                                 }
+                                 
+                                 if (weightSum > 0.0f)
+                                 {
+                                     avgDeformedPos /= weightSum;
+                                     // Preserve relative position but move to stable location
+                                     V3f offset = positions[i] - staticPos[influences[0].first];
+                                     stablePosition = avgDeformedPos + offset * 0.5f; // Scale offset for stability
+                                     positions[i] = stablePosition;
+                                 }
+                                 else
+                                 {
+                                     // Just apply the weighted delta if we can't calculate a stable position
+                                     delta /= totalWeight;
+                                     positions[i] += delta;
+                                 }
+                             }
+                             else
+                             {
+                                 // Normal case - apply weighted delta
+                                 delta /= totalWeight;
+                                 positions[i] += delta;
+                             }
                          }
                      }
                  });
