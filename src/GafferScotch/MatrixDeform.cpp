@@ -100,8 +100,39 @@ namespace
     // Build a local coordinate frame for mesh points using MeshPrimitiveEvaluator
     bool buildLocalFrameFromMesh(const IECoreScene::MeshPrimitive *mesh, const V3f &point, LocalFrame &frame)
     {
+        // Triangulate the mesh if needed - MeshPrimitiveEvaluator requires triangulated meshes
+        IECoreScene::MeshPrimitivePtr triangulatedMesh;
+        const IECoreScene::MeshPrimitive *meshToUse = mesh;
+        
+        // Check if the mesh is already triangulated
+        bool isTriangulated = true;
+        const std::vector<int> &verticesPerFace = mesh->verticesPerFace()->readable();
+        for (int count : verticesPerFace)
+        {
+            if (count != 3)
+            {
+                isTriangulated = false;
+                break;
+            }
+        }
+        
+        // Triangulate if needed
+        if (!isTriangulated)
+        {
+            try
+            {
+                triangulatedMesh = IECoreScene::MeshAlgo::triangulate(mesh);
+                meshToUse = triangulatedMesh.get();
+            }
+            catch (const std::exception &e)
+            {
+                // If triangulation fails, we'll fall back to neighbor-based frame calculation
+                return false;
+            }
+        }
+        
         // Create mesh evaluator
-        IECoreScene::PrimitiveEvaluatorPtr evaluator = IECoreScene::MeshPrimitiveEvaluator::create(mesh);
+        IECoreScene::PrimitiveEvaluatorPtr evaluator = IECoreScene::MeshPrimitiveEvaluator::create(meshToUse);
         if (!evaluator)
             return false;
             
@@ -121,21 +152,21 @@ namespace
         V3f baryCoords = static_cast<MeshPrimitiveEvaluator::Result*>(result.get())->barycentricCoordinates();
         
         // Get the vertex indices for this triangle
-        const std::vector<int> &vertexIds = mesh->vertexIds()->readable();
+        const std::vector<int> &vertexIds = meshToUse->vertexIds()->readable();
         const int *triangleVertices = &vertexIds[triangleIndex * 3];
         V3i triVerts(triangleVertices[0], triangleVertices[1], triangleVertices[2]);
         
         // Try to calculate tangents from UVs first
-        auto uvIt = mesh->variables.find("uv");
-        if (uvIt == mesh->variables.end())
-            uvIt = mesh->variables.find("st");
-        if (uvIt == mesh->variables.end())
-            uvIt = mesh->variables.find("UV");
+        auto uvIt = meshToUse->variables.find("uv");
+        if (uvIt == meshToUse->variables.end())
+            uvIt = meshToUse->variables.find("st");
+        if (uvIt == meshToUse->variables.end())
+            uvIt = meshToUse->variables.find("UV");
             
-        if (uvIt != mesh->variables.end())
+        if (uvIt != meshToUse->variables.end())
         {
             // Calculate UV-based tangents for the whole mesh
-            auto tangentResult = MeshAlgo::calculateTangents(mesh, uvIt->first, true, "P");
+            auto tangentResult = MeshAlgo::calculateTangents(meshToUse, uvIt->first, true, "P");
             
             // Interpolate tangent at our specific point using barycentric coordinates
             frame.tangent = GafferScotch::Detail::primVar<V3f>(tangentResult.first, &baryCoords[0], triangleIndex, triVerts);
@@ -147,12 +178,12 @@ namespace
         }
         
         // If no UVs, try to calculate tangents from edges
-        auto normalIt = mesh->variables.find("N");
-        if (normalIt == mesh->variables.end())
+        auto normalIt = meshToUse->variables.find("N");
+        if (normalIt == meshToUse->variables.end())
         {
             // Calculate vertex normals if not present
-            PrimitiveVariable normals = MeshAlgo::calculateNormals(mesh);
-            MeshPrimitivePtr meshCopy = mesh->copy();
+            PrimitiveVariable normals = MeshAlgo::calculateNormals(meshToUse);
+            MeshPrimitivePtr meshCopy = meshToUse->copy();
             meshCopy->variables["N"] = normals;
             
             // Calculate edge-based tangents
@@ -169,7 +200,7 @@ namespace
         else
         {
             // Calculate edge-based tangents using existing normals
-            auto tangentResult = MeshAlgo::calculateTangentsFromTwoEdges(mesh, "P", normalIt->first, true, false);
+            auto tangentResult = MeshAlgo::calculateTangentsFromTwoEdges(meshToUse, "P", normalIt->first, true, false);
             
             // Interpolate tangent at our specific point using barycentric coordinates
             frame.tangent = GafferScotch::Detail::primVar<V3f>(tangentResult.first, &baryCoords[0], triangleIndex, triVerts);
