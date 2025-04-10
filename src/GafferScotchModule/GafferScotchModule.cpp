@@ -7,6 +7,8 @@
 #include "GafferScotch/RigidAttachCurves.h"
 #include "GafferScotch/RigidDeformCurves.h"
 #include "GafferScotch/CurvesPostProcess.h"
+#include "GafferScotch/CaptureMatrixWeights.h"
+#include "GafferScotch/MatrixDeform.h"
 
 using namespace boost::python;
 using namespace GafferBindings;
@@ -19,4 +21,6 @@ BOOST_PYTHON_MODULE(GafferScotchModule)
     GafferBindings::DependencyNodeClass<RigidAttachCurves>();
     GafferBindings::DependencyNodeClass<RigidDeformCurves>();
     GafferBindings::DependencyNodeClass<CurvesPostProcess>();
+    GafferBindings::DependencyNodeClass<CaptureMatrixWeights>();
+    GafferBindings::DependencyNodeClass<MatrixDeform>();
 }
