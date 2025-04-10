@@ -8,6 +8,8 @@
 #include "IECoreScene/MeshPrimitive.h"
 #include "IECoreScene/CurvesPrimitive.h"
 #include "IECoreScene/Primitive.h"
+#include "IECoreScene/MeshPrimitiveEvaluator.h"
+#include "IECoreScene/PrimitiveEvaluator.h"
 
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
@@ -71,9 +73,9 @@ namespace
             M44f matrix;
             
             // Set rotation part (column-major order)
-            matrix[0][0] = tangent.x;
-            matrix[1][0] = tangent.y;
-            matrix[2][0] = tangent.z;
+            matrix[0][0] = normal.x;
+            matrix[1][0] = normal.y;
+            matrix[2][0] = normal.z;
             matrix[3][0] = 0;
             
             matrix[0][1] = bitangent.x;
@@ -81,9 +83,9 @@ namespace
             matrix[2][1] = bitangent.z;
             matrix[3][1] = 0;
             
-            matrix[0][2] = normal.x;
-            matrix[1][2] = normal.y;
-            matrix[2][2] = normal.z;
+            matrix[0][2] = tangent.x;
+            matrix[1][2] = tangent.y;
+            matrix[2][2] = tangent.z;
             matrix[3][2] = 0;
             
             // Set translation part
@@ -95,6 +97,50 @@ namespace
             return matrix;
         }
     };
+
+    // Build a local coordinate frame for mesh points using MeshPrimitiveEvaluator
+    bool buildLocalFrameFromMesh(const IECoreScene::MeshPrimitive *mesh, const V3f &point, LocalFrame &frame)
+    {
+        // Create mesh evaluator
+        IECoreScene::PrimitiveEvaluatorPtr evaluator = IECoreScene::MeshPrimitiveEvaluator::create(mesh);
+        if (!evaluator)
+            return false;
+            
+        // Create result object
+        IECoreScene::PrimitiveEvaluator::ResultPtr result = evaluator->createResult();
+        
+        // Find closest point on the mesh
+        if (!evaluator->closestPoint(point, result.get()))
+            return false;
+            
+        // Get position, normal, and tangent (UV derivatives)
+        frame.position = result->point();
+        frame.normal = result->normal();
+        
+        // Try to get tangent from UV derivatives if available
+        V2f uv;
+        V3f dPdu, dPdv;
+        
+        if (result->uv(uv) && result->uTangent(dPdu) && result->vTangent(dPdv))
+        {
+            // Use the UV derivatives for tangent/bitangent
+            frame.tangent = dPdu.normalized();
+            frame.bitangent = dPdv.normalized();
+            
+            // Ensure orthogonal frame
+            frame.orthonormalize();
+            return true;
+        }
+        
+        // Fallback: create tangent from normal
+        if (std::abs(frame.normal.y) < 0.9f)
+            frame.tangent = V3f(0, 1, 0).cross(frame.normal).normalized();
+        else
+            frame.tangent = V3f(1, 0, 0).cross(frame.normal).normalized();
+            
+        frame.bitangent = frame.normal.cross(frame.tangent).normalized();
+        return true;
+    }
 
     // Build a local coordinate frame from a point and its neighbors using PCA
     void buildLocalFrameFromNeighbors(const std::vector<V3f> &points, int centerIdx, 
@@ -141,22 +187,23 @@ namespace
         
         // 3. Extract principal directions (eigenvectors)
         // The eigenvectors are sorted by eigenvalue (smallest to largest)
+        // Modified eigenvector assignment to address the rotation issue
         frame.normal = V3f(solver.eigenvectors().col(0)[0], 
                           solver.eigenvectors().col(0)[1],
                           solver.eigenvectors().col(0)[2]);
                         
-        frame.tangent = V3f(solver.eigenvectors().col(2)[0],
-                           solver.eigenvectors().col(2)[1],
-                           solver.eigenvectors().col(2)[2]);
-                        
         frame.bitangent = V3f(solver.eigenvectors().col(1)[0],
                              solver.eigenvectors().col(1)[1],
                              solver.eigenvectors().col(1)[2]);
+                        
+        frame.tangent = V3f(solver.eigenvectors().col(2)[0],
+                           solver.eigenvectors().col(2)[1],
+                           solver.eigenvectors().col(2)[2]);
         
         // 4. Ensure we have a right-handed coordinate system
-        if (frame.normal.cross(frame.tangent).dot(frame.bitangent) < 0)
+        if (frame.normal.cross(frame.bitangent).dot(frame.tangent) < 0)
         {
-            frame.bitangent = -frame.bitangent;
+            frame.tangent = -frame.tangent;
         }
         
         // 5. Final orthonormalization for numerical stability
@@ -511,17 +558,17 @@ namespace
             const PrimitiveVariable *targetPiece,
             size_t targetIndex)
         {
-            // Create search context for piece matching
+            // Create a fresh search context for piece matching
             PieceAttributeHandler::SearchContext context(sourcePiece, targetPiece, targetIndex);
 
-            // Phase 1: Try with given radius
+            // Phase 1: Try with given radius - ensure we're using fresh search each time
             SearchResult result = findPointsWithPiece(
                 queryPoint, radius, maxPoints, context);
 
             // Phase 2: If we don't have enough points, do unlimited radius search
             if (result.matches.size() < minPoints)
             {
-                // Use unlimited radius to find at least minPoints
+                // Use unlimited radius to find at least minPoints - fresh search
                 const float unlimitedRadius = std::numeric_limits<float>::max();
                 result = findPointsWithPiece(
                     queryPoint, unlimitedRadius, minPoints, context);
@@ -598,6 +645,8 @@ namespace
             // Use radius search if we have a finite radius
             if (radius < std::numeric_limits<float>::max())
             {
+                // Clear and reserve new memory
+                matches.clear();
                 matches.reserve(maxPoints * 2); // Reserve extra space
                 const float radiusSquared = radius * radius;
 
@@ -631,6 +680,7 @@ namespace
                 size_t found = m_kdtree.knnSearch(queryPt, static_cast<size_t>(maxPoints), &indices[0], &distances[0]);
 
                 // Convert to pair format
+                matches.clear();
                 matches.reserve(found);
                 for (size_t i = 0; i < found; ++i)
                 {
@@ -656,7 +706,7 @@ namespace
 
             while (true)
             {
-                // Get candidates
+                // Get candidates with a fresh search
                 auto candidates = findNearestPoints(queryPoint, radius, maxCandidates);
 
                 // Filter by piece attribute
@@ -947,39 +997,61 @@ namespace
         int neighborPoints,
         const PrimitiveVariable *sourcePiece,
         const PrimitiveVariable *targetPiece,
+        const Primitive *sourcePrimitive,
         MatrixBatchResults &results)
     {
-        // Create point finder
-        CaptureMatrixPointFinder pointFinder(sourcePoints);
+        // Create point finder for local frames
+        CaptureMatrixPointFinder frameFinder(sourcePoints);
 
+        // Check if source is a mesh primitive
+        const MeshPrimitive *sourceMesh = runTimeCast<const MeshPrimitive>(sourcePrimitive);
+        
         // First pass: compute local frames for all source points
         parallel_for(blocked_range<size_t>(0, sourcePoints.size(), 1024),
                      [&](const blocked_range<size_t> &range)
                      {
                          for (size_t i = range.begin(); i != range.end(); ++i)
                          {
-                             // Find neighbors for local frame construction
-                             std::vector<int> neighbors = pointFinder.findNeighbors(i, neighborPoints);
-                             
-                             // Build local frame using PCA on neighbors
                              LocalFrame &frame = results.sourceFrames[i];
-                             buildLocalFrameFromNeighbors(sourcePoints, i, neighbors, frame);
+                             
+                             // Try mesh evaluator first if available
+                             bool usedMeshEval = false;
+                             if (sourceMesh)
+                             {
+                                 usedMeshEval = buildLocalFrameFromMesh(sourceMesh, sourcePoints[i], frame);
+                             }
+                             
+                             // Fall back to neighbor-based frame calculation if needed
+                             if (!usedMeshEval)
+                             {
+                                 // Find neighbors for local frame construction
+                                 std::vector<int> neighbors = frameFinder.findNeighbors(i, neighborPoints);
+                                 
+                                 // Build local frame using PCA on neighbors
+                                 buildLocalFrameFromNeighbors(sourcePoints, i, neighbors, frame);
+                             }
                              
                              // Store the local-to-world matrix
                              results.influenceMatrices[i] = frame.toMatrix();
                          }
                      });
 
+        // Create a separate point finder for weights (to avoid reusing search state)
+        CaptureMatrixPointFinder weightFinder(sourcePoints);
+
         // Second pass: find closest points and compute weights
         parallel_for(blocked_range<size_t>(0, targetPoints.size(), 1024),
                      [&](const blocked_range<size_t> &range)
                      {
+                         // Thread-local debug info
+                         std::vector<int> uniqueIndices;
+                         
                          for (size_t i = range.begin(); i != range.end(); ++i)
                          {
                              const V3f &targetPoint = targetPoints[i];
 
-                             // Find nearest points
-                             auto searchResult = pointFinder.findPoints(
+                             // Find nearest points with fresh search
+                             auto searchResult = weightFinder.findPoints(
                                  targetPoint, radius, maxPoints, minPoints, neighborPoints,
                                  sourcePiece, targetPiece, i);
 
@@ -990,9 +1062,12 @@ namespace
                              float totalWeight = 0.0f;
                              std::vector<float> weights;
                              weights.reserve(searchResult.matches.size());
-
+                             
+                             // Verify we're getting different indices - debug check
+                             uniqueIndices.clear();
                              for (const auto &match : searchResult.matches)
                              {
+                                 uniqueIndices.push_back(match.first);
                                  float weight = calculateWeight(match.second, 1.0f); // Already normalized distances
                                  weights.push_back(weight);
                                  totalWeight += weight;
@@ -1262,7 +1337,7 @@ IECore::ConstObjectPtr CaptureMatrixWeights::computeProcessedObject(const SceneP
     MatrixBatchResults results(targetPoints.size(), maxPoints, sourcePoints.size());
 
     computeCaptureMatrixWeights(sourcePoints, targetPoints, radius, maxPoints, minPoints, neighborPoints,
-                              sourcePiece, targetPiece, results);
+                              sourcePiece, targetPiece, sourcePrimitive, results);
 
     PrimitivePtr resultPrimitive = inputPrimitive->copy();
 

@@ -33,6 +33,10 @@ namespace GafferScotch
         Gaffer::StringPlug *deformerPathPlug();
         const Gaffer::StringPlug *deformerPathPlug() const;
 
+        // Number of neighbor points to use for local frame construction
+        Gaffer::IntPlug *neighborPointsPlug();
+        const Gaffer::IntPlug *neighborPointsPlug() const;
+
         // Whether to apply rigid projection for more stable deformation
         Gaffer::BoolPlug *rigidProjectionPlug();
         const Gaffer::BoolPlug *rigidProjectionPlug() const;

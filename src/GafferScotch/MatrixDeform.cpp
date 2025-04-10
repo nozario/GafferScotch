@@ -2,8 +2,12 @@
 #include <Eigen/Dense>
 #include "GafferScotch/MatrixDeform.h"
 #include "GafferScotch/ScenePathUtil.h"
+#include "GafferScotch/nanoflann.hpp"
 
 #include "IECoreScene/Primitive.h"
+#include "IECoreScene/MeshPrimitive.h"
+#include "IECoreScene/MeshPrimitiveEvaluator.h"
+#include "IECoreScene/PrimitiveEvaluator.h"
 
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
@@ -24,6 +28,242 @@ namespace
 {
     template <typename T>
     using AlignedVector = std::vector<T, tbb::cache_aligned_allocator<T>>;
+    
+    // Local coordinate frame structure
+    struct LocalFrame
+    {
+        V3f position;
+        V3f normal;
+        V3f tangent;
+        V3f bitangent;
+
+        void orthonormalize()
+        {
+            // Normalize normal vector
+            float normalLength = normal.length();
+            if (normalLength > 0)
+                normal /= normalLength;
+            else
+                normal = V3f(0, 1, 0); // Fallback
+
+            // Make tangent orthogonal to normal
+            tangent = tangent - normal * tangent.dot(normal);
+            float tangentLength = tangent.length();
+            if (tangentLength > 0)
+                tangent /= tangentLength;
+            else
+            {
+                // Find a suitable tangent direction
+                if (std::abs(normal.y) < 0.9f)
+                    tangent = V3f(0, 1, 0).cross(normal).normalized();
+                else
+                    tangent = V3f(1, 0, 0).cross(normal).normalized();
+            }
+
+            // Compute bitangent to complete orthogonal frame
+            bitangent = normal.cross(tangent).normalized();
+        }
+
+        M44f toMatrix() const
+        {
+            M44f matrix;
+            
+            // Set rotation part (column-major order)
+            matrix[0][0] = normal.x;
+            matrix[1][0] = normal.y;
+            matrix[2][0] = normal.z;
+            matrix[3][0] = 0;
+            
+            matrix[0][1] = bitangent.x;
+            matrix[1][1] = bitangent.y;
+            matrix[2][1] = bitangent.z;
+            matrix[3][1] = 0;
+            
+            matrix[0][2] = tangent.x;
+            matrix[1][2] = tangent.y;
+            matrix[2][2] = tangent.z;
+            matrix[3][2] = 0;
+            
+            // Set translation part
+            matrix[0][3] = position.x;
+            matrix[1][3] = position.y;
+            matrix[2][3] = position.z;
+            matrix[3][3] = 1;
+            
+            return matrix;
+        }
+    };
+
+    // Build a local coordinate frame for mesh points using MeshPrimitiveEvaluator
+    bool buildLocalFrameFromMesh(const IECoreScene::MeshPrimitive *mesh, const V3f &point, LocalFrame &frame)
+    {
+        // Create mesh evaluator
+        IECoreScene::PrimitiveEvaluatorPtr evaluator = IECoreScene::MeshPrimitiveEvaluator::create(mesh);
+        if (!evaluator)
+            return false;
+            
+        // Create result object
+        IECoreScene::PrimitiveEvaluator::ResultPtr result = evaluator->createResult();
+        
+        // Find closest point on the mesh
+        if (!evaluator->closestPoint(point, result.get()))
+            return false;
+            
+        // Get position, normal, and tangent (UV derivatives)
+        frame.position = result->point();
+        frame.normal = result->normal();
+        
+        // Try to get tangent from UV derivatives if available
+        V2f uv;
+        V3f dPdu, dPdv;
+        
+        if (result->uv(uv) && result->uTangent(dPdu) && result->vTangent(dPdv))
+        {
+            // Use the UV derivatives for tangent/bitangent
+            frame.tangent = dPdu.normalized();
+            frame.bitangent = dPdv.normalized();
+            
+            // Ensure orthogonal frame
+            frame.orthonormalize();
+            return true;
+        }
+        
+        // Fallback: create tangent from normal
+        if (std::abs(frame.normal.y) < 0.9f)
+            frame.tangent = V3f(0, 1, 0).cross(frame.normal).normalized();
+        else
+            frame.tangent = V3f(1, 0, 0).cross(frame.normal).normalized();
+            
+        frame.bitangent = frame.normal.cross(frame.tangent).normalized();
+        return true;
+    }
+
+    // Point cloud adaptor for nanoflann
+    struct PointCloudAdaptor
+    {
+        const std::vector<V3f> &points;
+
+        PointCloudAdaptor(const std::vector<V3f> &pts) : points(pts) {}
+
+        inline size_t kdtree_get_point_count() const { return points.size(); }
+
+        inline float kdtree_get_pt(const size_t idx, const size_t dim) const
+        {
+            return dim == 0 ? points[idx].x : (dim == 1 ? points[idx].y : points[idx].z);
+        }
+
+        template <class BBOX>
+        bool kdtree_get_bbox(BBOX &) const { return false; }
+    };
+
+    using KDTreeType = nanoflann::KDTreeSingleIndexAdaptor<
+        nanoflann::L2_Simple_Adaptor<float, PointCloudAdaptor>,
+        PointCloudAdaptor,
+        3 /* dimensionality */
+        >;
+
+    // Find neighboring points for a given point
+    std::vector<int> findNeighbors(
+        const std::vector<V3f> &points, 
+        int pointIndex, 
+        int numNeighbors, 
+        KDTreeType &kdtree)
+    {
+        if (pointIndex >= points.size() || numNeighbors <= 0)
+            return std::vector<int>();
+
+        const V3f &queryPoint = points[pointIndex];
+        const float queryPt[3] = {queryPoint.x, queryPoint.y, queryPoint.z};
+
+        std::vector<uint32_t> indices(numNeighbors + 1); // +1 to include the point itself
+        std::vector<float> distances(numNeighbors + 1);
+
+        // Query with more points than needed as the point itself will be included
+        size_t found = kdtree.knnSearch(queryPt, numNeighbors + 1, &indices[0], &distances[0]);
+
+        // Filter out the point itself
+        std::vector<int> neighbors;
+        neighbors.reserve(numNeighbors);
+
+        for (size_t i = 0; i < found; ++i)
+        {
+            if (indices[i] != pointIndex) // Skip the query point
+            {
+                neighbors.push_back(indices[i]);
+                if (neighbors.size() >= numNeighbors)
+                    break;
+            }
+        }
+
+        return neighbors;
+    }
+
+    // Build a local coordinate frame from a point and its neighbors using PCA
+    void buildLocalFrameFromNeighbors(const std::vector<V3f> &points, int centerIdx, 
+                                      const std::vector<int> &neighbors, LocalFrame &frame)
+    {
+        frame.position = points[centerIdx];
+        
+        // Handle edge case with not enough neighbors
+        if (neighbors.size() < 3)
+        {
+            // Fallback to identity-like frame
+            frame.normal = V3f(0, 1, 0);
+            frame.tangent = V3f(1, 0, 0);
+            frame.bitangent = V3f(0, 0, 1);
+            return;
+        }
+
+        // 1. Calculate a covariance matrix from neighboring points
+        Eigen::Matrix3f covariance = Eigen::Matrix3f::Zero();
+        V3f centroid(0, 0, 0);
+        
+        // Compute local centroid
+        for (int idx : neighbors)
+        {
+            centroid += points[idx];
+        }
+        centroid /= neighbors.size();
+        
+        // Build covariance matrix
+        for (int idx : neighbors)
+        {
+            V3f p = points[idx] - centroid;
+            for (int i = 0; i < 3; i++)
+            {
+                for (int j = 0; j < 3; j++)
+                {
+                    covariance(i, j) += p[i] * p[j];
+                }
+            }
+        }
+        
+        // 2. Perform eigen decomposition to get principal axes
+        Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> solver(covariance);
+        
+        // 3. Extract principal directions (eigenvectors)
+        // The eigenvectors are sorted by eigenvalue (smallest to largest)
+        frame.normal = V3f(solver.eigenvectors().col(0)[0], 
+                          solver.eigenvectors().col(0)[1],
+                          solver.eigenvectors().col(0)[2]);
+                        
+        frame.bitangent = V3f(solver.eigenvectors().col(1)[0],
+                             solver.eigenvectors().col(1)[1],
+                             solver.eigenvectors().col(1)[2]);
+                        
+        frame.tangent = V3f(solver.eigenvectors().col(2)[0],
+                           solver.eigenvectors().col(2)[1],
+                           solver.eigenvectors().col(2)[2]);
+        
+        // 4. Ensure we have a right-handed coordinate system
+        if (frame.normal.cross(frame.bitangent).dot(frame.tangent) < 0)
+        {
+            frame.tangent = -frame.tangent;
+        }
+        
+        // 5. Final orthonormalization for numerical stability
+        frame.orthonormalize();
+    }
 
     struct InfluenceData
     {
@@ -119,54 +359,172 @@ namespace
         return result;
     }
 
-    inline void computeMatrixDeformation(
-        const V3f &currentPos,
-        const V3f *staticPos,
-        const V3f *animatedPos,
-        const M44f *sourceMatrices,
-        const InfluenceData::Entry &influence,
-        size_t vertexIndex,
-        V3f &outDeformedPos,
-        float &outTotalWeight)
+    // Compute local frames for each deformer point (rest pose)
+    void computeLocalFrames(
+        const std::vector<V3f> &points,
+        const Primitive *primitive,
+        int neighborPoints,
+        std::vector<LocalFrame> &frames)
     {
-        const float weight = influence.weights[vertexIndex];
-        if (weight <= 0.0f)
-            return;
+        frames.resize(points.size());
+        
+        // Check if we have a mesh primitive
+        const MeshPrimitive *mesh = runTimeCast<const MeshPrimitive>(primitive);
+        
+        // Setup KD tree for neighbor queries if needed
+        PointCloudAdaptor adaptor(points);
+        KDTreeType kdtree(3, adaptor, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+        kdtree.buildIndex();
+        
+        // Calculate frames in parallel
+        parallel_for(blocked_range<size_t>(0, points.size(), 1024),
+            [&](const blocked_range<size_t> &range)
+            {
+                for (size_t i = range.begin(); i != range.end(); ++i)
+                {
+                    LocalFrame &frame = frames[i];
+                    
+                    // Try mesh evaluator first if available
+                    bool usedMeshEval = false;
+                    if (mesh)
+                    {
+                        usedMeshEval = buildLocalFrameFromMesh(mesh, points[i], frame);
+                    }
+                    
+                    // Fall back to neighbor-based frame calculation if needed
+                    if (!usedMeshEval)
+                    {
+                        // Find neighbors for local frame construction
+                        std::vector<int> neighbors = findNeighbors(points, i, neighborPoints, kdtree);
+                        
+                        // Build local frame using PCA on neighbors
+                        buildLocalFrameFromNeighbors(points, i, neighbors, frame);
+                    }
+                }
+            }
+        );
+    }
 
-        const int sourceIndex = influence.indices[vertexIndex];
-        if (sourceIndex < 0)
-            return;
-
-        const V3f &staticPoint = staticPos[sourceIndex];
-        const V3f &animatedPoint = animatedPos[sourceIndex];
-        const M44f &sourceMatrix = sourceMatrices[sourceIndex];
-
-        // Create a transform from static to animated using the source matrix
-        M44f staticToWorld = sourceMatrix;
+    // Compute a weighted average transformation matrix from all influences
+    M44f computeAverageMatrix(
+        const V3f &currentPos,
+        const std::vector<V3f> &staticPos,
+        const std::vector<V3f> &animatedPos,
+        const std::vector<M44f> &sourceMatrices,
+        const std::vector<std::pair<int, float>> &influences,
+        bool applyRigidProjection)
+    {
+        M44f avgMatrix;
+        avgMatrix.makeIdentity();
+        float totalWeight = 0.0f;
         
-        // Get the difference between static and animated positions
-        V3f translation = animatedPoint - staticPoint;
+        // Calculate weighted average matrix and translation
+        for (const auto &influence : influences)
+        {
+            const int sourceIndex = influence.first;
+            const float weight = influence.second;
+            
+            if (weight <= 0.0f || sourceIndex < 0 || 
+                sourceIndex >= staticPos.size() || 
+                sourceIndex >= sourceMatrices.size())
+                continue;
+                
+            const V3f &staticPoint = staticPos[sourceIndex];
+            const V3f &animatedPoint = animatedPos[sourceIndex];
+            const M44f &sourceMatrix = sourceMatrices[sourceIndex];
+            
+            // Create a transform from static to animated
+            M44f staticToWorld = sourceMatrix;
+            
+            // Add the difference between static and animated positions
+            V3f translation = animatedPoint - staticPoint;
+            M44f animatedMatrix = staticToWorld;
+            animatedMatrix[0][3] += translation.x;
+            animatedMatrix[1][3] += translation.y;
+            animatedMatrix[2][3] += translation.z;
+            
+            // Calculate full transform between rest and deformed state
+            M44f transform = staticToWorld.inverse() * animatedMatrix;
+            
+            // Accumulate weighted transform
+            for (int i = 0; i < 4; i++)
+            {
+                for (int j = 0; j < 4; j++)
+                {
+                    avgMatrix[i][j] += transform[i][j] * weight;
+                }
+            }
+            
+            totalWeight += weight;
+        }
         
-        // Add the translation to the matrix
-        M44f animatedMatrix = staticToWorld;
-        animatedMatrix[0][3] += translation.x;
-        animatedMatrix[1][3] += translation.y;
-        animatedMatrix[2][3] += translation.z;
+        // Normalize by total weight
+        if (totalWeight > 0.0f)
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                for (int j = 0; j < 4; j++)
+                {
+                    avgMatrix[i][j] /= totalWeight;
+                }
+            }
+            
+            // Apply polar decomposition for rigid projection if requested
+            if (applyRigidProjection)
+            {
+                avgMatrix = polarDecomposition(avgMatrix);
+            }
+        }
+        else
+        {
+            avgMatrix.makeIdentity();
+        }
         
-        // Calculate full transform between rest and deformed state
-        M44f transform = staticToWorld.inverse() * animatedMatrix;
+        return avgMatrix;
+    }
+    
+    // Apply weighted average matrix to a point (used in parallel processing)
+    V3f applyAverageMatrix(
+        const V3f &currentPos,
+        const std::vector<V3f> &staticPos,
+        const std::vector<V3f> &animatedPos,
+        const M44f &averageMatrix,
+        const std::vector<std::pair<int, float>> &influences)
+    {
+        if (influences.empty())
+            return currentPos;
+            
+        // Find center of influence points (weighted)
+        V3f staticCenter(0, 0, 0);
+        float totalWeight = 0.0f;
         
-        // Apply transformation to current point in local space
-        V3f localPoint = currentPos - staticPoint;
+        for (const auto &influence : influences)
+        {
+            const int sourceIndex = influence.first;
+            const float weight = influence.second;
+            
+            if (weight <= 0.0f || sourceIndex < 0 || sourceIndex >= staticPos.size())
+                continue;
+                
+            staticCenter += staticPos[sourceIndex] * weight;
+            totalWeight += weight;
+        }
+        
+        if (totalWeight <= 0.0f)
+            return currentPos;
+            
+        staticCenter /= totalWeight;
+        
+        // Transform point around the center
+        V3f localPoint = currentPos - staticCenter;
         V3f transformedPoint;
-        transform.multVecMatrix(localPoint, transformedPoint);
+        averageMatrix.multVecMatrix(localPoint, transformedPoint);
         
-        // Add result back to world space
-        V3f newPoint = transformedPoint + animatedPoint;
+        // Add back to static center transformed by average matrix
+        V3f transformedCenter;
+        averageMatrix.multVecMatrix(V3f(0, 0, 0), transformedCenter);
         
-        // Weighted accumulation
-        outDeformedPos += newPoint * weight;
-        outTotalWeight += weight;
+        return transformedPoint + staticCenter + transformedCenter;
     }
 
     void hashPositions(const IECoreScene::Primitive *primitive, IECore::MurmurHash &h)
@@ -203,6 +561,7 @@ MatrixDeform::MatrixDeform(const std::string &name)
     addChild(new ScenePlug("staticDeformer"));
     addChild(new ScenePlug("animatedDeformer"));
     addChild(new StringPlug("deformerPath", Plug::In, ""));
+    addChild(new IntPlug("neighborPoints", Plug::In, 8, 3));
     addChild(new BoolPlug("rigidProjection", Plug::In, true));
     addChild(new BoolPlug("cleanupAttributes", Plug::In, true));
 }
@@ -237,24 +596,34 @@ const StringPlug *MatrixDeform::deformerPathPlug() const
     return getChild<StringPlug>(g_firstPlugIndex + 2);
 }
 
+IntPlug *MatrixDeform::neighborPointsPlug()
+{
+    return getChild<IntPlug>(g_firstPlugIndex + 3);
+}
+
+const IntPlug *MatrixDeform::neighborPointsPlug() const
+{
+    return getChild<IntPlug>(g_firstPlugIndex + 3);
+}
+
 BoolPlug *MatrixDeform::rigidProjectionPlug()
 {
-    return getChild<BoolPlug>(g_firstPlugIndex + 3);
+    return getChild<BoolPlug>(g_firstPlugIndex + 4);
 }
 
 const BoolPlug *MatrixDeform::rigidProjectionPlug() const
 {
-    return getChild<BoolPlug>(g_firstPlugIndex + 3);
+    return getChild<BoolPlug>(g_firstPlugIndex + 4);
 }
 
 BoolPlug *MatrixDeform::cleanupAttributesPlug()
 {
-    return getChild<BoolPlug>(g_firstPlugIndex + 4);
+    return getChild<BoolPlug>(g_firstPlugIndex + 5);
 }
 
 const BoolPlug *MatrixDeform::cleanupAttributesPlug() const
 {
-    return getChild<BoolPlug>(g_firstPlugIndex + 4);
+    return getChild<BoolPlug>(g_firstPlugIndex + 5);
 }
 
 void MatrixDeform::affects(const Plug *input, AffectedPlugsContainer &outputs) const
@@ -264,6 +633,7 @@ void MatrixDeform::affects(const Plug *input, AffectedPlugsContainer &outputs) c
     if (input == staticDeformerPlug()->objectPlug() ||
         input == animatedDeformerPlug()->objectPlug() ||
         input == deformerPathPlug() ||
+        input == neighborPointsPlug() ||
         input == rigidProjectionPlug() ||
         input == cleanupAttributesPlug())
     {
@@ -276,6 +646,7 @@ bool MatrixDeform::affectsProcessedObjectBound(const Plug *input) const
     return input == staticDeformerPlug()->objectPlug() ||
            input == animatedDeformerPlug()->objectPlug() ||
            input == deformerPathPlug() ||
+           input == neighborPointsPlug() ||
            input == rigidProjectionPlug();
 }
 
@@ -284,6 +655,7 @@ bool MatrixDeform::affectsProcessedObject(const Plug *input) const
     return input == staticDeformerPlug()->objectPlug() ||
            input == animatedDeformerPlug()->objectPlug() ||
            input == deformerPathPlug() ||
+           input == neighborPointsPlug() ||
            input == rigidProjectionPlug() ||
            input == cleanupAttributesPlug();
 }
@@ -313,6 +685,7 @@ void MatrixDeform::hashProcessedObject(const ScenePath &path, const Gaffer::Cont
         hashPositions(staticDeformerPrimitive, h);
         hashPositions(animatedDeformerPrimitive, h);
         h.append(inPlug()->objectHash(path));
+        neighborPointsPlug()->hash(h);
         rigidProjectionPlug()->hash(h);
         cleanupAttributesPlug()->hash(h);
     }
@@ -322,6 +695,7 @@ void MatrixDeform::hashProcessedObject(const ScenePath &path, const Gaffer::Cont
         h.append(staticDeformerPlug()->objectHash(deformerPath));
         h.append(animatedDeformerPlug()->objectHash(deformerPath));
         deformerPathPlug()->hash(h);
+        neighborPointsPlug()->hash(h);
         rigidProjectionPlug()->hash(h);
         cleanupAttributesPlug()->hash(h);
     }
@@ -386,51 +760,25 @@ Imath::Box3f MatrixDeform::computeProcessedObjectBound(const ScenePath &path, co
         return inputBound;
     }
 
-    // Check for matrices - if none, just use positions for bound calculation
-    bool hasMatrices = staticDeformerPrimitive->variables.find("captureMatrices") != staticDeformerPrimitive->variables.end();
+    // Calculate a conservative bounding box using maximum displacement
+    float maxDistance = 0;
     
-    if (!hasMatrices)
+    // Find maximum distance from any input point to bounds center
+    V3f center = inputBound.center();
+    for (auto p : staticPos)
     {
-        // Fallback to simple displacement calculation
-        V3f maxDisplacement(0, 0, 0);
-
-        for (size_t i = 0; i < staticPos.size(); ++i)
-        {
-            V3f displacement = animatedPos[i] - staticPos[i];
-            maxDisplacement.x = std::max(maxDisplacement.x, std::abs(displacement.x));
-            maxDisplacement.y = std::max(maxDisplacement.y, std::abs(displacement.y));
-            maxDisplacement.z = std::max(maxDisplacement.z, std::abs(displacement.z));
-        }
-
-        Box3f result = inputBound;
-        result.min -= maxDisplacement;
-        result.max += maxDisplacement;
-
-        return result;
+        maxDistance = std::max(maxDistance, (p - center).length());
     }
-    else
-    {
-        // When we have matrix information, the bounds can grow more due to rotation
-        // Use a more conservative estimate based on the max possible scale from matrices
-        float maxDistance = 0;
-        
-        // Find maximum distance from any input point to bounds center
-        V3f center = inputBound.center();
-        for (auto p : staticPos)
-        {
-            maxDistance = std::max(maxDistance, (p - center).length());
-        }
-        
-        // Add a generous padding factor to account for rotation
-        maxDistance *= 1.5f;
-        
-        Box3f result = inputBound;
-        V3f padding(maxDistance, maxDistance, maxDistance);
-        result.min -= padding;
-        result.max += padding;
-        
-        return result;
-    }
+    
+    // Add a generous padding factor to account for rotation
+    maxDistance *= 1.5f;
+    
+    Box3f result = inputBound;
+    V3f padding(maxDistance, maxDistance, maxDistance);
+    result.min -= padding;
+    result.max += padding;
+    
+    return result;
 }
 
 IECore::ConstObjectPtr MatrixDeform::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
@@ -479,16 +827,9 @@ IECore::ConstObjectPtr MatrixDeform::computeProcessedObject(const ScenePath &pat
     const std::vector<V3f> &animatedPos = animatedPositions->readable();
     std::vector<V3f> &positions = positionData->writable();
 
-    // Try to get the transformation matrices, might be missing
-    const M44fVectorData *captureMatrices = nullptr;
-    auto matricesIt = staticDeformerPrimitive->variables.find("captureMatrices");
-    if (matricesIt != staticDeformerPrimitive->variables.end())
-    {
-        captureMatrices = runTimeCast<const M44fVectorData>(matricesIt->second.data.get());
-    }
-
-    // Get the rigid projection flag
-    bool applyRigidProjection = rigidProjectionPlug()->getValue();
+    // Safety check for positions size
+    if (staticPos.size() != animatedPos.size() || staticPos.empty())
+        return result;
 
     // Get influence data
     auto captureInfluencesIt = inputPrimitive->variables.find("captureInfluences");
@@ -504,82 +845,62 @@ IECore::ConstObjectPtr MatrixDeform::computeProcessedObject(const ScenePath &pat
         maxInfluences = std::max(maxInfluences, count);
     }
 
-    // Get influence data
+    // Get influence data from CaptureWeights
     InfluenceData influenceData;
     if (!getInfluenceData(inputPrimitive, maxInfluences, influenceData))
         return result;
+        
+    // Get the rigid projection flag and neighbor points
+    bool applyRigidProjection = rigidProjectionPlug()->getValue();
+    int neighborPoints = neighborPointsPlug()->getValue();
+    
+    // Compute local frames for static deformer points
+    std::vector<LocalFrame> sourceFrames;
+    computeLocalFrames(staticPos, staticDeformerPrimitive, neighborPoints, sourceFrames);
+    
+    // Convert local frames to matrices
+    std::vector<M44f> sourceMatrices(sourceFrames.size());
+    for (size_t i = 0; i < sourceFrames.size(); ++i)
+    {
+        sourceMatrices[i] = sourceFrames[i].toMatrix();
+    }
 
     // Process each point in parallel
     parallel_for(blocked_range<size_t>(0, positions.size()),
                  [&](const blocked_range<size_t> &range)
                  {
+                     // Thread-local storage for influences
+                     std::vector<std::pair<int, float>> influences;
+                     
                      for (size_t i = range.begin(); i != range.end(); ++i)
                      {
-                         const int maxInfluences = (i < numInfluences.size()) ? numInfluences[i] : 0;
-                         if (maxInfluences <= 0)
+                         const int maxInfluencesForPoint = (i < numInfluences.size()) ? numInfluences[i] : 0;
+                         if (maxInfluencesForPoint <= 0)
                              continue;
 
-                         // If we have matrices, use matrix-based deformation
-                         if (captureMatrices)
-                         {
-                             const std::vector<M44f> &matrices = captureMatrices->readable();
+                         // Get all influences for this point
+                         influenceData.getPointInfluences(i, influences);
+                         if (influences.empty())
+                             continue;
                              
-                             // Process with matrix-based deformation
-                             V3f deformedPos(0);
-                             float totalWeight = 0;
-                             
-                             // Process each influence
-                             for (int j = 0; j < influenceData.influences.size() && j < maxInfluences; ++j)
-                             {
-                                 computeMatrixDeformation(
-                                     positions[i],
-                                     staticPos.data(),
-                                     animatedPos.data(),
-                                     matrices.data(),
-                                     influenceData.influences[j],
-                                     i,
-                                     deformedPos,
-                                     totalWeight
-                                 );
-                             }
-                             
-                             // Apply accumulated weighted transform
-                             if (totalWeight > 0)
-                             {
-                                 positions[i] = deformedPos / totalWeight;
-                             }
-                         }
-                         else
-                         {
-                             // Fallback to simple translation-based deformation
-                             V3f totalOffset(0);
-                             float totalWeight = 0;
-
-                             // Process each influence
-                             for (int j = 0; j < influenceData.influences.size() && j < maxInfluences; ++j)
-                             {
-                                 const InfluenceData::Entry &influence = influenceData.influences[j];
-                                 const float weight = influence.weights[i];
-                                 
-                                 if (weight <= 0.0f)
-                                     continue;
-                                     
-                                 const int idx = influence.indices[i];
-                                 if (idx < 0 || idx >= staticPos.size())
-                                     continue;
-                                     
-                                 // Simple translation
-                                 V3f offset = animatedPos[idx] - staticPos[idx];
-                                 totalOffset += offset * weight;
-                                 totalWeight += weight;
-                             }
-                             
-                             // Apply accumulated weighted translations
-                             if (totalWeight > 0)
-                             {
-                                 positions[i] += totalOffset;
-                             }
-                         }
+                         // Calculate weighted average matrix (Houdini-style)
+                         M44f averageMatrix = computeAverageMatrix(
+                             positions[i], 
+                             staticPos, 
+                             animatedPos, 
+                             sourceMatrices, 
+                             influences,
+                             applyRigidProjection
+                         );
+                         
+                         // Apply the average matrix to transform the point
+                         positions[i] = applyAverageMatrix(
+                             positions[i],
+                             staticPos,
+                             animatedPos,
+                             averageMatrix,
+                             influences
+                         );
                      }
                  });
 
@@ -593,7 +914,7 @@ IECore::ConstObjectPtr MatrixDeform::computeProcessedObject(const ScenePath &pat
             result->variables.erase("captureWeight" + std::to_string(i));
         }
         
-        // Also clean up matrix attributes
+        // Also clean up any matrix attributes if they exist
         result->variables.erase("captureMatrices");
         result->variables.erase("captureFrameNormals");
         result->variables.erase("captureFrameTangents");
