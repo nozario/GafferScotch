@@ -1014,6 +1014,7 @@ MatrixDeform::MatrixDeform(const std::string &name)
     addChild(new ScenePlug("animatedDeformer"));
     addChild(new StringPlug("deformerPath", Plug::In, ""));
     addChild(new IntPlug("neighborPoints", Plug::In, 8, 3));
+    addChild(new IntPlug("smoothIterations", Plug::In, 2, 0, 5));
     addChild(new BoolPlug("rigidProjection", Plug::In, true));
     addChild(new BoolPlug("cleanupAttributes", Plug::In, true));
 }
@@ -1058,24 +1059,34 @@ const IntPlug *MatrixDeform::neighborPointsPlug() const
     return getChild<IntPlug>(g_firstPlugIndex + 3);
 }
 
+IntPlug *MatrixDeform::smoothIterationsPlug()
+{
+    return getChild<IntPlug>(g_firstPlugIndex + 4);
+}
+
+const IntPlug *MatrixDeform::smoothIterationsPlug() const
+{
+    return getChild<IntPlug>(g_firstPlugIndex + 4);
+}
+
 BoolPlug *MatrixDeform::rigidProjectionPlug()
 {
-    return getChild<BoolPlug>(g_firstPlugIndex + 4);
+    return getChild<BoolPlug>(g_firstPlugIndex + 5);
 }
 
 const BoolPlug *MatrixDeform::rigidProjectionPlug() const
 {
-    return getChild<BoolPlug>(g_firstPlugIndex + 4);
+    return getChild<BoolPlug>(g_firstPlugIndex + 5);
 }
 
 BoolPlug *MatrixDeform::cleanupAttributesPlug()
 {
-    return getChild<BoolPlug>(g_firstPlugIndex + 5);
+    return getChild<BoolPlug>(g_firstPlugIndex + 6);
 }
 
 const BoolPlug *MatrixDeform::cleanupAttributesPlug() const
 {
-    return getChild<BoolPlug>(g_firstPlugIndex + 5);
+    return getChild<BoolPlug>(g_firstPlugIndex + 6);
 }
 
 void MatrixDeform::affects(const Plug *input, AffectedPlugsContainer &outputs) const
@@ -1086,6 +1097,7 @@ void MatrixDeform::affects(const Plug *input, AffectedPlugsContainer &outputs) c
         input == animatedDeformerPlug()->objectPlug() ||
         input == deformerPathPlug() ||
         input == neighborPointsPlug() ||
+        input == smoothIterationsPlug() ||
         input == rigidProjectionPlug() ||
         input == cleanupAttributesPlug())
     {
@@ -1099,6 +1111,7 @@ bool MatrixDeform::affectsProcessedObjectBound(const Plug *input) const
            input == animatedDeformerPlug()->objectPlug() ||
            input == deformerPathPlug() ||
            input == neighborPointsPlug() ||
+           input == smoothIterationsPlug() ||
            input == rigidProjectionPlug();
 }
 
@@ -1108,6 +1121,7 @@ bool MatrixDeform::affectsProcessedObject(const Plug *input) const
            input == animatedDeformerPlug()->objectPlug() ||
            input == deformerPathPlug() ||
            input == neighborPointsPlug() ||
+           input == smoothIterationsPlug() ||
            input == rigidProjectionPlug() ||
            input == cleanupAttributesPlug();
 }
@@ -1138,6 +1152,7 @@ void MatrixDeform::hashProcessedObject(const ScenePath &path, const Gaffer::Cont
         hashPositions(animatedDeformerPrimitive, h);
         h.append(inPlug()->objectHash(path));
         neighborPointsPlug()->hash(h);
+        smoothIterationsPlug()->hash(h);
         rigidProjectionPlug()->hash(h);
         cleanupAttributesPlug()->hash(h);
     }
@@ -1148,6 +1163,7 @@ void MatrixDeform::hashProcessedObject(const ScenePath &path, const Gaffer::Cont
         h.append(animatedDeformerPlug()->objectHash(deformerPath));
         deformerPathPlug()->hash(h);
         neighborPointsPlug()->hash(h);
+        smoothIterationsPlug()->hash(h);
         rigidProjectionPlug()->hash(h);
         cleanupAttributesPlug()->hash(h);
     }
@@ -1310,6 +1326,30 @@ IECore::ConstObjectPtr MatrixDeform::computeProcessedObject(const ScenePath &pat
     std::vector<LocalFrame> sourceFrames;
     computeLocalFrames(staticPos, staticDeformerPrimitive, neighborPoints, sourceFrames);
     
+    // Build neighbor information for frame smoothing
+    std::vector<std::vector<int>> neighborIndices(sourceFrames.size());
+    
+    // Setup KD tree for neighbor queries
+    PointCloudAdaptor adaptor(staticPos);
+    KDTreeType kdtree(3, adaptor, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+    kdtree.buildIndex();
+    
+    // Find neighbors for each point (parallel)
+    parallel_for(blocked_range<size_t>(0, sourceFrames.size()),
+        [&](const blocked_range<size_t> &range)
+        {
+            for (size_t i = range.begin(); i != range.end(); ++i)
+            {
+                // Find 6-8 neighbors for smoothing
+                int smoothNeighbors = std::min(8, neighborPoints);
+                neighborIndices[i] = findNeighbors(staticPos, i, smoothNeighbors, kdtree);
+            }
+        }
+    );
+    
+    // Apply frame smoothing to ensure consistent frame orientation
+    smoothFrames(sourceFrames, neighborIndices, smoothIterationsPlug()->getValue());
+    
     // Convert local frames to matrices
     std::vector<M44f> sourceMatrices(sourceFrames.size());
     for (size_t i = 0; i < sourceFrames.size(); ++i)
@@ -1334,6 +1374,29 @@ IECore::ConstObjectPtr MatrixDeform::computeProcessedObject(const ScenePath &pat
                          influenceData.getPointInfluences(i, influences);
                          if (influences.empty())
                              continue;
+                         
+                         // Sort influences by weight for more consistent application
+                         std::sort(influences.begin(), influences.end(),
+                             [](const std::pair<int, float> &a, const std::pair<int, float> &b) {
+                                 return a.second > b.second;
+                             });
+                             
+                         // Normalize and smooth the weights
+                         float weightSum = 0.0f;
+                         for (auto &influence : influences) {
+                             // Apply a smoothstep curve to improve weight falloff
+                             float w = influence.second;
+                             float smoothed = w * w * (3.0f - 2.0f * w); // Smoothstep function
+                             influence.second = smoothed;
+                             weightSum += smoothed;
+                         }
+                         
+                         // Re-normalize weights
+                         if (weightSum > 0.0f) {
+                             for (auto &influence : influences) {
+                                 influence.second /= weightSum;
+                             }
+                         }
                          
                          // Initialize new position and weight sum
                          V3f newPosition(0, 0, 0);
