@@ -560,11 +560,11 @@ namespace
             const V3f &queryPoint = m_sourcePoints[pointIndex];
             const float queryPt[3] = {queryPoint.x, queryPoint.y, queryPoint.z};
 
-            std::vector<size_t> indices(numNeighbors + 1); // +1 to include the point itself
+            std::vector<uint32_t> indices(numNeighbors + 1); // +1 to include the point itself
             std::vector<float> distances(numNeighbors + 1);
 
             // Query with more points than needed as the point itself will be included
-            size_t found = m_kdtree.knnSearch(queryPt, numNeighbors + 1, indices.data(), distances.data());
+            size_t found = m_kdtree.knnSearch(queryPt, numNeighbors + 1, &indices[0], &distances[0]);
 
             // Filter out the point itself
             std::vector<int> neighbors;
@@ -628,7 +628,7 @@ namespace
                 std::vector<uint32_t> indices(maxPoints);
                 std::vector<float> distances(maxPoints);
 
-                size_t found = m_kdtree.knnSearch(queryPt, static_cast<size_t>(maxPoints), indices.data(), distances.data());
+                size_t found = m_kdtree.knnSearch(queryPt, static_cast<size_t>(maxPoints), &indices[0], &distances[0]);
 
                 // Convert to pair format
                 matches.reserve(found);
