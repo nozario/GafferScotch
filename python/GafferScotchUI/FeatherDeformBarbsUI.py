@@ -1,100 +1,99 @@
 import Gaffer
 import GafferUI
+import imath
 
 import GafferScotch
+
+from ._IconPath import ICON_PATH
 
 # For now, we'll use the default UI generation based on plug metadata.
 # If custom UI elements or layouts are needed, a specific creation function
 # would be provided here.
 GafferUI.NodeUI.registerNodeUI(GafferScotch.FeatherDeformBarbs, None)
 
-# Metadata for Plugs
-
-# --- Input Sections ---
-Gaffer.Metadata.registerValue(
+Gaffer.Metadata.registerNode(
     GafferScotch.FeatherDeformBarbs,
-    "inPlug",
     "description",
-    "The input barb geometry (CurvesPrimitive with bind attributes) to be deformed.",
-)
-
-Gaffer.Metadata.registerValue(
-    GafferScotch.FeatherDeformBarbs,
-    "animatedShaftsPlug",
-    "description",
-    "The input animated shaft geometry (CurvesPrimitive) that will drive the barb deformation.",
-)
-Gaffer.Metadata.registerValue(
-    GafferScotch.FeatherDeformBarbs,
-    "animatedShaftsPlug",
-    "plugValueWidget:type",
-    "GafferUI.ScenePlugValueWidget",
-)
-
-# --- Attribute Names Section ---
-Gaffer.Metadata.registerValue(
-    GafferScotch.FeatherDeformBarbs,
-    "hairIdAttrNamePlug",
-    "layout:section",
-    "Animated Shaft Attributes",
-)
-Gaffer.Metadata.registerValue(
-    GafferScotch.FeatherDeformBarbs,
-    "hairIdAttrNamePlug",
-    "description",
-    "Name of the primitive variable (int or string, Uniform) on animated shafts that identifies matching hair/feather groups (must match 'bind_shaftHairId' on barbs).",
-)
-
-Gaffer.Metadata.registerValue(
-    GafferScotch.FeatherDeformBarbs,
-    "shaftUpVectorPrimVarNamePlug",
-    "layout:section",
-    "Animated Shaft Attributes",
-)
-Gaffer.Metadata.registerValue(
-    GafferScotch.FeatherDeformBarbs,
-    "shaftUpVectorPrimVarNamePlug",
-    "description",
-    "Optional name of the primitive variable (V3f, Uniform) on animated shafts defining their up-vector for orientation calculation.",
-)
-
-Gaffer.Metadata.registerValue(
-    GafferScotch.FeatherDeformBarbs,
-    "shaftPointOrientAttrNamePlug",
-    "layout:section",
-    "Animated Shaft Attributes",
-)
-Gaffer.Metadata.registerValue(
-    GafferScotch.FeatherDeformBarbs,
-    "shaftPointOrientAttrNamePlug",
-    "description",
-    "Optional name of the primitive variable (Quaternionf, Uniform or Vertex) on animated shafts defining their explicit orientation.",
-)
-
-# --- Output Controls Section ---
-Gaffer.Metadata.registerValue(
-    GafferScotch.FeatherDeformBarbs,
-    "cleanupBindAttributesPlug",
-    "layout:section",
-    "Output Controls",
-)
-Gaffer.Metadata.registerValue(
-    GafferScotch.FeatherDeformBarbs,
-    "cleanupBindAttributesPlug",
-    "description",
-    "If true, the 'bind_*' attributes created by FeatherAttachBarbs will be removed from the output barb geometry.",
-)
-Gaffer.Metadata.registerValue(
-    GafferScotch.FeatherDeformBarbs,
-    "cleanupBindAttributesPlug",
-    "plugValueWidget:type",
-    "GafferUI.BoolPlugValueWidget",
-)
-Gaffer.Metadata.registerValue(
-    GafferScotch.FeatherDeformBarbs,
-    "cleanupBindAttributesPlug",
-    "boolPlugValueWidget:displayMode",
-    "checkBox",
+    """
+    Deforms barb geometry based on the motion of animated shaft curves.
+    Uses binding data computed by the FeatherAttachBarbs node to create
+    natural-looking feather deformation.
+    """,
+    "icon",
+    ICON_PATH,
+    "nodeGadget:color",
+    imath.Color3f(0.42, 0.27, 0.23),
+    # Section collapse states
+    "layout:section:Input:collapsed",
+    False,
+    "layout:section:Animated Shaft Attributes:collapsed",
+    False,
+    "layout:section:Output Controls:collapsed",
+    False,
+    plugs={
+        "in": [
+            "description",
+            """
+            The input barb geometry (CurvesPrimitive with bind attributes) to be deformed.
+            """,
+            "nodule:type",
+            "GafferUI::StandardNodule",
+            "layout:section",
+            "Input",
+        ],
+        "animatedShafts": [
+            "description",
+            """
+            The input animated shaft geometry (CurvesPrimitive) that will drive the barb deformation.
+            """,
+            "nodule:type",
+            "GafferUI::StandardNodule",
+            "plugValueWidget:type",
+            "GafferUI.ScenePlugValueWidget",
+            "layout:section",
+            "Input",
+        ],
+        "hairIdAttrName": [
+            "description",
+            """
+            Name of the primitive variable (int or string, Uniform) on animated shafts that 
+            identifies matching hair/feather groups (must match 'bind_shaftHairId' on barbs).
+            """,
+            "layout:section",
+            "Animated Shaft Attributes",
+        ],
+        "shaftUpVectorPrimVarName": [
+            "description",
+            """
+            Optional name of the primitive variable (V3f, Uniform) on animated shafts 
+            defining their up-vector for orientation calculation.
+            """,
+            "layout:section",
+            "Animated Shaft Attributes",
+        ],
+        "shaftPointOrientAttrName": [
+            "description",
+            """
+            Optional name of the primitive variable (Quaternionf, Uniform or Vertex) on animated
+            shafts defining their explicit orientation.
+            """,
+            "layout:section",
+            "Animated Shaft Attributes",
+        ],
+        "cleanupBindAttributes": [
+            "description",
+            """
+            If true, the 'bind_*' attributes created by FeatherAttachBarbs will be 
+            removed from the output barb geometry.
+            """,
+            "layout:section",
+            "Output Controls",
+            "plugValueWidget:type",
+            "GafferUI.BoolPlugValueWidget",
+            "boolPlugValueWidget:displayMode",
+            "checkBox",
+        ],
+    },
 )
 
 # Example of how you might add metadata for plugs later:
