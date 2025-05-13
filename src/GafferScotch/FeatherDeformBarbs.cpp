@@ -135,6 +135,24 @@ namespace
             }
         }
     }
+
+    // Helper to hash curves topology
+    void hashTopology(const CurvesPrimitive *curves, MurmurHash &h)
+    {
+        if (!curves)
+            return;
+
+        const std::vector<int> &verticesPerCurve = curves->verticesPerCurve()->readable();
+
+        h.append(verticesPerCurve.size());
+        if (!verticesPerCurve.empty())
+        {
+            h.append(&verticesPerCurve[0], verticesPerCurve.size());
+        }
+
+        h.append(curves->basis());
+        h.append(curves->periodic());
+    }
 }
 
 IE_CORE_DEFINERUNTIMETYPED(FeatherDeformBarbs);
@@ -287,11 +305,13 @@ void FeatherDeformBarbs::hashProcessedObject(const ScenePath &path, const Gaffer
         return;
     }
 
-    // Hash input barbs
-    h.append(inPlug()->objectHash(path));
+    // Hash input barbs - only positions and topology are needed
+    hashPositions(barbs, h);
+    hashTopology(barbs, h);
     
-    // Hash animated shafts
-    h.append(animatedShaftsPlug()->objectHash(path));
+    // Hash animated shafts - only positions and topology are needed
+    hashPositions(animatedShafts, h);
+    hashTopology(animatedShafts, h);
     
     // Hash binding data
     hashBindingData(barbs, h);
@@ -330,12 +350,13 @@ void FeatherDeformBarbs::hashProcessedObjectBound(const ScenePath &path, const G
         return;
     }
 
-    // Hash input bound
-    h.append(inPlug()->boundHash(path));
+    // Hash input barbs - only positions and topology are needed for bound calculation
+    hashPositions(barbs, h);
+    hashTopology(barbs, h);
     
-    // Hash animated shafts
-    h.append(animatedShaftsPlug()->objectHash(path));
-    h.append(animatedShaftsPlug()->boundHash(path));
+    // Hash animated shafts - only positions and topology are needed for bound calculation
+    hashPositions(animatedShafts, h);
+    hashTopology(animatedShafts, h);
     
     // Hash binding data
     hashBindingData(barbs, h);

@@ -115,6 +115,24 @@ namespace
             h.append(&vertexIds[0], vertexIds.size());
         }
     }
+
+    // Helper to hash curves topology
+    void hashTopology(const CurvesPrimitive *curves, MurmurHash &h)
+    {
+        if (!curves)
+            return;
+
+        const std::vector<int> &verticesPerCurve = curves->verticesPerCurve()->readable();
+
+        h.append(verticesPerCurve.size());
+        if (!verticesPerCurve.empty())
+        {
+            h.append(&verticesPerCurve[0], verticesPerCurve.size());
+        }
+
+        h.append(curves->basis());
+        h.append(curves->periodic());
+    }
 }
 
 IE_CORE_DEFINERUNTIMETYPED(FeatherAttachBarbs);
@@ -287,15 +305,14 @@ void FeatherAttachBarbs::hashProcessedObject(const ScenePath &path, const Gaffer
         }
     }
 
-    // Hash input curves
-    h.append(inPlug()->objectHash(path));
+    // Hash input curves - only positions and topology are needed
+    hashPositions(barbs, h);
+    hashTopology(barbs, h);
     
-    // Hash shafts
-    h.append(inShaftsPlug()->objectHash(path));
+    // Hash shafts - only positions and topology are needed
+    hashPositions(shafts, h);
+    hashTopology(shafts, h);
     
-    // Hash barbs if different from input
-    h.append(inBarbsPlug()->objectHash(path));
-
     // Hash parameters
     hairIdAttrNamePlug()->hash(h);
     shaftPointIdAttrNamePlug()->hash(h);
