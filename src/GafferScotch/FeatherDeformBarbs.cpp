@@ -1,7 +1,7 @@
 #include "GafferScotch/FeatherDeformBarbs.h"
 
 #include "Gaffer/StringPlug.h"
-#include "Gaffer/BoolPlug.h"
+#include "Gaffer/TypedPlug.h"
 #include "GafferScene/ScenePlug.h"
 
 #include "IECoreScene/CurvesPrimitive.h"
@@ -413,7 +413,13 @@ IECore::ConstObjectPtr FeatherDeformBarbs::computeProcessedObject( const ScenePa
     // std::map<HairIdVariant, AnimShaftInfo> animShaftDataMap; // REPLACE
     std::map<int, AnimShaftInfo> animShaftDataMap; // WITH THIS
 
-    const PrimitiveVariable* animShaftsHairIdPV = findPrimitiveVariable( animatedShaftsCurves->variables, hairIdAttrName );
+    const PrimitiveVariable* animShaftsHairIdPV = nullptr;
+    auto animShaftsHairIdIt = animatedShaftsCurves->variables.find( hairIdAttrName );
+    if( animShaftsHairIdIt != animatedShaftsCurves->variables.end() )
+    {
+        animShaftsHairIdPV = &(animShaftsHairIdIt->second);
+    }
+
     if( !animShaftsHairIdPV )
     {
         msg( Msg::Warning, "FeatherDeformBarbs", boost::format("Animated shafts missing '%1%' attribute.") % hairIdAttrName );
@@ -423,17 +429,31 @@ IECore::ConstObjectPtr FeatherDeformBarbs::computeProcessedObject( const ScenePa
     // const StringVectorData* animShaftsHairIdString = runTimeCast<const StringVectorData>( animShaftsHairIdPV->data.get() ); // REMOVE
     // if( (!animShaftsHairIdInt && !animShaftsHairIdString) ||  // REPLACE
     if( !animShaftsHairIdInt || 
-        (animShaftsHairIdPV->interpolation != PrimitiveVariable::Uniform && animShaftsHairIdPV->interpolation != PrimitiveVariable::Primitive) )
+        (animShaftsHairIdPV->interpolation != PrimitiveVariable::Uniform) )
     {
         // msg( Msg::Warning, "FeatherDeformBarbs", boost::format("'%1%' attribute on animated shafts has incorrect type or interpolation.") % hairIdAttrName ); // REPLACE
-        msg( Msg::Warning, "FeatherDeformBarbs", boost::format("'%1%' attribute on animated shafts must be IntVectorData with Uniform or Primitive interpolation.") % hairIdAttrName ); // WITH THIS
+        msg( Msg::Warning, "FeatherDeformBarbs", boost::format("'%1%' attribute on animated shafts must be IntVectorData with Uniform interpolation.") % hairIdAttrName ); // WITH THIS
         return inputObject;
     }
 
     const PrimitiveVariable* animShaftsUpVecPV = nullptr;
-    if(!shaftUpVectorPrimVarName.empty()) animShaftsUpVecPV = findPrimitiveVariable(animatedShaftsCurves->variables, shaftUpVectorPrimVarName);
+    if(!shaftUpVectorPrimVarName.empty())
+    {
+        auto animShaftsUpVecIt = animatedShaftsCurves->variables.find( shaftUpVectorPrimVarName );
+        if( animShaftsUpVecIt != animatedShaftsCurves->variables.end() )
+        {
+            animShaftsUpVecPV = &(animShaftsUpVecIt->second);
+        }
+    }
     const PrimitiveVariable* animShaftsOrientPV = nullptr;
-    if(!shaftPointOrientAttrName.empty()) animShaftsOrientPV = findPrimitiveVariable(animatedShaftsCurves->variables, shaftPointOrientAttrName);
+    if(!shaftPointOrientAttrName.empty())
+    {
+        auto animShaftsOrientIt = animatedShaftsCurves->variables.find( shaftPointOrientAttrName );
+        if( animShaftsOrientIt != animatedShaftsCurves->variables.end() )
+        {
+            animShaftsOrientPV = &(animShaftsOrientIt->second);
+        }
+    }
 
     for( size_t i = 0; i < animatedShaftsCurves->numCurves(); ++i )
     {

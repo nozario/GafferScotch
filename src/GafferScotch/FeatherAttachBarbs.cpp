@@ -327,7 +327,13 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePa
     };
     std::map<int, ShaftInfo> shaftDataMap;
 
-    const PrimitiveVariable* shaftsHairIdPV = findPrimitiveVariable( inShaftsCurves->variables, hairIdAttrName );
+    const PrimitiveVariable* shaftsHairIdPV = nullptr;
+    auto shaftsHairIdIt = inShaftsCurves->variables.find( hairIdAttrName );
+    if( shaftsHairIdIt != inShaftsCurves->variables.end() )
+    {
+        shaftsHairIdPV = &(shaftsHairIdIt->second);
+    }
+
     if( !shaftsHairIdPV )
     {
         msg( Msg::Warning, "FeatherAttachBarbs", boost::format("Shafts missing '%1%' attribute.") % hairIdAttrName );
@@ -341,36 +347,65 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePa
         msg( Msg::Warning, "FeatherAttachBarbs", boost::format("'%1%' attribute on shafts must be IntVectorData.") % hairIdAttrName );
         return inputObject;
     }
-    if( shaftsHairIdPV->interpolation != PrimitiveVariable::Uniform && shaftsHairIdPV->interpolation != PrimitiveVariable::Primitive )
+    if( shaftsHairIdPV->interpolation != PrimitiveVariable::Uniform )
     {
-        msg( Msg::Warning, "FeatherAttachBarbs", boost::format("'%1%' attribute on shafts must have Uniform or Primitive interpolation.") % hairIdAttrName );
+        msg( Msg::Warning, "FeatherAttachBarbs", boost::format("'%1%' attribute on shafts must have Uniform interpolation.") % hairIdAttrName );
         return inputObject;
     }
 
     const PrimitiveVariable* shaftsUpVecPV = nullptr;
     if(!shaftUpVectorPrimVarName.empty())
-        shaftsUpVecPV = findPrimitiveVariable(inShaftsCurves->variables, shaftUpVectorPrimVarName);
+    {
+        auto shaftsUpVecIt = inShaftsCurves->variables.find( shaftUpVectorPrimVarName );
+        if( shaftsUpVecIt != inShaftsCurves->variables.end() )
+        {
+            shaftsUpVecPV = &(shaftsUpVecIt->second);
+        }
+    }
     
     const PrimitiveVariable* shaftsOrientPV = nullptr;
     if(!shaftPointOrientAttrName.empty())
-        shaftsOrientPV = findPrimitiveVariable(inShaftsCurves->variables, shaftPointOrientAttrName);
+    {
+        auto shaftsOrientIt = inShaftsCurves->variables.find( shaftPointOrientAttrName );
+        if( shaftsOrientIt != inShaftsCurves->variables.end() )
+        {
+            shaftsOrientPV = &(shaftsOrientIt->second);
+        }
+    }
 
     for( size_t i = 0; i < inShaftsCurves->numCurves(); ++i )
     {
         int id;
         id = shaftsHairIdInt->readable()[ (shaftsHairIdPV->interpolation == PrimitiveVariable::Uniform && !shaftsHairIdInt->readable().empty()) ? 0 : i ];
         shaftDataMap[id] = { (int)i, shaftsP, 
-                             runTimeCast<const V3fVectorData>(shaftsUpVecPV ? shaftsUpVecPV->data.get() : nullptr),
-                             runTimeCast<const V4fVectorData>(shaftsOrientPV ? shaftsOrientPV->data.get() : nullptr),
+                             runTimeCast<const IECore::V3fVectorData>(shaftsUpVecPV ? shaftsUpVecPV->data.get() : nullptr),
+                             runTimeCast<const IECore::V4fVectorData>(shaftsOrientPV ? shaftsOrientPV->data.get() : nullptr),
                              shaftsUpVecPV,
                              shaftsOrientPV
                            };
     }
 
     // --- Prepare barb attributes ---
-    const PrimitiveVariable* barbsHairIdPV = findPrimitiveVariable( inBarbsCurves->variables, hairIdAttrName );
-    const PrimitiveVariable* barbsShaftPointIdPV = findPrimitiveVariable( inBarbsCurves->variables, shaftPointIdAttrName );
-    const PrimitiveVariable* barbsParamPV = findPrimitiveVariable( inBarbsCurves->variables, barbParamAttrName );
+    const PrimitiveVariable* barbsHairIdPV = nullptr;
+    auto barbsHairIdIt = inBarbsCurves->variables.find( hairIdAttrName );
+    if( barbsHairIdIt != inBarbsCurves->variables.end() )
+    {
+        barbsHairIdPV = &(barbsHairIdIt->second);
+    }
+
+    const PrimitiveVariable* barbsShaftPointIdPV = nullptr;
+    auto barbsShaftPointIdIt = inBarbsCurves->variables.find( shaftPointIdAttrName );
+    if( barbsShaftPointIdIt != inBarbsCurves->variables.end() )
+    {
+        barbsShaftPointIdPV = &(barbsShaftPointIdIt->second);
+    }
+
+    const PrimitiveVariable* barbsParamPV = nullptr;
+    auto barbsParamIt = inBarbsCurves->variables.find( barbParamAttrName );
+    if( barbsParamIt != inBarbsCurves->variables.end() )
+    {
+        barbsParamPV = &(barbsParamIt->second);
+    }
 
     if( !barbsHairIdPV || !barbsShaftPointIdPV || !barbsParamPV )
     {
@@ -387,8 +422,8 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePa
         msg( Msg::Warning, "FeatherAttachBarbs", "Barb attributes have incorrect data types (expecting hairId as Int, shaftPointId as Int, param as Float)." );
         return inputObject;
     }
-    if( (barbsHairIdPV->interpolation != PrimitiveVariable::Uniform && barbsHairIdPV->interpolation != PrimitiveVariable::Primitive) ||
-        (barbsShaftPointIdPV->interpolation != PrimitiveVariable::Uniform && barbsShaftPointIdPV->interpolation != PrimitiveVariable::Primitive) ||
+    if( (barbsHairIdPV->interpolation != PrimitiveVariable::Uniform) ||
+        (barbsShaftPointIdPV->interpolation != PrimitiveVariable::Uniform) ||
         barbsParamPV->interpolation != PrimitiveVariable::Vertex )
     {
         msg( Msg::Warning, "FeatherAttachBarbs", "Barb attributes have incorrect interpolation types." );
