@@ -52,3 +52,5 @@ namespace GafferScotch
     IE_CORE_DECLAREPTR(FeatherAttachBarbs);
 
 } // namespace GafferScotch
+
+#endif // GAFFERSCOTCH_RIGIDATTACHCURVES_H

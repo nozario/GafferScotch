@@ -1,5 +1,5 @@
-#ifndef GAFFERSCOTCH_RIGIDATTACHCURVES_H
-#define GAFFERSCOTCH_RIGIDATTACHCURVES_H
+#ifndef GAFFERSCOTCH_FEATHERDEFORMBARBS_H
+#define GAFFERSCOTCH_FEATHERDEFORMBARBS_H
 
 #include "GafferScotch/Export.h"
 #include "GafferScotch/TypeIds.h"
@@ -45,7 +45,7 @@ namespace GafferScotch
         // These methods are specific to the Deformer base class and handle bounding box computations.
         bool affectsProcessedObjectBound(const Gaffer::Plug *input) const override;
         void hashProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const override;
-        Imath::Box3f computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const override;
+        Imath::Box3f computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const override;
 
     private:
         static size_t g_firstPlugIndex;
@@ -54,3 +54,5 @@ namespace GafferScotch
     IE_CORE_DECLAREPTR(FeatherDeformBarbs);
 
 }
+
+#endif // GAFFERSCOTCH_FEATHERDEFORMBARBS_H

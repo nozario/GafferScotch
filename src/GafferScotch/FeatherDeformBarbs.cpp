@@ -768,17 +768,19 @@ void FeatherDeformBarbs::hashProcessedObjectBound(const ScenePath &path, const G
     shaftPointOrientAttrNamePlug()->hash(h);
 }
 
-Imath::Box3f FeatherDeformBarbs::computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
+Imath::Box3f FeatherDeformBarbs::computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const
 {
-    // Stub: For now, just return the input object's bound.
-    // A more accurate bound would consider the animatedShafts' bound if barbs are strictly attached.
-    // Or, it would be the bound of the actually deformed points.
-    // Deformer::computeBoundFromInput() is a good default if we don't override hashProcessedObject and computeProcessedObject.
-    // However, since we are providing custom computeProcessedObject, we should ideally compute a tight bound.
+    // A more accurate bound would consider the animatedShafts' bound if barbs are strictly attached,
+    // or it would be the bound of the actually deformed points from computeProcessedObject.
+    // Since we are providing a custom computeProcessedObject, we should ideally compute a tight bound.
+
+    // Fetch the input object (barbs) using inPlug()
+    IECore::ConstObjectPtr inputObject = inPlug()->object( path );
 
     // For simplicity, let's try to compute a bound based on the animated shafts, assuming barbs follow them closely.
     // If animatedShaftsPlug is not connected or has no object, fallback to input bound.
-    Imath::Box3f animatedShaftsBound = animatedShaftsPlug()->bound(path);
+    Imath::Box3f animatedShaftsBound = animatedShaftsPlug()->bound(path); // This uses the context
+
     if (animatedShaftsBound.isEmpty())
     {
         if (inputObject)
@@ -789,13 +791,12 @@ Imath::Box3f FeatherDeformBarbs::computeProcessedObjectBound(const ScenePath &pa
     }
 
     // A more robust approach would be to compute the bound of the output of computeProcessedObject.
-    // This might be expensive if called often. Gaffer's Deformer base class often relies on
-    // the user connecting a separate Bound node if very tight bounds are needed and computeBoundFromInput is too slow.
+    // This might be expensive if called often.
 
     // For now, if we have animated shafts, assume the barbs will be roughly within or around that bound.
     // This is a heuristic.
-    Box3f inputBound = inputObject ? inputObject->bound() : Box3f();
-    animatedShaftsBound.extendBy(inputBound); // Combine for safety, though ideally deformed points define the bound.
+    Imath::Box3f inputBoundValue = inputObject ? inputObject->bound() : Imath::Box3f();
+    animatedShaftsBound.extendBy(inputBoundValue); // Combine for safety
     return animatedShaftsBound;
 }
 
