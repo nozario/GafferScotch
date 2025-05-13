@@ -18,7 +18,7 @@ namespace GafferScotch
         FeatherDeformBarbs(const std::string &name = staticTypeName());
         ~FeatherDeformBarbs() override;
 
-        IE_CORE_DECLARERUNTIMETYPEDEXTENSION(GafferScotch::FeatherDeformBarbs, FeatherDeformBarbsTypeId, GafferScene::Deformer);
+        IE_CORE_DECLARERUNTIMETYPEDEXTENSION(GafferScotch::FeatherDeformBarbs, GafferScotch::TypeId::FeatherDeformBarbsTypeId, GafferScene::Deformer);
 
         GafferScene::ScenePlug *animatedShaftsPlug();
         const GafferScene::ScenePlug *animatedShaftsPlug() const;
