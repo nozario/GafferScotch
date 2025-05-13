@@ -224,10 +224,10 @@ void FeatherAttachBarbs::hashProcessedObject(const ScenePath &path, const Gaffer
     h.append(inShaftsPlug()->objectHash(path)); // Hashing the specific object at the current path from inShafts
     // inBarbsPlug()->objectHash( path ) is implicitly included by ObjectProcessor::hashProcessedObject if inPlug() is connected to it.
     // Ensure we are hashing the correct input object if inPlug() is not directly inBarbsPlug()->objectPlug()
-    ConstObjectPtr inputObject = inPlug()->object(path);
-    if (inputObject)
+    ConstObjectPtr currentInputObject = inPlug()->object(path); // Renamed to avoid conflict
+    if (currentInputObject)
     { // Ensure input object is valid before hashing to avoid errors
-        inputObject->hash(h);
+        currentInputObject->hash(h);
     }
 
     hairIdAttrNamePlug()->hash(h);
@@ -242,7 +242,7 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
     const CurvesPrimitive *inBarbsCurves = runTimeCast<const CurvesPrimitive>(inputObject);
     if (!inBarbsCurves)
     {
-        return inputObject; // Not curves, pass through
+        return inputObject;
     }
 
     ConstObjectPtr shaftsObject = inShaftsPlug()->object(path);
@@ -254,104 +254,64 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
         return inputObject;
     }
 
-    // Retrieve attribute names from plugs
     const std::string hairIdAttr = hairIdAttrNamePlug()->getValue();
     const std::string shaftPointIdAttr = shaftPointIdAttrNamePlug()->getValue();
     const std::string barbParamAttr = barbParamAttrNamePlug()->getValue();
     const std::string shaftUpVectorAttr = shaftUpVectorPrimVarNamePlug()->getValue();
     const std::string shaftOrientAttr = shaftPointOrientAttrNamePlug()->getValue();
 
-    // --- Validation of essential components ---
     if (hairIdAttr.empty() || shaftPointIdAttr.empty() || barbParamAttr.empty())
     {
         IECore::msg(IECore::Msg::Warning, staticTypeName(), "One or more critical attribute name plugs are empty.");
         return inputObject;
     }
 
-    // Get P from barbs
     const V3fVectorData *barbsPData = inBarbsCurves->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
-    if (!barbsPData)
-    {
-        IECore::msg(IECore::Msg::Warning, staticTypeName(), "Input barbs are missing 'P' primitive variable.");
-        return inputObject;
-    }
+    if (!barbsPData) return inputObject;
     const std::vector<Imath::V3f> &barbsP = barbsPData->readable();
 
-    // Get P from shafts
     const V3fVectorData *shaftsPData = inShaftsCurves->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
-    if (!shaftsPData)
-    {
-        IECore::msg(IECore::Msg::Warning, staticTypeName(), "Input shafts are missing 'P' primitive variable.");
-        return inputObject;
-    }
+    if (!shaftsPData) return inputObject;
     const std::vector<Imath::V3f> &shaftsP = shaftsPData->readable();
 
-    // Get verticesPerCurve from barbs
     const IntVectorData *barbsVertsPerCurveData = inBarbsCurves->verticesPerCurve();
-    if (!barbsVertsPerCurveData)
-    {
-        IECore::msg(IECore::Msg::Warning, staticTypeName(), "Input barbs are missing verticesPerCurve data.");
-        return inputObject;
-    }
+    if (!barbsVertsPerCurveData || barbsVertsPerCurveData->readable().empty()) return inputObject;
     const std::vector<int> &barbsVertsPerCurve = barbsVertsPerCurveData->readable();
-    if (barbsVertsPerCurve.empty())
-    {
-        return inputObject; // No curves to process
-    }
 
-    // Get verticesPerCurve from shafts
     const IntVectorData *shaftsVertsPerCurveData = inShaftsCurves->verticesPerCurve();
-    if (!shaftsVertsPerCurveData)
-    {
-        IECore::msg(IECore::Msg::Warning, staticTypeName(), "Input shafts are missing verticesPerCurve data.");
-        return inputObject;
-    }
+    if (!shaftsVertsPerCurveData || shaftsVertsPerCurveData->readable().empty()) return inputObject;
     const std::vector<int> &shaftsVertsPerCurve = shaftsVertsPerCurveData->readable();
-    if (shaftsVertsPerCurve.empty())
-    {
-        IECore::msg(IECore::Msg::Warning, staticTypeName(), "Input shafts have no curves to process.");
-        return inputObject; // No shaft curves to process
-    }
 
-    // --- Prepare output curves ---
     CurvesPrimitivePtr resultCurves = new CurvesPrimitive();
-    resultCurves->setTopologyUnchecked(
-        barbsVertsPerCurveData->copy(),
-        inBarbsCurves->basis(),
-        inBarbsCurves->periodic());
-
-    // Copy existing primvars from barbs to result, except P which will be computed if necessary (though for Attach, P is usually not changed)
+    resultCurves->setTopologyUnchecked(barbsVertsPerCurveData->copy(), inBarbsCurves->basis(), inBarbsCurves->periodic());
     for (const auto &[name, primVar] : inBarbsCurves->variables)
     {
-        if (name != "P") // P is taken from barbsPData directly if needed, or not modified by Attach
-        {
-            resultCurves->variables[name] = primVar;
-        }
+        if (name != "P") resultCurves->variables[name] = primVar;
     }
-    // Ensure P is present in the output, using the original barb positions for now.
     resultCurves->variables["P"] = PrimitiveVariable(PrimitiveVariable::Vertex, barbsPData->copy());
 
-    // --- Retrieve shaft attributes (hairId, up-vector, orientation) ---
-    const PrimitiveVariable::DataAndInterpolation shaftHairIdPrimVar = SceneAlgo::primitiveVariable(inShaftsCurves, hairIdAttr);
-    if (!shaftHairIdPrimVar.data)
+    // --- Shaft Attribute Fetching (Directly) ---
+    auto shaftHairIdIt = inShaftsCurves->variables.find(hairIdAttr);
+    if (shaftHairIdIt == inShaftsCurves->variables.end() || !shaftHairIdIt->second.data)
     {
         IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Missing required primitive variable '%s' on input shafts.") % hairIdAttr);
         return inputObject;
     }
+    const Data* rawShaftHairIdDataPtr = shaftHairIdIt->second.data.get();
+    PrimitiveVariable::Interpolation shaftHairIdInterpolation = shaftHairIdIt->second.interpolation;
+
 
     const V3fVectorData *shaftUpVectorData = nullptr;
     PrimitiveVariable::Interpolation shaftUpVectorInterpolation = PrimitiveVariable::Invalid;
     if (!shaftUpVectorAttr.empty())
     {
-        shaftUpVectorData = inShaftsCurves->variableData<V3fVectorData>(shaftUpVectorAttr, PrimitiveVariable::Uniform); // Assuming Uniform as per plan
-        if (!shaftUpVectorData)
-        {
-            IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Shaft up-vector attribute '%s' not found or not V3fVectorData (Uniform).") % shaftUpVectorAttr);
-            // This is optional, so we can continue
-        }
-        else
-        {
-            shaftUpVectorInterpolation = PrimitiveVariable::Uniform;
+        auto it = inShaftsCurves->variables.find(shaftUpVectorAttr);
+        if (it != inShaftsCurves->variables.end() && it->second.data) {
+            shaftUpVectorData = runTimeCast<const V3fVectorData>(it->second.data.get());
+            if(shaftUpVectorData) shaftUpVectorInterpolation = it->second.interpolation;
+            else IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Shaft up-vector attribute '%s' not V3fVectorData.") % shaftUpVectorAttr);
+        } else {
+             IECore::msg(IECore::Msg::Debug, staticTypeName(), boost::format("Shaft up-vector attribute '%s' not found.") % shaftUpVectorAttr);
         }
     }
 
@@ -359,189 +319,106 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
     PrimitiveVariable::Interpolation shaftOrientInterpolation = PrimitiveVariable::Invalid;
     if (!shaftOrientAttr.empty())
     {
-        // Check for Vertex interpolation first, then Uniform
-        shaftOrientData = inShaftsCurves->variableData<V4fVectorData>(shaftOrientAttr, PrimitiveVariable::Vertex);
-        if (shaftOrientData)
-        {
-            shaftOrientInterpolation = PrimitiveVariable::Vertex;
-        }
-        else
-        {
-            shaftOrientData = inShaftsCurves->variableData<V4fVectorData>(shaftOrientAttr, PrimitiveVariable::Uniform);
-            if (shaftOrientData)
-            {
-                shaftOrientInterpolation = PrimitiveVariable::Uniform;
-            }
-        }
-
-        if (!shaftOrientData)
-        {
-            IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Shaft orientation attribute '%s' not found or not V4fVectorData (Vertex or Uniform).") % shaftOrientAttr);
-            // This is optional, so we can continue
+        auto it = inShaftsCurves->variables.find(shaftOrientAttr);
+        if (it != inShaftsCurves->variables.end() && it->second.data) {
+            shaftOrientData = runTimeCast<const V4fVectorData>(it->second.data.get());
+            if(shaftOrientData) shaftOrientInterpolation = it->second.interpolation;
+            else IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Shaft orientation attribute '%s' not V4fVectorData.") % shaftOrientAttr);
+        } else {
+            IECore::msg(IECore::Msg::Debug, staticTypeName(), boost::format("Shaft orientation attribute '%s' not found.") % shaftOrientAttr);
         }
     }
 
-    // --- Prepare Shaft Lookup Map ---
     std::map<int, ShaftInfo> intShaftLookup;
     std::map<std::string, ShaftInfo> stringShaftLookup;
     bool shaftsHaveIntHairId = false;
     bool shaftsHaveStringHairId = false;
+    size_t currentShaftPrimitivePointOffset = 0; // Renamed to avoid conflict
 
-    // Process shaft hair IDs
-    size_t currentShaftPointOffset = 0;
     for (size_t i = 0; i < shaftsVertsPerCurve.size(); ++i)
     {
         const int numShaftCVs = shaftsVertsPerCurve[i];
-        if (numShaftCVs <= 0)
-            continue;
+        if (numShaftCVs <= 0) continue;
 
         ShaftInfo info;
         info.primitiveIndex = i;
-        // This needs to be a sub-vector or a pointer to the start of this curve's points in shaftsP
-        // For now, let's pass all points and use an offset, though direct sub-vector is cleaner if possible.
-        // Actual points for this curve: std::vector<Imath::V3f>(shaftsP.begin() + currentShaftPointOffset, shaftsP.begin() + currentShaftPointOffset + numShaftCVs)
-        info.points = &shaftsP; // This will be combined with currentShaftPointOffset for lookup
+        info.points = &shaftsP;
         info.numPoints = numShaftCVs;
         info.upVector = nullptr;
         info.orientQuaternion = nullptr;
         info.orientInterpolation = PrimitiveVariable::Invalid;
 
-        if (shaftUpVectorData && shaftUpVectorData->readable().size() > i) // Uniform check for up-vector
-        {
-            info.upVector = &(shaftUpVectorData->readable()[i]);
-            // As per plan, shaftUpVector is Uniform, so one per shaft primitive
-            // If shaftUpVectorData->readable().size() == 1, it applies to all, otherwise per prim.
-            if (shaftUpVectorData->interpolation() == PrimitiveVariable::Uniform && shaftUpVectorData->readable().size() == 1)
-            {
+        if (shaftUpVectorData) {
+            if (shaftUpVectorInterpolation == PrimitiveVariable::Constant && !shaftUpVectorData->readable().empty())
                 info.upVector = &(shaftUpVectorData->readable()[0]);
-            }
-            else if (shaftUpVectorData->interpolation() == PrimitiveVariable::Uniform && shaftUpVectorData->readable().size() > i)
-            {
+            else if (shaftUpVectorInterpolation == PrimitiveVariable::Uniform && shaftUpVectorData->readable().size() > i)
                 info.upVector = &(shaftUpVectorData->readable()[i]);
-            }
-            else
-            {
-                info.upVector = nullptr; // Mismatch or invalid data for this prim
-            }
         }
 
-        if (shaftOrientData)
-        {
-            info.orientInterpolation = shaftOrientInterpolation; // From previous check
-            if (shaftOrientInterpolation == PrimitiveVariable::Uniform)
-            {
-                if (shaftOrientData->readable().size() == 1)
-                {
-                    info.orientQuaternion = &(shaftOrientData->readable()[0]);
-                }
-                else if (shaftOrientData->readable().size() > i)
-                {
-                    info.orientQuaternion = &(shaftOrientData->readable()[i]);
-                }
-            }
-            // If Vertex, we handle it per point later. For Uniform, we store the per-primitive quaternion here.
+        if (shaftOrientData) {
+            info.orientInterpolation = shaftOrientInterpolation;
+            if (shaftOrientInterpolation == PrimitiveVariable::Constant && !shaftOrientData->readable().empty())
+                info.orientQuaternion = &(shaftOrientData->readable()[0]);
+            else if (shaftOrientInterpolation == PrimitiveVariable::Uniform && shaftOrientData->readable().size() > i)
+                info.orientQuaternion = &(shaftOrientData->readable()[i]);
+            // Vertex data handled per-point later
         }
 
-        // Get hairId for this shaft primitive
-        if (const IntData *idData = runTimeCast<const IntData>(shaftHairIdPrimVar.data.get()))
-        {
-            shaftsHaveIntHairId = true;
+        bool idFoundForShaft = false;
+        if (const IntData *idData = runTimeCast<const IntData>(rawShaftHairIdDataPtr)) {
+            shaftsHaveIntHairId = true; idFoundForShaft = true;
             int id = 0;
-            if (shaftHairIdPrimVar.interpolation == PrimitiveVariable::Uniform && idData->readable().size() == 1) // Can be Uniform for single prim object
-                id = idData->readable()[0];
-            else if ((shaftHairIdPrimVar.interpolation == PrimitiveVariable::Uniform || shaftHairIdPrimVar.interpolation == PrimitiveVariable::Constant) && idData->readable().size() > i) // Check Uniform for multi-prim
-                id = idData->readable()[i];
-            else if (shaftHairIdPrimVar.interpolation == PrimitiveVariable::Constant && !idData->readable().empty())
-                id = idData->readable()[0];
-            else
-            { /* Warning or skip */
-                IECore::msg(IECore::Msg::Debug, staticTypeName(), boost::format("Skipping shaft %d due to hairId mismatch (IntData).") % i);
-                currentShaftPointOffset += numShaftCVs;
-                continue;
-            }
-            intShaftLookup[id] = info;
-        }
-        else if (const StringData *idData = runTimeCast<const StringData>(shaftHairIdPrimVar.data.get()))
-        {
-            shaftsHaveStringHairId = true;
+            if (shaftHairIdInterpolation == PrimitiveVariable::Constant && !idData->readable().empty()) id = idData->readable()[0];
+            else if (shaftHairIdInterpolation == PrimitiveVariable::Uniform && idData->readable().size() > i) id = idData->readable()[i];
+            else if (shaftHairIdInterpolation == PrimitiveVariable::Uniform && idData->readable().size()==1 && i==0) id = idData->readable()[0]; // Special case: Uniform with 1 element for single prim
+            else { idFoundForShaft = false; IECore::msg(IECore::Msg::Debug, staticTypeName(), "Shaft IntData hairId interp/size mismatch."); }
+            if(idFoundForShaft) intShaftLookup[id] = info;
+        } else if (const StringData *idData = runTimeCast<const StringData>(rawShaftHairIdDataPtr)) {
+            shaftsHaveStringHairId = true; idFoundForShaft = true;
             std::string id;
-            if (shaftHairIdPrimVar.interpolation == PrimitiveVariable::Uniform && idData->readable().size() == 1)
-                id = idData->readable()[0];
-            else if ((shaftHairIdPrimVar.interpolation == PrimitiveVariable::Uniform || shaftHairIdPrimVar.interpolation == PrimitiveVariable::Constant) && idData->readable().size() > i)
-                id = idData->readable()[i];
-            else if (shaftHairIdPrimVar.interpolation == PrimitiveVariable::Constant && !idData->readable().empty())
-                id = idData->readable()[0];
-            else
-            { /* Warning or skip */
-                IECore::msg(IECore::Msg::Debug, staticTypeName(), boost::format("Skipping shaft %d due to hairId mismatch (StringData).") % i);
-                currentShaftPointOffset += numShaftCVs;
-                continue;
-            }
-            stringShaftLookup[id] = info;
-        }
-        else if (const IntVectorData *idVecData = runTimeCast<const IntVectorData>(shaftHairIdPrimVar.data.get())) // Handle IntVectorData for Uniform/Primitive
-        {
-            shaftsHaveIntHairId = true;
+            if (shaftHairIdInterpolation == PrimitiveVariable::Constant && !idData->readable().empty()) id = idData->readable()[0];
+            else if (shaftHairIdInterpolation == PrimitiveVariable::Uniform && idData->readable().size() > i) id = idData->readable()[i];
+            else if (shaftHairIdInterpolation == PrimitiveVariable::Uniform && idData->readable().size()==1 && i==0) id = idData->readable()[0];
+            else { idFoundForShaft = false; IECore::msg(IECore::Msg::Debug, staticTypeName(), "Shaft StringData hairId interp/size mismatch."); }
+            if(idFoundForShaft) stringShaftLookup[id] = info;
+        } else if (const IntVectorData *idVecData = runTimeCast<const IntVectorData>(rawShaftHairIdDataPtr)) {
+            shaftsHaveIntHairId = true; idFoundForShaft = true;
             int id = 0;
-            // For Uniform, IntVectorData would typically have 1 element per primitive if it's per-primitive uniform.
-            // Or 1 element total if it's Constant for the whole object.
-            if (shaftHairIdPrimVar.interpolation == PrimitiveVariable::Uniform && idVecData->readable().size() > i)
-                id = idVecData->readable()[i];
-            else if (shaftHairIdPrimVar.interpolation == PrimitiveVariable::Constant && !idVecData->readable().empty())
-                id = idVecData->readable()[0]; // Constant applies to all
-            else
-            { /* Warning or skip */
-                IECore::msg(IECore::Msg::Debug, staticTypeName(), boost::format("Skipping shaft %d due to hairId mismatch (IntVectorData).") % i);
-                currentShaftPointOffset += numShaftCVs;
-                continue;
-            }
-            intShaftLookup[id] = info;
-        }
-        else if (const StringVectorData *idVecData = runTimeCast<const StringVectorData>(shaftHairIdPrimVar.data.get())) // Handle StringVectorData for Uniform/Primitive
-        {
-            shaftsHaveStringHairId = true;
+            if (shaftHairIdInterpolation == PrimitiveVariable::Constant && !idVecData->readable().empty()) id = idVecData->readable()[0];
+            else if (shaftHairIdInterpolation == PrimitiveVariable::Uniform && idVecData->readable().size() > i) id = idVecData->readable()[i];
+             else { idFoundForShaft = false; IECore::msg(IECore::Msg::Debug, staticTypeName(), "Shaft IntVectorData hairId interp/size mismatch."); }
+            if(idFoundForShaft) intShaftLookup[id] = info;
+        } else if (const StringVectorData *idVecData = runTimeCast<const StringVectorData>(rawShaftHairIdDataPtr)) {
+            shaftsHaveStringHairId = true; idFoundForShaft = true;
             std::string id;
-            if (shaftHairIdPrimVar.interpolation == PrimitiveVariable::Uniform && idVecData->readable().size() > i)
-                id = idVecData->readable()[i];
-            else if (shaftHairIdPrimVar.interpolation == PrimitiveVariable::Constant && !idVecData->readable().empty())
-                id = idVecData->readable()[0]; // Constant applies to all
-            else
-            { /* Warning or skip */
-                IECore::msg(IECore::Msg::Debug, staticTypeName(), boost::format("Skipping shaft %d due to hairId mismatch (StringVectorData).") % i);
-                currentShaftPointOffset += numShaftCVs;
-                continue;
-            }
-            stringShaftLookup[id] = info;
+            if (shaftHairIdInterpolation == PrimitiveVariable::Constant && !idVecData->readable().empty()) id = idVecData->readable()[0];
+            else if (shaftHairIdInterpolation == PrimitiveVariable::Uniform && idVecData->readable().size() > i) id = idVecData->readable()[i];
+            else { idFoundForShaft = false; IECore::msg(IECore::Msg::Debug, staticTypeName(), "Shaft StringVectorData hairId interp/size mismatch."); }
+            if(idFoundForShaft) stringShaftLookup[id] = info;
         }
-        currentShaftPointOffset += numShaftCVs;
+
+        if (!idFoundForShaft) {
+             IECore::msg(IECore::Msg::Debug, staticTypeName(), boost::format("Skipping shaft %d due to unhandled hairId type or structure.") % i);
+        }
+        currentShaftPrimitivePointOffset += numShaftCVs;
     }
 
-    if (!shaftsHaveIntHairId && !shaftsHaveStringHairId)
-    {
-        IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Shaft hair ID attribute '%s' has unsupported data type or interpolation.") % hairIdAttr);
+    if (!shaftsHaveIntHairId && !shaftsHaveStringHairId) {
+        IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Shaft hair ID attribute '%s' has unsupported data type or no valid entries found.") % hairIdAttr);
         return inputObject;
     }
 
-    // --- Initialize output primitive variables for binding data ---
-    // These will be uniform, one value per output barb primitive.
-    // Get numBarbs from barbsVertsPerCurve.size()
     const size_t numBarbs = barbsVertsPerCurve.size();
-
     DataPtr bind_shaftHairId_data;
-    if (shaftsHaveIntHairId)
-        bind_shaftHairId_data = new IntVectorData();
-    else
-        bind_shaftHairId_data = new StringVectorData();
+    if (shaftsHaveIntHairId) bind_shaftHairId_data = new IntVectorData();
+    else bind_shaftHairId_data = new StringVectorData();
     std::vector<int> *bind_shaftHairId_int_writable = shaftsHaveIntHairId ? &(static_cast<IntVectorData *>(bind_shaftHairId_data.get())->writable()) : nullptr;
     std::vector<std::string> *bind_shaftHairId_str_writable = shaftsHaveStringHairId ? &(static_cast<StringVectorData *>(bind_shaftHairId_data.get())->writable()) : nullptr;
-    if (bind_shaftHairId_int_writable)
-        bind_shaftHairId_int_writable->reserve(numBarbs);
-    if (bind_shaftHairId_str_writable)
-        bind_shaftHairId_str_writable->reserve(numBarbs);
+    if (bind_shaftHairId_int_writable) bind_shaftHairId_int_writable->reserve(numBarbs);
+    if (bind_shaftHairId_str_writable) bind_shaftHairId_str_writable->reserve(numBarbs);
 
     IntVectorDataPtr bind_shaftPointId_data = new IntVectorData();
     bind_shaftPointId_data->writable().reserve(numBarbs);
-
     V3fVectorDataPtr bind_shaftRest_P_data = new V3fVectorData();
     bind_shaftRest_P_data->writable().reserve(numBarbs);
     V3fVectorDataPtr bind_shaftRest_T_data = new V3fVectorData();
@@ -553,389 +430,214 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
     V3fVectorDataPtr bind_barbRootOffsetLocal_data = new V3fVectorData();
     bind_barbRootOffsetLocal_data->writable().reserve(numBarbs);
 
-    // Pre-calculate shaft point offsets for easier lookup within the global shaftsP vector
     std::vector<size_t> shaftCurveStartPointIndices(shaftsVertsPerCurve.size());
     size_t runningShaftPointTotal = 0;
-    for (size_t i = 0; i < shaftsVertsPerCurve.size(); ++i)
-    {
+    for (size_t i = 0; i < shaftsVertsPerCurve.size(); ++i) {
         shaftCurveStartPointIndices[i] = runningShaftPointTotal;
         runningShaftPointTotal += shaftsVertsPerCurve[i];
     }
 
-    // --- Retrieve barb attributes needed for matching BEFORE the loop ---
-    const PrimitiveVariable::DataAndInterpolation barbHairIdPrimVar = SceneAlgo::primitiveVariable(inBarbsCurves, hairIdAttr);
-    if (!barbHairIdPrimVar.data)
-    {
-        IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Missing required primitive variable '%s' on input barbs (for hair ID). Will not be able to bind any barbs.") % hairIdAttr);
-        // Add default bind attributes for all barbs if we proceed
-        for (size_t barbIdx = 0; barbIdx < numBarbs; ++barbIdx)
-        {
-            if (bind_shaftHairId_int_writable) bind_shaftHairId_int_writable->push_back(0);
-            else if (bind_shaftHairId_str_writable) bind_shaftHairId_str_writable->push_back("");
-            bind_shaftPointId_data->writable().push_back(-1);
-            bind_shaftRest_P_data->writable().push_back(Imath::V3f(0));
-            bind_shaftRest_T_data->writable().push_back(Imath::V3f(1,0,0));
-            bind_shaftRest_B_data->writable().push_back(Imath::V3f(0,1,0));
-            bind_shaftRest_N_data->writable().push_back(Imath::V3f(0,0,1));
-            bind_barbRootOffsetLocal_data->writable().push_back(Imath::V3f(0));
+    // --- Barb Attribute Fetching (Directly) ---
+    auto barbHairIdIt = inBarbsCurves->variables.find(hairIdAttr);
+    if (barbHairIdIt == inBarbsCurves->variables.end() || !barbHairIdIt->second.data) {
+        IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Missing required primitive variable '%s' on input barbs (for hair ID).") % hairIdAttr);
+        // Fill defaults and return
+        for (size_t barbIdx = 0; barbIdx < numBarbs; ++barbIdx) {
+            if (bind_shaftHairId_int_writable) bind_shaftHairId_int_writable->push_back(0); else if (bind_shaftHairId_str_writable) bind_shaftHairId_str_writable->push_back("");
+            bind_shaftPointId_data->writable().push_back(-1); bind_shaftRest_P_data->writable().push_back(Imath::V3f(0)); bind_shaftRest_T_data->writable().push_back(Imath::V3f(1,0,0)); bind_shaftRest_B_data->writable().push_back(Imath::V3f(0,1,0)); bind_shaftRest_N_data->writable().push_back(Imath::V3f(0,0,1)); bind_barbRootOffsetLocal_data->writable().push_back(Imath::V3f(0));
         }
-        resultCurves->variables["bind_shaftHairId"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftHairId_data);
-        resultCurves->variables["bind_shaftPointId"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftPointId_data);
-        resultCurves->variables["bind_shaftRest_P"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftRest_P_data);
-        resultCurves->variables["bind_shaftRest_T"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftRest_T_data);
-        resultCurves->variables["bind_shaftRest_B"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftRest_B_data);
-        resultCurves->variables["bind_shaftRest_N"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftRest_N_data);
-        resultCurves->variables["bind_barbRootOffsetLocal"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_barbRootOffsetLocal_data);
+        // Add to resultCurves...
+        return resultCurves; // Simplified early exit
+    }
+    const Data* rawBarbHairIdDataPtr = barbHairIdIt->second.data.get();
+    PrimitiveVariable::Interpolation barbHairIdInterpolation = barbHairIdIt->second.interpolation;
+
+    auto barbShaftPointIdIt = inBarbsCurves->variables.find(shaftPointIdAttr);
+    if (barbShaftPointIdIt == inBarbsCurves->variables.end() || !barbShaftPointIdIt->second.data) {
+        IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Missing required primitive variable '%s' on input barbs (for shaft point ID).") % shaftPointIdAttr);
+        // Fill defaults and return
+        return resultCurves; // Simplified early exit
+    }
+    const Data* rawBarbShaftPointIdDataPtr = barbShaftPointIdIt->second.data.get();
+    PrimitiveVariable::Interpolation barbShaftPointIdInterpolation = barbShaftPointIdIt->second.interpolation;
+
+    auto barbParamAttrIt = inBarbsCurves->variables.find(barbParamAttr);
+    if (barbParamAttrIt == inBarbsCurves->variables.end() || !barbParamAttrIt->second.data ||
+        barbParamAttrIt->second.interpolation != PrimitiveVariable::Vertex) {
+        IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Missing or non-Vertex primitive variable '%s' on input barbs.") % barbParamAttr);
+        return resultCurves; // Simplified early exit
+    }
+    const FloatVectorData* barbParamUData = runTimeCast<const FloatVectorData>(barbParamAttrIt->second.data.get());
+    if (!barbParamUData) {
+        IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Primitive variable '%s' is not FloatVectorData.") % barbParamAttr);
         return resultCurves;
     }
+    const std::vector<float> &barbU = barbParamUData->readable();
 
-    const PrimitiveVariable::DataAndInterpolation barbShaftPointIdPrimVar = SceneAlgo::primitiveVariable(inBarbsCurves, shaftPointIdAttr);
-    if (!barbShaftPointIdPrimVar.data)
-    {
-        IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Missing required primitive variable '%s' on input barbs (for shaft point ID). Will not be able to bind any barbs.") % shaftPointIdAttr);
-        // Add default bind attributes for all barbs
-        for (size_t barbIdx = 0; barbIdx < numBarbs; ++barbIdx)
-        {
-            if (bind_shaftHairId_int_writable) bind_shaftHairId_int_writable->push_back(0); // Or extract from barbHairIdPrimVar if available
-            else if (bind_shaftHairId_str_writable) bind_shaftHairId_str_writable->push_back("");
-            bind_shaftPointId_data->writable().push_back(-1);
-            bind_shaftRest_P_data->writable().push_back(Imath::V3f(0));
-            bind_shaftRest_T_data->writable().push_back(Imath::V3f(1,0,0));
-            bind_shaftRest_B_data->writable().push_back(Imath::V3f(0,1,0));
-            bind_shaftRest_N_data->writable().push_back(Imath::V3f(0,0,1));
-            bind_barbRootOffsetLocal_data->writable().push_back(Imath::V3f(0));
-        }
-        resultCurves->variables["bind_shaftHairId"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftHairId_data);
-        resultCurves->variables["bind_shaftPointId"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftPointId_data);
-        resultCurves->variables["bind_shaftRest_P"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftRest_P_data);
-        resultCurves->variables["bind_shaftRest_T"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftRest_T_data);
-        resultCurves->variables["bind_shaftRest_B"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftRest_B_data);
-        resultCurves->variables["bind_shaftRest_N"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftRest_N_data);
-        resultCurves->variables["bind_barbRootOffsetLocal"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_barbRootOffsetLocal_data);
-        return resultCurves;
-    }
 
-    // 3. Iterate through Barb Primitives
     size_t currentBarbPointOffset = 0;
-    for (size_t barbIdx = 0; barbIdx < numBarbs; ++barbIdx)
-    {
+    for (size_t barbIdx = 0; barbIdx < numBarbs; ++barbIdx) {
         const int numBarbCVs = barbsVertsPerCurve[barbIdx];
-        if (numBarbCVs <= 0)
-        {
-            // Add empty/default bind data if we must maintain counts
-            if (bind_shaftHairId_int_writable)
-                bind_shaftHairId_int_writable->push_back(0);
-            if (bind_shaftHairId_str_writable)
-                bind_shaftHairId_str_writable->push_back("");
-            bind_shaftPointId_data->writable().push_back(-1);
-            bind_shaftRest_P_data->writable().push_back(Imath::V3f(0));
-            bind_shaftRest_T_data->writable().push_back(Imath::V3f(1, 0, 0));
-            bind_shaftRest_B_data->writable().push_back(Imath::V3f(0, 1, 0));
-            bind_shaftRest_N_data->writable().push_back(Imath::V3f(0, 0, 1));
-            bind_barbRootOffsetLocal_data->writable().push_back(Imath::V3f(0));
-            currentBarbPointOffset += numBarbCVs; // Ensure offset is still updated
+        auto fill_defaults_and_continue = [&]() {
+            if (bind_shaftHairId_int_writable) bind_shaftHairId_int_writable->push_back(0); else if (bind_shaftHairId_str_writable) bind_shaftHairId_str_writable->push_back("");
+            bind_shaftPointId_data->writable().push_back(-1); bind_shaftRest_P_data->writable().push_back(Imath::V3f(0)); bind_shaftRest_T_data->writable().push_back(Imath::V3f(1,0,0)); bind_shaftRest_B_data->writable().push_back(Imath::V3f(0,1,0)); bind_shaftRest_N_data->writable().push_back(Imath::V3f(0,0,1)); bind_barbRootOffsetLocal_data->writable().push_back(Imath::V3f(0));
+            currentBarbPointOffset += numBarbCVs;
+        };
+
+        if (numBarbCVs <= 0) {
+            fill_defaults_and_continue();
             continue;
         }
 
-        // a. Read barb attributes
         int barb_hair_id_int = 0;
         std::string barb_hair_id_str;
         bool barbHasIntHairId = false;
         bool barbAttrsValid = true;
 
-        // Using barbHairIdPrimVar here
-        if (const IntData *idData = runTimeCast<const IntData>(barbHairIdPrimVar.data.get()))
-        {
+        if (const IntData *idData = runTimeCast<const IntData>(rawBarbHairIdDataPtr)) {
             barbHasIntHairId = true;
-            if (barbHairIdPrimVar.interpolation == PrimitiveVariable::Uniform && idData->readable().size() == 1)
-                barb_hair_id_int = idData->readable()[0];
-            else if ((barbHairIdPrimVar.interpolation == PrimitiveVariable::Uniform || barbHairIdPrimVar.interpolation == PrimitiveVariable::Constant) && idData->readable().size() > barbIdx) // Check Uniform for multi-prim
-                barb_hair_id_int = idData->readable()[barbIdx];
-            else if (barbHairIdPrimVar.interpolation == PrimitiveVariable::Constant && !idData->readable().empty())
-                 barb_hair_id_int = idData->readable()[0];
-            else
-            {
-                IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Barb %d: HairID (IntData) attribute '%s' has incompatible size for its interpolation type.") % barbIdx % hairIdAttr);
-                barbAttrsValid = false;
-            }
-        }
-        else if (const StringData *idData = runTimeCast<const StringData>(barbHairIdPrimVar.data.get()))
-        {
-            barbHasIntHairId = false; // It's a string
-            if (barbHairIdPrimVar.interpolation == PrimitiveVariable::Uniform && idData->readable().size() == 1)
-                barb_hair_id_str = idData->readable()[0];
-            else if ((barbHairIdPrimVar.interpolation == PrimitiveVariable::Uniform || barbHairIdPrimVar.interpolation == PrimitiveVariable::Constant) && idData->readable().size() > barbIdx)
-                barb_hair_id_str = idData->readable()[barbIdx];
-            else if (barbHairIdPrimVar.interpolation == PrimitiveVariable::Constant && !idData->readable().empty())
-                 barb_hair_id_str = idData->readable()[0];
-            else
-            {
-                IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Barb %d: HairID (StringData) attribute '%s' has incompatible size for its interpolation type.") % barbIdx % hairIdAttr);
-                barbAttrsValid = false;
-            }
-        }
-        else if (const IntVectorData *idVecData = runTimeCast<const IntVectorData>(barbHairIdPrimVar.data.get()))
-        {
+            if (barbHairIdInterpolation == PrimitiveVariable::Constant && !idData->readable().empty()) barb_hair_id_int = idData->readable()[0];
+            else if (barbHairIdInterpolation == PrimitiveVariable::Uniform && idData->readable().size() > barbIdx) barb_hair_id_int = idData->readable()[barbIdx];
+            else if (barbHairIdInterpolation == PrimitiveVariable::Uniform && idData->readable().size()==1 && barbIdx==0) barb_hair_id_int = idData->readable()[0];
+            else { barbAttrsValid = false; }
+        } else if (const StringData *idData = runTimeCast<const StringData>(rawBarbHairIdDataPtr)) {
+            if (barbHairIdInterpolation == PrimitiveVariable::Constant && !idData->readable().empty()) barb_hair_id_str = idData->readable()[0];
+            else if (barbHairIdInterpolation == PrimitiveVariable::Uniform && idData->readable().size() > barbIdx) barb_hair_id_str = idData->readable()[barbIdx];
+            else if (barbHairIdInterpolation == PrimitiveVariable::Uniform && idData->readable().size()==1 && barbIdx==0) barb_hair_id_str = idData->readable()[0];
+            else { barbAttrsValid = false; }
+        } else if (const IntVectorData *idVecData = runTimeCast<const IntVectorData>(rawBarbHairIdDataPtr)) {
             barbHasIntHairId = true;
-            if (barbHairIdPrimVar.interpolation == PrimitiveVariable::Uniform && idVecData->readable().size() > barbIdx)
-                barb_hair_id_int = idVecData->readable()[barbIdx];
-            else if (barbHairIdPrimVar.interpolation == PrimitiveVariable::Constant && !idVecData->readable().empty())
-                barb_hair_id_int = idVecData->readable()[0];
-            else
-            {
-                IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Barb %d: HairID (IntVectorData) attribute '%s' has incompatible size for its interpolation type.") % barbIdx % hairIdAttr);
-                barbAttrsValid = false;
-            }
+            if (barbHairIdInterpolation == PrimitiveVariable::Constant && !idVecData->readable().empty()) barb_hair_id_int = idVecData->readable()[0];
+            else if (barbHairIdInterpolation == PrimitiveVariable::Uniform && idVecData->readable().size() > barbIdx) barb_hair_id_int = idVecData->readable()[barbIdx];
+            else { barbAttrsValid = false; }
+        } else if (const StringVectorData *idVecData = runTimeCast<const StringVectorData>(rawBarbHairIdDataPtr)) {
+            if (barbHairIdInterpolation == PrimitiveVariable::Constant && !idVecData->readable().empty()) barb_hair_id_str = idVecData->readable()[0];
+            else if (barbHairIdInterpolation == PrimitiveVariable::Uniform && idVecData->readable().size() > barbIdx) barb_hair_id_str = idVecData->readable()[barbIdx];
+            else { barbAttrsValid = false; }
+        } else { barbAttrsValid = false; }
+
+        if (!barbAttrsValid) {
+            IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Barb %d: HairID attribute '%s' has unsupported data type or interp/size mismatch.") % barbIdx % hairIdAttr);
+            fill_defaults_and_continue(); continue;
         }
-        else if (const StringVectorData *idVecData = runTimeCast<const StringVectorData>(barbHairIdPrimVar.data.get()))
-        {
-            barbHasIntHairId = false; // It's a string
-            if (barbHairIdPrimVar.interpolation == PrimitiveVariable::Uniform && idVecData->readable().size() > barbIdx)
-                barb_hair_id_str = idVecData->readable()[barbIdx];
-            else if (barbHairIdPrimVar.interpolation == PrimitiveVariable::Constant && !idVecData->readable().empty())
-                barb_hair_id_str = idVecData->readable()[0];
-            else
-            {
-                IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Barb %d: HairID (StringVectorData) attribute '%s' has incompatible size for its interpolation type.") % barbIdx % hairIdAttr);
-                barbAttrsValid = false;
-            }
-        }
-        else
-        {
-            IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Barb %d: HairID attribute '%s' has unsupported data type.") % barbIdx % hairIdAttr);
-            barbAttrsValid = false;
-        }
+        barbAttrsValid = true; // Reset for next attribute
 
         int shaft_pt_id = -1;
-        // Using barbShaftPointIdPrimVar here
-        if (const IntData *idData = runTimeCast<const IntData>(barbShaftPointIdPrimVar.data.get()))
-        {
-            if (barbShaftPointIdPrimVar.interpolation == PrimitiveVariable::Uniform && idData->readable().size() == 1)
-                shaft_pt_id = idData->readable()[0];
-            else if ((barbShaftPointIdPrimVar.interpolation == PrimitiveVariable::Uniform || barbShaftPointIdPrimVar.interpolation == PrimitiveVariable::Constant) && idData->readable().size() > barbIdx)
-                shaft_pt_id = idData->readable()[barbIdx];
-            else if (barbShaftPointIdPrimVar.interpolation == PrimitiveVariable::Constant && !idData->readable().empty())
-                shaft_pt_id = idData->readable()[0];
-            else
-            {
-                IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Barb %d: ShaftPointID (IntData) attribute '%s' has incompatible size for its interpolation type.") % barbIdx % shaftPointIdAttr);
-                barbAttrsValid = false;
-            }
-        }
-        else if (const IntVectorData *idVecData = runTimeCast<const IntVectorData>(barbShaftPointIdPrimVar.data.get()))
-        {
-            if (barbShaftPointIdPrimVar.interpolation == PrimitiveVariable::Uniform && idVecData->readable().size() > barbIdx)
-                shaft_pt_id = idVecData->readable()[barbIdx];
-            else if (barbShaftPointIdPrimVar.interpolation == PrimitiveVariable::Constant && !idVecData->readable().empty())
-                shaft_pt_id = idVecData->readable()[0];
-            else
-            {
-                IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Barb %d: ShaftPointID (IntVectorData) attribute '%s' has incompatible size for its interpolation type.") % barbIdx % shaftPointIdAttr);
-                barbAttrsValid = false;
-            }
-        }
-        else
-        {
-            IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Barb %d: ShaftPointID attribute '%s' has unsupported data type.") % barbIdx % shaftPointIdAttr);
-            barbAttrsValid = false;
+        if (const IntData *idData = runTimeCast<const IntData>(rawBarbShaftPointIdDataPtr)) {
+            if (barbShaftPointIdInterpolation == PrimitiveVariable::Constant && !idData->readable().empty()) shaft_pt_id = idData->readable()[0];
+            else if (barbShaftPointIdInterpolation == PrimitiveVariable::Uniform && idData->readable().size() > barbIdx) shaft_pt_id = idData->readable()[barbIdx];
+            else if (barbShaftPointIdInterpolation == PrimitiveVariable::Uniform && idData->readable().size()==1 && barbIdx==0) shaft_pt_id = idData->readable()[0];
+            else { barbAttrsValid = false; }
+        } else if (const IntVectorData *idVecData = runTimeCast<const IntVectorData>(rawBarbShaftPointIdDataPtr)) {
+            if (barbShaftPointIdInterpolation == PrimitiveVariable::Constant && !idVecData->readable().empty()) shaft_pt_id = idVecData->readable()[0];
+            else if (barbShaftPointIdInterpolation == PrimitiveVariable::Uniform && idVecData->readable().size() > barbIdx) shaft_pt_id = idVecData->readable()[barbIdx];
+            else { barbAttrsValid = false; }
+        } else { barbAttrsValid = false; }
+
+        if (!barbAttrsValid) {
+            IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Barb %d: ShaftPointID attribute '%s' has unsupported data type or interp/size mismatch.") % barbIdx % shaftPointIdAttr);
+            fill_defaults_and_continue(); continue;
         }
 
-        if (!barbAttrsValid)
-        {
-            // Fill with default and continue to next barb
-            if (bind_shaftHairId_int_writable) bind_shaftHairId_int_writable->push_back(0);
-            else if (bind_shaftHairId_str_writable) bind_shaftHairId_str_writable->push_back("");
-            bind_shaftPointId_data->writable().push_back(-1);
-            bind_shaftRest_P_data->writable().push_back(Imath::V3f(0));
-            bind_shaftRest_T_data->writable().push_back(Imath::V3f(1,0,0));
-            bind_shaftRest_B_data->writable().push_back(Imath::V3f(0,1,0));
-            bind_shaftRest_N_data->writable().push_back(Imath::V3f(0,0,1));
-            bind_barbRootOffsetLocal_data->writable().push_back(Imath::V3f(0));
-            currentBarbPointOffset += numBarbCVs;
-            continue;
-        }
-
-        // b. Find parent shaft
         const ShaftInfo *foundShaftInfo = nullptr;
-        if (barbHasIntHairId && shaftsHaveIntHairId)
-        {
+        if (barbHasIntHairId && shaftsHaveIntHairId) {
             auto it = intShaftLookup.find(barb_hair_id_int);
-            if (it != intShaftLookup.end())
-                foundShaftInfo = &it->second;
-        }
-        else if (!barbHasIntHairId && shaftsHaveStringHairId)
-        {
+            if (it != intShaftLookup.end()) foundShaftInfo = &it->second;
+        } else if (!barbHasIntHairId && shaftsHaveStringHairId) {
             auto it = stringShaftLookup.find(barb_hair_id_str);
-            if (it != stringShaftLookup.end())
-                foundShaftInfo = &it->second;
-        }
-        else if (barbHasIntHairId != shaftsHaveIntHairId) // Mismatch
-        {
+            if (it != stringShaftLookup.end()) foundShaftInfo = &it->second;
+        } else if (barbHasIntHairId != shaftsHaveIntHairId) {
             IECore::msg(IECore::Msg::Warning, staticTypeName(), "Hair ID type mismatch between barbs and shafts.");
-            // Fill with default and continue to next barb
-            if (bind_shaftHairId_int_writable)
-                bind_shaftHairId_int_writable->push_back(barb_hair_id_int);
-            else if (bind_shaftHairId_str_writable)
-                bind_shaftHairId_str_writable->push_back(barb_hair_id_str); // Store original barb id
-            bind_shaftPointId_data->writable().push_back(shaft_pt_id);
-            bind_shaftRest_P_data->writable().push_back(Imath::V3f(0));
-            bind_shaftRest_T_data->writable().push_back(Imath::V3f(1, 0, 0));
-            bind_shaftRest_B_data->writable().push_back(Imath::V3f(0, 1, 0));
-            bind_shaftRest_N_data->writable().push_back(Imath::V3f(0, 0, 1));
-            bind_barbRootOffsetLocal_data->writable().push_back(Imath::V3f(0));
-            currentBarbPointOffset += numBarbCVs;
-            continue;
+            fill_defaults_and_continue(); continue;
         }
 
-        if (!foundShaftInfo)
-        {
+        if (!foundShaftInfo) {
             IECore::msg(IECore::Msg::Detail, staticTypeName(), boost::format("Shaft with hair_id not found for barb %d.") % barbIdx);
-            // Fill with default and continue to next barb
-            if (bind_shaftHairId_int_writable)
-                bind_shaftHairId_int_writable->push_back(barb_hair_id_int);
-            else if (bind_shaftHairId_str_writable)
-                bind_shaftHairId_str_writable->push_back(barb_hair_id_str);
-            bind_shaftPointId_data->writable().push_back(shaft_pt_id);
-            bind_shaftRest_P_data->writable().push_back(Imath::V3f(0));
-            bind_shaftRest_T_data->writable().push_back(Imath::V3f(1, 0, 0));
-            bind_shaftRest_B_data->writable().push_back(Imath::V3f(0, 1, 0));
-            bind_shaftRest_N_data->writable().push_back(Imath::V3f(0, 0, 1));
-            bind_barbRootOffsetLocal_data->writable().push_back(Imath::V3f(0));
-            currentBarbPointOffset += numBarbCVs;
-            continue;
+            fill_defaults_and_continue(); continue;
         }
 
-        // Validate shaft_pt_id against the number of points in the found shaft
-        if (shaft_pt_id < 0 || static_cast<size_t>(shaft_pt_id) >= foundShaftInfo->numPoints)
-        {
+        if (shaft_pt_id < 0 || static_cast<size_t>(shaft_pt_id) >= foundShaftInfo->numPoints) {
             IECore::msg(IECore::Msg::Warning, staticTypeName(), boost::format("Invalid shaft_pt_id %d for barb %d (shaft has %d points).") % shaft_pt_id % barbIdx % foundShaftInfo->numPoints);
-            // Fill with default and continue
-            if (bind_shaftHairId_int_writable)
-                bind_shaftHairId_int_writable->push_back(barb_hair_id_int);
-            else if (bind_shaftHairId_str_writable)
-                bind_shaftHairId_str_writable->push_back(barb_hair_id_str);
-            bind_shaftPointId_data->writable().push_back(shaft_pt_id);
-            bind_shaftRest_P_data->writable().push_back(Imath::V3f(0));
-            bind_shaftRest_T_data->writable().push_back(Imath::V3f(1, 0, 0));
-            bind_shaftRest_B_data->writable().push_back(Imath::V3f(0, 1, 0));
-            bind_shaftRest_N_data->writable().push_back(Imath::V3f(0, 0, 1));
-            bind_barbRootOffsetLocal_data->writable().push_back(Imath::V3f(0));
-            currentBarbPointOffset += numBarbCVs;
-            continue;
+            fill_defaults_and_continue(); continue;
         }
 
         const size_t shaftCurveGlobalPointStartIndex = shaftCurveStartPointIndices[foundShaftInfo->primitiveIndex];
         const Imath::V3f shaftAttachP = (*foundShaftInfo->points)[shaftCurveGlobalPointStartIndex + shaft_pt_id];
 
-        // c. Calculate Shaft Attachment Frame (Rest)
         Frame shaftFrame;
         shaftFrame.P = shaftAttachP;
-
         bool frameCalculated = false;
 
-        // 1. Try using shaftPointOrientAttrName
-        if (foundShaftInfo->orientInterpolation != PrimitiveVariable::Invalid && shaftOrientData)
-        {
-            Imath::V4f qOrient;
-            if (foundShaftInfo->orientInterpolation == PrimitiveVariable::Uniform && foundShaftInfo->orientQuaternion)
-            {
-                qOrient = *foundShaftInfo->orientQuaternion;
-                shaftFrame.fromQuaternion(qOrient);
-                if (shaftFrame.valid)
-                    frameCalculated = true;
-            }
-            else if (foundShaftInfo->orientInterpolation == PrimitiveVariable::Vertex)
-            {
+        if (foundShaftInfo->orientInterpolation != PrimitiveVariable::Invalid && shaftOrientData) {
+            Imath::V4f qOrient; bool orientValid = false;
+            if (foundShaftInfo->orientInterpolation == PrimitiveVariable::Uniform && foundShaftInfo->orientQuaternion) {
+                qOrient = *foundShaftInfo->orientQuaternion; orientValid = true;
+            } else if (foundShaftInfo->orientInterpolation == PrimitiveVariable::Vertex) {
                 const size_t shaftGlobalOrientIndex = shaftCurveGlobalPointStartIndex + shaft_pt_id;
-                if (shaftGlobalOrientIndex < shaftOrientData->readable().size())
-                {
-                    qOrient = shaftOrientData->readable()[shaftGlobalOrientIndex];
-                    shaftFrame.fromQuaternion(qOrient);
-                    if (shaftFrame.valid)
-                        frameCalculated = true;
+                if (shaftGlobalOrientIndex < shaftOrientData->readable().size()) {
+                    qOrient = shaftOrientData->readable()[shaftGlobalOrientIndex]; orientValid = true;
                 }
             }
+            if(orientValid) { shaftFrame.fromQuaternion(qOrient); if (shaftFrame.valid) frameCalculated = true; }
         }
 
-        // 2. If not calculated, try tangent and up-vector
         Imath::V3f currentShaftTangent;
-        if (!frameCalculated)
-        {
+        if (!frameCalculated) {
             currentShaftTangent = calculateTangent(*foundShaftInfo->points, shaftCurveGlobalPointStartIndex, foundShaftInfo->numPoints, shaft_pt_id);
-            if (currentShaftTangent.length() < 0.5f)
-            {                             // Invalid tangent
-                shaftFrame.valid = false; // Mark frame as invalid
-            }
-            else
-            {
-                if (foundShaftInfo->upVector)
-                {
+            if (currentShaftTangent.length() >= 0.5f) {
+                if (foundShaftInfo->upVector) {
                     shaftFrame.fromUpVector(currentShaftTangent, *foundShaftInfo->upVector);
-                    if (shaftFrame.valid)
-                        frameCalculated = true;
+                    if (shaftFrame.valid) frameCalculated = true;
                 }
-            }
+            } else shaftFrame.valid = false;
         }
 
-        // 3. If still not calculated, use fallback default method
-        if (!frameCalculated && shaftFrame.valid) // shaftFrame.valid check ensures tangent was good
-        {
-            if (currentShaftTangent.length() < 0.5f && !frameCalculated)
-            { // Recalculate if not done yet and previous failed
-                currentShaftTangent = calculateTangent(*foundShaftInfo->points, shaftCurveGlobalPointStartIndex, foundShaftInfo->numPoints, shaft_pt_id);
-            }
-            if (currentShaftTangent.length() > 0.5f)
-            {
+        if (!frameCalculated && shaftFrame.valid) {
+            if (currentShaftTangent.length() < 0.5f) currentShaftTangent = calculateTangent(*foundShaftInfo->points, shaftCurveGlobalPointStartIndex, foundShaftInfo->numPoints, shaft_pt_id);
+            if (currentShaftTangent.length() >= 0.5f) {
                 shaftFrame.fromDefault(currentShaftTangent);
-                if (shaftFrame.valid)
-                    frameCalculated = true;
-            }
-            else
-            {
-                shaftFrame.valid = false; // No valid tangent to begin with
-            }
+                if (shaftFrame.valid) frameCalculated = true;
+            } else shaftFrame.valid = false;
         }
 
-        if (!shaftFrame.valid)
-        {
+        if (!shaftFrame.valid) {
             IECore::msg(IECore::Msg::Debug, staticTypeName(), boost::format("Could not calculate valid frame for shaft attach point on barb %d. Using default identity.") % barbIdx);
-            // Default frame is already set in Frame constructor if all else fails
+             // Frame constructor sets a default identity
         }
 
-        // d. Calculate Barb Root Offset
-        //    Identify the root point of the current barb (vertex with minimum barbParamAttrName value)
-        const std::vector<float> &barbU = inBarbsCurves->variableData<FloatVectorData>(barbParamAttr, PrimitiveVariable::Vertex)->readable();
         float minU = std::numeric_limits<float>::max();
         size_t barbRootLocalIndex = 0;
-        for (int k = 0; k < numBarbCVs; ++k)
-        {
+        for (int k = 0; k < numBarbCVs; ++k) {
             const size_t barbGlobalPointIndex = currentBarbPointOffset + k;
-            if (barbU[barbGlobalPointIndex] < minU)
-            {
+             if (barbGlobalPointIndex >= barbU.size()) { // Bounds check
+                IECore::msg(IECore::Msg::Error, staticTypeName(), "barbU access out of bounds!");
+                // Handle error: skip barb or use default root index
+                barbAttrsValid = false; // Mark as invalid to skip this barb
+                break;
+            }
+            if (barbU[barbGlobalPointIndex] < minU) {
                 minU = barbU[barbGlobalPointIndex];
                 barbRootLocalIndex = k;
             }
         }
-        const Imath::V3f barbRootP = barbsP[currentBarbPointOffset + barbRootLocalIndex];
+         if (!barbAttrsValid) { // Check if loop above failed
+            fill_defaults_and_continue(); continue;
+        }
 
-        //    Construct M_shaft_rest from shaftFrame.T,B,N and shaftFrame.P
+        const Imath::V3f barbRootP = barbsP[currentBarbPointOffset + barbRootLocalIndex];
         Imath::M44f M_shaft_rest;
         M_shaft_rest.setValue(
             shaftFrame.T.x, shaftFrame.T.y, shaftFrame.T.z, 0.0f,
             shaftFrame.B.x, shaftFrame.B.y, shaftFrame.B.z, 0.0f,
             shaftFrame.N.x, shaftFrame.N.y, shaftFrame.N.z, 0.0f,
             shaftFrame.P.x, shaftFrame.P.y, shaftFrame.P.z, 1.0f);
-
         Imath::V3f world_offset_vector = barbRootP - shaftFrame.P;
         Imath::M44f M_shaft_rest_inverse = M_shaft_rest.inverse();
         Imath::V3f barbRootOffsetLocal_value;
         M_shaft_rest_inverse.multDirMatrix(world_offset_vector, barbRootOffsetLocal_value);
 
-        // e. Store binding attributes
-        if (bind_shaftHairId_int_writable)
-            bind_shaftHairId_int_writable->push_back(barb_hair_id_int);
-        else if (bind_shaftHairId_str_writable)
-            bind_shaftHairId_str_writable->push_back(barb_hair_id_str);
+        if (bind_shaftHairId_int_writable) bind_shaftHairId_int_writable->push_back(barb_hair_id_int);
+        else if (bind_shaftHairId_str_writable) bind_shaftHairId_str_writable->push_back(barb_hair_id_str);
         bind_shaftPointId_data->writable().push_back(shaft_pt_id);
         bind_shaftRest_P_data->writable().push_back(shaftFrame.P);
         bind_shaftRest_T_data->writable().push_back(shaftFrame.T);
@@ -946,11 +648,8 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
         currentBarbPointOffset += numBarbCVs;
     }
 
-    // Add the new primitive variables to the output curves
-    if (shaftsHaveIntHairId)
-        resultCurves->variables["bind_shaftHairId"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftHairId_data);
-    else
-        resultCurves->variables["bind_shaftHairId"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftHairId_data);
+    if (shaftsHaveIntHairId) resultCurves->variables["bind_shaftHairId"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftHairId_data);
+    else resultCurves->variables["bind_shaftHairId"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftHairId_data); // String if not int
     resultCurves->variables["bind_shaftPointId"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftPointId_data);
     resultCurves->variables["bind_shaftRest_P"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftRest_P_data);
     resultCurves->variables["bind_shaftRest_T"] = PrimitiveVariable(PrimitiveVariable::Uniform, bind_shaftRest_T_data);
