@@ -1,5 +1,5 @@
-#ifndef GAFFERSCOTCH_RIGIDATTACHCURVES_H
-#define GAFFERSCOTCH_RIGIDATTACHCURVES_H
+#ifndef GAFFERSCOTCH_FEATHERATTACHBARBS_H
+#define GAFFERSCOTCH_FEATHERATTACHBARBS_H
 
 #include "GafferScotch/Export.h"
 #include "GafferScotch/TypeIds.h"
@@ -53,4 +53,4 @@ namespace GafferScotch
 
 } // namespace GafferScotch
 
-#endif // GAFFERSCOTCH_RIGIDATTACHCURVES_H
+#endif // GAFFERSCOTCH_FEATHERATTACHBARBS_H
