@@ -39,3 +39,13 @@ nodeMenu.append(
     GafferScotch.CurvesPostProcess,
     searchText="CurvesPostProcess",
 )
+nodeMenu.append(
+    "/GafferScotch/FeatherAttachBarbs",
+    GafferScotch.FeatherAttachBarbs,
+    searchText="FeatherAttachBarbs",
+)
+nodeMenu.append(
+    "/GafferScotch/FeatherDeformBarbs",
+    GafferScotch.FeatherDeformBarbs,
+    searchText="FeatherDeformBarbs",
+)

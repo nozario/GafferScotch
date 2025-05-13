@@ -17,6 +17,9 @@ namespace GafferScotch
         CaptureMatrixWeightsTypeId = 121006,
         MatrixDeformTypeId = 121007,
 
+        FeatherAttachBarbsTypeId = 121008,
+        FeatherDeformBarbsTypeId = 121009,
+
         LastTypeId = 121499,
     };
 

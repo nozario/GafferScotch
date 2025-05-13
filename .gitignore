@@ -1,7 +1,7 @@
 # Ignore instructions folder
 /instructions/
 
-
+feather_bin_plan.md
 build.bat
 
 # Ignore Python cache files
