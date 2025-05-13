@@ -17,7 +17,7 @@ namespace IECoreScene
 namespace GafferScotch
 {
 
-    class FeatherDeformBarbs : public GafferScene::Deformer
+    class GAFFERSCOTCH_API FeatherDeformBarbs : public GafferScene::Deformer
     {
     public:
         FeatherDeformBarbs(const std::string &name = staticTypeName());
@@ -60,7 +60,7 @@ namespace GafferScotch
             const IECoreScene::CurvesPrimitive *barbs,
             const IECoreScene::CurvesPrimitive *animatedShafts,
             IECoreScene::CurvesPrimitive *outputBarbs) const;
-            
+
         static size_t g_firstPlugIndex;
     };
 

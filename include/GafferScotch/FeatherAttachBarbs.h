@@ -12,7 +12,7 @@
 namespace GafferScotch
 {
 
-    class FeatherAttachBarbs : public GafferScene::ObjectProcessor
+    class GAFFERSCOTCH_API FeatherAttachBarbs : public GafferScene::ObjectProcessor
     {
     public:
         FeatherAttachBarbs(const std::string &name = staticTypeName());
@@ -54,7 +54,7 @@ namespace GafferScotch
             const IECoreScene::CurvesPrimitive *shafts,
             const IECoreScene::CurvesPrimitive *barbs,
             IECoreScene::CurvesPrimitive *outputBarbs) const;
-            
+
         static size_t g_firstPlugIndex;
     };
 
