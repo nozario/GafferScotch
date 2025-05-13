@@ -44,6 +44,9 @@ namespace GafferScotch
         bool affectsProcessedObject(const Gaffer::Plug *input) const override;
         void hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const override;
         IECore::ConstObjectPtr computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const override;
+        
+        void affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const override;
+        bool acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plug *inputPlug) const override;
 
     private:
         void computeBindings(

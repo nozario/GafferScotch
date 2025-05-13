@@ -725,32 +725,21 @@ void FeatherDeformBarbs::deformBarbs(
                                 
                                 // Calculate normal for deformed frame
                                 V3f deformedNormal;
-                                if (upVectors)
+                                if (orientations)
                                 {
-                                    // Use provided up vector
-                                    const V3f &up = upVectors->readable()[shaftPointGlobalIndex];
-                                    deformedNormal = safeNormalize(up - deformedFrame.tangent * up.dot(deformedFrame.tangent));
-                                }
-                                else if (orientations)
-                                {
-                                    // Use orientation quaternion
+                                    // Use orientation quaternion (preferred method)
                                     const Quatf &orient = orientations->readable()[shaftPointGlobalIndex];
                                     V3f localNormal(1, 0, 0);
                                     deformedNormal = orient.rotateVector(localNormal);
                                 }
                                 else
                                 {
-                                    // Try to preserve normal direction from rest pose
-                                    V3f worldUp = restFrame.normal;
+                                    // Orientation is required
+                                    IECore::msg(IECore::Msg::Warning, "FeatherDeformBarbs", 
+                                                "Orientation attribute not found. This will result in invalid frames.");
                                     
-                                    // If normal is too aligned with tangent, use a different direction
-                                    float upDotTangent = deformedFrame.tangent.dot(worldUp);
-                                    if (std::abs(upDotTangent) > 0.95f)
-                                    {
-                                        worldUp = V3f(1, 0, 0);
-                                    }
-                                    
-                                    deformedNormal = worldUp - deformedFrame.tangent * worldUp.dot(deformedFrame.tangent);
+                                    // Use a default normal as fallback, but this won't be correct
+                                    deformedNormal = V3f(1, 0, 0);
                                 }
                                 
                                 deformedFrame.normal = safeNormalize(deformedNormal);

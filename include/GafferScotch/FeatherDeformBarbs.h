@@ -51,6 +51,9 @@ namespace GafferScotch
         bool affectsProcessedObjectBound(const Gaffer::Plug *input) const override;
         void hashProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const override;
         Imath::Box3f computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const override;
+        
+        void affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const override;
+        bool acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plug *inputPlug) const override;
 
     private:
         void deformBarbs(

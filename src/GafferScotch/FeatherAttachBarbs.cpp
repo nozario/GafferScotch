@@ -418,11 +418,11 @@ void FeatherAttachBarbs::computeBindings(
     IECoreScene::CurvesPrimitive *outputBarbs) const
 {
     // Get attribute names from plugs
-    const std::string hairIdAttrName = hairIdAttrNamePlug()->getValue();
-    const std::string shaftPointIdAttrName = shaftPointIdAttrNamePlug()->getValue();
-    const std::string barbParamAttrName = barbParamAttrNamePlug()->getValue();
-    const std::string upVectorName = shaftUpVectorPrimVarNamePlug()->getValue();
-    const std::string orientAttrName = shaftPointOrientAttrNamePlug()->getValue();
+    const std::string hairIdAttrName = this->hairIdAttrNamePlug()->getValue();
+    const std::string shaftPointIdAttrName = this->shaftPointIdAttrNamePlug()->getValue();
+    const std::string barbParamAttrName = this->barbParamAttrNamePlug()->getValue();
+    const std::string upVectorName = this->shaftUpVectorPrimVarNamePlug()->getValue();
+    const std::string orientAttrName = this->shaftPointOrientAttrNamePlug()->getValue();
     
     // Extract data from barbs and shafts
     const IntVectorData *shaftHairIds = shafts->variableData<IntVectorData>(hairIdAttrName, PrimitiveVariable::Uniform);
@@ -565,33 +565,21 @@ void FeatherAttachBarbs::computeBindings(
                         
                         // Compute normal (perpendicular to tangent)
                         V3f normal;
-                        if (upVectors)
+                        if (orientations)
                         {
-                            // Use provided up vector for normal calculation
-                            const V3f &up = upVectors->readable()[shaftPointGlobalIndex];
-                            normal = safeNormalize(up - tangent * up.dot(tangent));
-                        }
-                        else if (orientations)
-                        {
-                            // Use orientation quaternion if available
+                            // Use orientation quaternion (preferred method)
                             const Quatf &orient = orientations->readable()[shaftPointGlobalIndex];
                             V3f localNormal(1, 0, 0);
                             normal = orient.rotateVector(localNormal);
                         }
                         else
                         {
-                            // Default normal calculation
-                            V3f worldUp(0, 1, 0);
+                            // Orientation is required
+                            IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs", 
+                                        "Orientation attribute not found. This will result in invalid frames.");
                             
-                            // If tangent is too aligned with up, use a different direction
-                            V3f upDotTangent = safeNormalize(tangent).dot(worldUp);
-                            if (std::abs(upDotTangent) > 0.95f)
-                            {
-                                worldUp = V3f(1, 0, 0);
-                            }
-                            
-                            normal = worldUp - tangent * worldUp.dot(tangent);
-                            normal.normalize();
+                            // Use a default normal as fallback, but this won't be correct
+                            normal = V3f(1, 0, 0);
                         }
                         
                         // Store binding data
