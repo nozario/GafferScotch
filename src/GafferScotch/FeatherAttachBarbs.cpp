@@ -412,17 +412,17 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
     }
 }
 
-void FeatherAttachBarbs::computeBindings(
+void GafferScotch::FeatherAttachBarbs::computeBindings(
     const IECoreScene::CurvesPrimitive *shafts,
     const IECoreScene::CurvesPrimitive *barbs,
     IECoreScene::CurvesPrimitive *outputBarbs) const
 {
     // Get attribute names from plugs
-    const std::string hairIdAttrName = this->hairIdAttrNamePlug()->getValue();
-    const std::string shaftPointIdAttrName = this->shaftPointIdAttrNamePlug()->getValue();
-    const std::string barbParamAttrName = this->barbParamAttrNamePlug()->getValue();
-    const std::string upVectorName = this->shaftUpVectorPrimVarNamePlug()->getValue();
-    const std::string orientAttrName = this->shaftPointOrientAttrNamePlug()->getValue();
+    const std::string hairIdAttrName = hairIdAttrNamePlug()->getValue();
+    const std::string shaftPointIdAttrName = shaftPointIdAttrNamePlug()->getValue();
+    const std::string barbParamAttrName = barbParamAttrNamePlug()->getValue();
+    const std::string upVectorName = shaftUpVectorPrimVarNamePlug()->getValue();
+    const std::string orientAttrName = shaftPointOrientAttrNamePlug()->getValue();
     
     // Extract data from barbs and shafts
     const IntVectorData *shaftHairIds = shafts->variableData<IntVectorData>(hairIdAttrName, PrimitiveVariable::Uniform);

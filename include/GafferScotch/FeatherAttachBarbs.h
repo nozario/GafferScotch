@@ -7,6 +7,7 @@
 #include "GafferScene/ObjectProcessor.h"
 #include "GafferScene/ScenePlug.h"
 #include "Gaffer/StringPlug.h"
+#include "IECoreScene/CurvesPrimitive.h"
 
 namespace GafferScotch
 {
