@@ -6,6 +6,7 @@
 
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
+#include <thread>
 
 using namespace Gaffer;
 using namespace GafferScene;

@@ -9,6 +9,11 @@
 #include "Gaffer/StringPlug.h"
 #include "Gaffer/TypedPlug.h"
 
+namespace IECoreScene
+{
+    class CurvesPrimitive;
+}
+
 namespace GafferScotch
 {
 
