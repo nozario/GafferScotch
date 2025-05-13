@@ -46,6 +46,11 @@ namespace GafferScotch
         IECore::ConstObjectPtr computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const override;
 
     private:
+        void computeBindings(
+            const IECoreScene::CurvesPrimitive *shafts,
+            const IECoreScene::CurvesPrimitive *barbs,
+            IECoreScene::CurvesPrimitive *outputBarbs) const;
+            
         static size_t g_firstPlugIndex;
     };
 

@@ -1,19 +1,11 @@
 #include "GafferScotch/FeatherAttachBarbs.h"
-
-#include "Gaffer/StringPlug.h"
-#include "GafferScene/ScenePlug.h"
-#include "GafferScene/ObjectProcessor.h"
+#include "GafferScotch/ScenePathUtil.h"
 
 #include "IECoreScene/CurvesPrimitive.h"
-#include "IECore/TypedData.h"
-#include "IECore/MessageHandler.h"
-#include "IECore/DataAlgo.h"
+#include "IECoreScene/PrimitiveVariable.h"
 
-#include "Imath/ImathMatrix.h"
-#include "Imath/ImathVecAlgo.h"
-#include "Imath/ImathQuat.h"
-
-#include <map>
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 
 using namespace Gaffer;
 using namespace GafferScene;
@@ -21,29 +13,137 @@ using namespace GafferScotch;
 using namespace IECore;
 using namespace IECoreScene;
 using namespace Imath;
+using namespace tbb;
 
-IE_CORE_DEFINERUNTIMETYPED( FeatherAttachBarbs );
+namespace
+{
+    // Helper function for safe vector normalization
+    inline V3f safeNormalize(const V3f &v)
+    {
+        float length = v.length();
+        if (length > 0.0f)
+        {
+            return v / length;
+        }
+        return v;
+    }
+
+    // Helper to determine optimal batch size
+    inline size_t calculateBatchSize(size_t numElements, size_t numThreads)
+    {
+        // Aim for ~4 batches per thread for good load balancing
+        const size_t targetBatches = numThreads * 4;
+        return std::max(size_t(1), numElements / targetBatches);
+    }
+
+    struct RestFrame
+    {
+        V3f position;
+        V3f normal;
+        V3f tangent;
+        V3f bitangent;
+
+        void orthonormalize()
+        {
+            // First, normalize the normal to ensure we have a unit vector
+            normal = safeNormalize(normal);
+
+            // Make tangent orthogonal to normal and normalize it
+            tangent = safeNormalize(tangent - normal * (tangent.dot(normal)));
+
+            // Use cross product to get a perfectly orthogonal bitangent
+            bitangent = normal.cross(tangent);
+        }
+    };
+
+    struct BarbBinding
+    {
+        int triangleIndex;
+        V3f baryCoords;
+        V2f uvCoords;
+        int shaftHairId;
+        int shaftPointId;
+        float barbParam;
+        RestFrame restFrame;
+        bool valid;
+
+        BarbBinding() : triangleIndex(-1), shaftHairId(-1), shaftPointId(-1), barbParam(0.0f), valid(false) {}
+    };
+
+    // Helper to get hash for positions only
+    void hashPositions(const Primitive *primitive, MurmurHash &h)
+    {
+        if (!primitive)
+            return;
+
+        auto it = primitive->variables.find("P");
+        if (it == primitive->variables.end())
+            return;
+
+        const V3fVectorData *positions = runTimeCast<const V3fVectorData>(it->second.data.get());
+        if (!positions)
+            return;
+
+        // Hash only the number of vertices and position data
+        const std::vector<V3f> &pos = positions->readable();
+        h.append(pos.size());
+        if (!pos.empty())
+        {
+            h.append(&pos[0], pos.size());
+        }
+    }
+
+    // Helper to hash mesh topology
+    void hashTopology(const MeshPrimitive *mesh, MurmurHash &h)
+    {
+        if (!mesh)
+            return;
+
+        const std::vector<int> &verticesPerFace = mesh->verticesPerFace()->readable();
+        const std::vector<int> &vertexIds = mesh->vertexIds()->readable();
+
+        h.append(verticesPerFace.size());
+        if (!verticesPerFace.empty())
+        {
+            h.append(&verticesPerFace[0], verticesPerFace.size());
+        }
+
+        h.append(vertexIds.size());
+        if (!vertexIds.empty())
+        {
+            h.append(&vertexIds[0], vertexIds.size());
+        }
+    }
+}
+
+IE_CORE_DEFINERUNTIMETYPED(FeatherAttachBarbs);
 
 size_t FeatherAttachBarbs::g_firstPlugIndex = 0;
 
-FeatherAttachBarbs::FeatherAttachBarbs( const std::string &name )
-    : ObjectProcessor( name )
+FeatherAttachBarbs::FeatherAttachBarbs(const std::string &name)
+    : ObjectProcessor(name)
 {
-    storeIndexOfNextChild( g_firstPlugIndex );
+    storeIndexOfNextChild(g_firstPlugIndex);
 
-    addChild( new ScenePlug( "inShafts", Plug::In ) );
-    // inBarbs is inPlug() from ObjectProcessor
+    // Add shafts input
+    addChild(new ScenePlug("inShafts", Plug::In));
+    
+    // Add barbs input
+    addChild(new ScenePlug("inBarbs", Plug::In));
 
-    addChild( new StringPlug( "hairIdAttrName", Plug::In, "hair_id" ) );
-    addChild( new StringPlug( "shaftPointIdAttrName", Plug::In, "shaft_pt" ) );
-    addChild( new StringPlug( "barbParamAttrName", Plug::In, "curveu" ) );
-    addChild( new StringPlug( "shaftUpVectorPrimVarName", Plug::In, "" ) );
-    addChild( new StringPlug( "shaftPointOrientAttrName", Plug::In, "" ) );
+    // Attribute names for binding
+    addChild(new StringPlug("hairIdAttrName", Plug::In, "hairId"));
+    addChild(new StringPlug("shaftPointIdAttrName", Plug::In, "shaftPointId"));
+    addChild(new StringPlug("barbParamAttrName", Plug::In, "barbParam"));
+    
+    // Orientation options
+    addChild(new StringPlug("shaftUpVectorPrimVarName", Plug::In, "up"));
+    addChild(new StringPlug("shaftPointOrientAttrName", Plug::In, "orient"));
 
-    // Pass through attributes, transform, and bound by default
-    outPlug()->attributesPlug()->setInput( inPlug()->attributesPlug() );
-    outPlug()->transformPlug()->setInput( inPlug()->transformPlug() );
-    outPlug()->boundPlug()->setInput( inPlug()->boundPlug() );
+    // Fast pass-throughs for things we don't modify
+    outPlug()->attributesPlug()->setInput(inPlug()->attributesPlug());
+    outPlug()->transformPlug()->setInput(inPlug()->transformPlug());
+    outPlug()->boundPlug()->setInput(inPlug()->boundPlug());
 }
 
 FeatherAttachBarbs::~FeatherAttachBarbs()
@@ -52,541 +152,524 @@ FeatherAttachBarbs::~FeatherAttachBarbs()
 
 ScenePlug *FeatherAttachBarbs::inShaftsPlug()
 {
-    return getChild<ScenePlug>( g_firstPlugIndex );
+    return getChild<ScenePlug>(g_firstPlugIndex);
 }
 
 const ScenePlug *FeatherAttachBarbs::inShaftsPlug() const
 {
-    return getChild<ScenePlug>( g_firstPlugIndex );
+    return getChild<ScenePlug>(g_firstPlugIndex);
+}
+
+ScenePlug *FeatherAttachBarbs::inBarbsPlug()
+{
+    return getChild<ScenePlug>(g_firstPlugIndex + 1);
+}
+
+const ScenePlug *FeatherAttachBarbs::inBarbsPlug() const
+{
+    return getChild<ScenePlug>(g_firstPlugIndex + 1);
 }
 
 StringPlug *FeatherAttachBarbs::hairIdAttrNamePlug()
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 1 );
+    return getChild<StringPlug>(g_firstPlugIndex + 2);
 }
 
 const StringPlug *FeatherAttachBarbs::hairIdAttrNamePlug() const
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 1 );
+    return getChild<StringPlug>(g_firstPlugIndex + 2);
 }
 
 StringPlug *FeatherAttachBarbs::shaftPointIdAttrNamePlug()
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 2 );
+    return getChild<StringPlug>(g_firstPlugIndex + 3);
 }
 
 const StringPlug *FeatherAttachBarbs::shaftPointIdAttrNamePlug() const
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 2 );
+    return getChild<StringPlug>(g_firstPlugIndex + 3);
 }
 
 StringPlug *FeatherAttachBarbs::barbParamAttrNamePlug()
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 3 );
+    return getChild<StringPlug>(g_firstPlugIndex + 4);
 }
 
 const StringPlug *FeatherAttachBarbs::barbParamAttrNamePlug() const
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 3 );
+    return getChild<StringPlug>(g_firstPlugIndex + 4);
 }
 
 StringPlug *FeatherAttachBarbs::shaftUpVectorPrimVarNamePlug()
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 4 );
+    return getChild<StringPlug>(g_firstPlugIndex + 5);
 }
 
 const StringPlug *FeatherAttachBarbs::shaftUpVectorPrimVarNamePlug() const
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 4 );
+    return getChild<StringPlug>(g_firstPlugIndex + 5);
 }
 
 StringPlug *FeatherAttachBarbs::shaftPointOrientAttrNamePlug()
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 5 );
+    return getChild<StringPlug>(g_firstPlugIndex + 6);
 }
 
 const StringPlug *FeatherAttachBarbs::shaftPointOrientAttrNamePlug() const
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 5 );
+    return getChild<StringPlug>(g_firstPlugIndex + 6);
 }
 
-
-void FeatherAttachBarbs::affects( const Gaffer::Plug *input, AffectedPlugsContainer &outputs ) const
+void FeatherAttachBarbs::affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const
 {
-    ObjectProcessor::affects( input, outputs );
+    ObjectProcessor::affects(input, outputs);
 
-    if(
-        input == inShaftsPlug()->objectPlug() ||
+    if (input == inShaftsPlug()->objectPlug() ||
+        input == inBarbsPlug()->objectPlug() ||
         input == hairIdAttrNamePlug() ||
         input == shaftPointIdAttrNamePlug() ||
         input == barbParamAttrNamePlug() ||
         input == shaftUpVectorPrimVarNamePlug() ||
-        input == shaftPointOrientAttrNamePlug()
-    )
+        input == shaftPointOrientAttrNamePlug())
     {
-        outputs.push_back( outPlug()->objectPlug() );
+        outputs.push_back(outPlug()->objectPlug());
     }
 }
 
-bool FeatherAttachBarbs::affectsProcessedObject( const Gaffer::Plug *input ) const
+bool FeatherAttachBarbs::acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plug *inputPlug) const
 {
-    return
-        input == inShaftsPlug()->objectPlug() ||
-        input == hairIdAttrNamePlug() ||
-        input == shaftPointIdAttrNamePlug() ||
-        input == barbParamAttrNamePlug() ||
-        input == shaftUpVectorPrimVarNamePlug() ||
-        input == shaftPointOrientAttrNamePlug();
-}
-
-void FeatherAttachBarbs::hashProcessedObject( const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const
-{
-    ObjectProcessor::hashProcessedObject( path, context, h );
-    inShaftsPlug()->objectPlug()->hash( h );
-    // Input barbs are hashed by ObjectProcessor via inPlug()->objectPlug()->hash(h)
-    hairIdAttrNamePlug()->hash( h );
-    shaftPointIdAttrNamePlug()->hash( h );
-    barbParamAttrNamePlug()->hash( h );
-    shaftUpVectorPrimVarNamePlug()->hash( h );
-    shaftPointOrientAttrNamePlug()->hash( h );
-}
-
-namespace
-{
-
-// Helper to get a V3f from a PrimitiveVariable, checking for Uniform and Vertex interpolation
-// Returns false if not found or wrong type/interpolation for vertex data.
-// For Uniform, assumes single value for the primitive.
-bool getV3fPrimVarValue( const IECoreScene::PrimitiveVariable &pv, size_t primIndex, size_t vertIndex, V3f &outValue )
-{
-    if( pv.interpolation == PrimitiveVariable::Uniform )
+    if (!ObjectProcessor::acceptsInput(plug, inputPlug))
     {
-        if( const V3fData *data = runTimeCast<const V3fData>( pv.data.get() ) )
+        return false;
+    }
+
+    return true;
+}
+
+bool FeatherAttachBarbs::affectsProcessedObject(const Gaffer::Plug *input) const
+{
+    return input == inShaftsPlug()->objectPlug() ||
+           input == inBarbsPlug()->objectPlug() ||
+           input == hairIdAttrNamePlug() ||
+           input == shaftPointIdAttrNamePlug() ||
+           input == barbParamAttrNamePlug() ||
+           input == shaftUpVectorPrimVarNamePlug() ||
+           input == shaftPointOrientAttrNamePlug();
+}
+
+void FeatherAttachBarbs::hashProcessedObject(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
+{
+    // Get objects
+    ConstObjectPtr inputObject = inPlug()->object(path);
+    const CurvesPrimitive *barbs = runTimeCast<const CurvesPrimitive>(inputObject.get());
+
+    if (!barbs)
+    {
+        h = inputObject->hash();
+        return;
+    }
+
+    // Get shafts using path
+    ConstObjectPtr shaftsObject = inShaftsPlug()->object(path);
+    const CurvesPrimitive *shafts = runTimeCast<const CurvesPrimitive>(shaftsObject.get());
+
+    if (!shafts)
+    {
+        // Try to get shafts from barbs input
+        ConstObjectPtr barbsObject = inBarbsPlug()->object(path);
+        const CurvesPrimitive *altBarbs = runTimeCast<const CurvesPrimitive>(barbsObject.get());
+        
+        if (!altBarbs)
         {
-            outValue = data->readable();
-            return true;
-        }
-        else if( const V3fVectorData *data = runTimeCast<const V3fVectorData>( pv.data.get() ) )
-        {
-            if( !data->readable().empty() )
-            {
-                outValue = data->readable()[0]; // Assuming one value for Uniform, could also use primIndex if it makes sense for the data
-                return true;
-            }
+            h = inputObject->hash();
+            return;
         }
     }
-    else if( pv.interpolation == PrimitiveVariable::Vertex || pv.interpolation == PrimitiveVariable::Varying )
-    {
-        if( const V3fVectorData *data = runTimeCast<const V3fVectorData>( pv.data.get() ) )
-        {
-            if( vertIndex < data->readable().size() )
-            {
-                outValue = data->readable()[vertIndex];
-                return true;
-            }
-        }
-    }
-    return false;
+
+    // Hash input curves
+    h.append(inPlug()->objectHash(path));
+    
+    // Hash shafts
+    h.append(inShaftsPlug()->objectHash(path));
+    
+    // Hash barbs if different from input
+    h.append(inBarbsPlug()->objectHash(path));
+
+    // Hash parameters
+    hairIdAttrNamePlug()->hash(h);
+    shaftPointIdAttrNamePlug()->hash(h);
+    barbParamAttrNamePlug()->hash(h);
+    shaftUpVectorPrimVarNamePlug()->hash(h);
+    shaftPointOrientAttrNamePlug()->hash(h);
 }
 
-// Helper to get a Quatf from a PrimitiveVariable
-// Assumes Uniform interpolation and that pv.data is QuatfData or QuatfVectorData
-bool getQuatfPrimVarValue( const IECoreScene::PrimitiveVariable &pv, size_t primIndex, Imath::Quatf &outValue )
+IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
 {
-    if( pv.interpolation == PrimitiveVariable::Uniform )
-    {
-        if( const IECore::QuatfData *data = runTimeCast<const IECore::QuatfData>( pv.data.get() ) )
-        {
-            outValue = data->readable(); // Data is a single Imath::Quatf
-            return true;
-        }
-        else if( const IECore::QuatfVectorData *data = runTimeCast<const IECore::QuatfVectorData>( pv.data.get() ) )
-        {
-            const std::vector<Imath::Quatf>& quatVec = data->readable();
-            if( !quatVec.empty() )
-            {
-                // For Uniform, take the value for the specific primitive if available, otherwise first.
-                size_t indexToUse = (primIndex < quatVec.size()) ? primIndex : 0;
-                outValue = quatVec[indexToUse];
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-
-// Calculate Tangent, Bitangent, Normal for a point on a curve
-void calculateCurveFrame( const IECore::V3fVectorData *pointsData, int pointIdx, int numShaftPoints,
-                          const V3f *shaftUpVector, const Quatf *shaftOrientation,
-                          V3f &T, V3f &B, V3f &N )
-{
-    const std::vector<V3f> &P_shaft = pointsData->readable();
-
-    if (numShaftPoints == 1)
-    {
-        T = V3f(1, 0, 0);
-    }
-    else if (pointIdx < numShaftPoints - 1)
-    {
-        T = P_shaft[pointIdx + 1] - P_shaft[pointIdx];
-    }
-    else // pointIdx == numShaftPoints - 1
-    {
-        T = P_shaft[pointIdx] - P_shaft[pointIdx - 1];
-    }
-    T.normalize();
-
-    if(shaftOrientation)
-    {
-        M44f orientMatrix = shaftOrientation->toMatrix44();
-        T = V3f(1,0,0) * orientMatrix;
-        B = V3f(0,1,0) * orientMatrix;
-        N = V3f(0,0,1) * orientMatrix;
-        T.normalize();
-        B.normalize();
-        N.normalize();
-        return; // Orientation overrides other methods
-    }
-
-    if (shaftUpVector)
-    {
-        B = T.cross(*shaftUpVector);
-        float blen = B.length();
-        if (blen < 1e-6f)
-        { // Tangent and shaftUpVector are parallel, fallback
-            V3f ref_vec = V3f(0, 1, 0);
-            if (std::abs(T.dot(ref_vec)) > 0.99f) ref_vec = V3f(1, 0, 0);
-            B = T.cross(ref_vec);
-        }
-        B.normalize();
-        N = B.cross(T);
-        N.normalize();
-    }
-    else
-    {
-        V3f ref_vec = V3f(0, 1, 0);
-        if (std::abs(T.dot(ref_vec)) > 0.99f) ref_vec = V3f(1, 0, 0);
-        B = T.cross(ref_vec);
-        B.normalize();
-        N = B.cross(T);
-        N.normalize();
-    }
-}
-
-}
-
-IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject ) const
-{
-    const CurvesPrimitive *inBarbsCurves = runTimeCast<const CurvesPrimitive>( inputObject );
-    if( !inBarbsCurves )
+    // Early out if we don't have a valid input object
+    const CurvesPrimitive *barbs = runTimeCast<const CurvesPrimitive>(inputObject);
+    if (!barbs)
     {
         return inputObject;
     }
 
-    ConstObjectPtr inShaftsObject = inShaftsPlug()->objectPlug()->getValue();
-    const CurvesPrimitive *inShaftsCurves = runTimeCast<const CurvesPrimitive>( inShaftsObject.get() );
-    if( !inShaftsCurves )
+    // Get shafts using path
+    ConstObjectPtr shaftsObject = inShaftsPlug()->object(path);
+    const CurvesPrimitive *shafts = runTimeCast<const CurvesPrimitive>(shaftsObject.get());
+
+    if (!shafts)
     {
-        msg( Msg::Warning, "FeatherAttachBarbs", "Input shafts are not CurvesPrimitive." );
+        // Try to get shafts from barbs input
+        ConstObjectPtr barbsObject = inBarbsPlug()->object(path);
+        const CurvesPrimitive *altBarbs = runTimeCast<const CurvesPrimitive>(barbsObject.get());
+        
+        if (!altBarbs)
+        {
+            return inputObject;
+        }
+        
+        // Use alternative barbs as shafts
+        shafts = altBarbs;
+    }
+
+    // Validate shafts and barbs have the necessary attributes
+    const std::string hairIdAttrName = hairIdAttrNamePlug()->getValue();
+    const std::string shaftPointIdAttrName = shaftPointIdAttrNamePlug()->getValue();
+    const std::string barbParamAttrName = barbParamAttrNamePlug()->getValue();
+    
+    // Validate hairId on both shafts and barbs
+    auto shaftHairIdIt = shafts->variables.find(hairIdAttrName);
+    auto barbHairIdIt = barbs->variables.find(hairIdAttrName);
+    if (shaftHairIdIt == shafts->variables.end() || barbHairIdIt == barbs->variables.end())
+    {
+        return inputObject;
+    }
+    
+    // Validate shaft point ids on barbs
+    auto barbShaftPointIdIt = barbs->variables.find(shaftPointIdAttrName);
+    if (barbShaftPointIdIt == barbs->variables.end())
+    {
+        return inputObject;
+    }
+    
+    // Validate barb parameter
+    auto barbParamIt = barbs->variables.find(barbParamAttrName);
+    if (barbParamIt == barbs->variables.end())
+    {
         return inputObject;
     }
 
+    // Create output curves with same topology
+    CurvesPrimitivePtr outputBarbs = new CurvesPrimitive(
+        barbs->verticesPerCurve(),
+        barbs->basis(),
+        barbs->periodic());
+
+    // Copy primitive variables
+    for (const auto &primVar : barbs->variables)
+    {
+        outputBarbs->variables[primVar.first] = primVar.second;
+    }
+    
+    // Compute bindings
+    try
+    {
+        // Extract necessary data from shafts and barbs
+        const IntVectorData *shaftHairIds = runTimeCast<const IntVectorData>(shaftHairIdIt->second.data.get());
+        const IntVectorData *barbHairIds = runTimeCast<const IntVectorData>(barbHairIdIt->second.data.get());
+        const IntVectorData *barbShaftPointIds = runTimeCast<const IntVectorData>(barbShaftPointIdIt->second.data.get());
+        const FloatVectorData *barbParams = runTimeCast<const FloatVectorData>(barbParamIt->second.data.get());
+        
+        if (!shaftHairIds || !barbHairIds || !barbShaftPointIds || !barbParams)
+        {
+            return inputObject;
+        }
+        
+        // Get position data
+        const V3fVectorData *shaftPositions = shafts->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
+        const V3fVectorData *barbPositions = barbs->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
+        
+        if (!shaftPositions || !barbPositions)
+        {
+            return inputObject;
+        }
+        
+        // Compute rest frames and bindings
+        computeBindings(shafts, barbs, outputBarbs.get());
+        
+        return outputBarbs;
+    }
+    catch (const std::exception &e)
+    {
+        IECore::msg(IECore::Msg::Error, "FeatherAttachBarbs", 
+                    std::string("Computation failed: ") + e.what());
+        return inputObject;
+    }
+    catch (...)
+    {
+        IECore::msg(IECore::Msg::Error, "FeatherAttachBarbs", "Unknown error in computation");
+        return inputObject;
+    }
+}
+
+void FeatherAttachBarbs::computeBindings(
+    const IECoreScene::CurvesPrimitive *shafts,
+    const IECoreScene::CurvesPrimitive *barbs,
+    IECoreScene::CurvesPrimitive *outputBarbs) const
+{
     // Get attribute names from plugs
     const std::string hairIdAttrName = hairIdAttrNamePlug()->getValue();
     const std::string shaftPointIdAttrName = shaftPointIdAttrNamePlug()->getValue();
     const std::string barbParamAttrName = barbParamAttrNamePlug()->getValue();
-    const std::string shaftUpVectorPrimVarName = shaftUpVectorPrimVarNamePlug()->getValue();
-    const std::string shaftPointOrientAttrName = shaftPointOrientAttrNamePlug()->getValue();
-
-    // Validate presence of P on barbs and shafts
-    auto barbPIt = inBarbsCurves->variables.find( "P" );
-    if( barbPIt == inBarbsCurves->variables.end() || !runTimeCast<V3fVectorData>(barbPIt->second.data.get()) )
+    const std::string upVectorName = shaftUpVectorPrimVarNamePlug()->getValue();
+    const std::string orientAttrName = shaftPointOrientAttrNamePlug()->getValue();
+    
+    // Extract data from barbs and shafts
+    const IntVectorData *shaftHairIds = shafts->variableData<IntVectorData>(hairIdAttrName, PrimitiveVariable::Uniform);
+    const IntVectorData *barbHairIds = barbs->variableData<IntVectorData>(hairIdAttrName, PrimitiveVariable::Uniform);
+    const IntVectorData *barbShaftPointIds = barbs->variableData<IntVectorData>(shaftPointIdAttrName, PrimitiveVariable::Uniform);
+    const FloatVectorData *barbParams = barbs->variableData<FloatVectorData>(barbParamAttrName, PrimitiveVariable::Uniform);
+    
+    if (!shaftHairIds || !barbHairIds || !barbShaftPointIds || !barbParams)
     {
-        msg( Msg::Warning, "FeatherAttachBarbs", "Barbs missing 'P' (Position) Vertex attribute." );
-        return inputObject;
-    }
-    const V3fVectorData *barbsP = runTimeCast<const V3fVectorData>(barbPIt->second.data.get());
-
-    auto shaftPIt = inShaftsCurves->variables.find( "P" );
-    if( shaftPIt == inShaftsCurves->variables.end() || !runTimeCast<V3fVectorData>(shaftPIt->second.data.get()) )
-    {
-        msg( Msg::Warning, "FeatherAttachBarbs", "Shafts missing 'P' (Position) Vertex attribute." );
-        return inputObject;
-    }
-    const V3fVectorData *shaftsP = runTimeCast<const V3fVectorData>(shaftPIt->second.data.get());
-
-    // --- Prepare shaft data map ---
-    struct ShaftInfo {
-        int primitiveIndex;
-        const IECore::V3fVectorData* pData;
-        const IECore::V3fVectorData* upVectorData; // Could be per-primitive (Uniform) or per-vertex
-        const PrimitiveVariable* upVectorPrimVar;
-        const PrimitiveVariable* orientationPrimVar;
-    };
-    std::map<int, ShaftInfo> shaftDataMap;
-
-    const PrimitiveVariable* shaftsHairIdPV = nullptr;
-    auto shaftsHairIdIt = inShaftsCurves->variables.find( hairIdAttrName );
-    if( shaftsHairIdIt != inShaftsCurves->variables.end() )
-    {
-        shaftsHairIdPV = &(shaftsHairIdIt->second);
-    }
-
-    if( !shaftsHairIdPV )
-    {
-        msg( Msg::Warning, "FeatherAttachBarbs", boost::format("Shafts missing '%1%' attribute.") % hairIdAttrName );
-        return inputObject;
-    }
-
-    const IntVectorData* shaftsHairIdInt = runTimeCast<const IntVectorData>( shaftsHairIdPV->data.get() );
-
-    if( !shaftsHairIdInt )
-    {
-        msg( Msg::Warning, "FeatherAttachBarbs", boost::format("'%1%' attribute on shafts must be IntVectorData.") % hairIdAttrName );
-        return inputObject;
-    }
-    if( shaftsHairIdPV->interpolation != PrimitiveVariable::Uniform )
-    {
-        msg( Msg::Warning, "FeatherAttachBarbs", boost::format("'%1%' attribute on shafts must have Uniform interpolation.") % hairIdAttrName );
-        return inputObject;
-    }
-
-    const PrimitiveVariable* shaftsUpVecPV = nullptr;
-    if(!shaftUpVectorPrimVarName.empty())
-    {
-        auto shaftsUpVecIt = inShaftsCurves->variables.find( shaftUpVectorPrimVarName );
-        if( shaftsUpVecIt != inShaftsCurves->variables.end() )
-        {
-            shaftsUpVecPV = &(shaftsUpVecIt->second);
-        }
+        throw IECore::Exception("Missing required attribute data for binding calculation");
     }
     
-    const PrimitiveVariable* shaftsOrientPV = nullptr;
-    if(!shaftPointOrientAttrName.empty())
-    {
-        auto shaftsOrientIt = inShaftsCurves->variables.find( shaftPointOrientAttrName );
-        if( shaftsOrientIt != inShaftsCurves->variables.end() )
-        {
-            shaftsOrientPV = &(shaftsOrientIt->second);
-        }
-    }
-
-    for( size_t i = 0; i < inShaftsCurves->numCurves(); ++i )
-    {
-        int id;
-        id = shaftsHairIdInt->readable()[ (shaftsHairIdPV->interpolation == PrimitiveVariable::Uniform && !shaftsHairIdInt->readable().empty()) ? 0 : i ];
-        shaftDataMap[id] = { (int)i, shaftsP, 
-                             runTimeCast<const IECore::V3fVectorData>(shaftsUpVecPV ? shaftsUpVecPV->data.get() : nullptr),
-                             shaftsUpVecPV,
-                             shaftsOrientPV
-                           };
-    }
-
-    // --- Prepare barb attributes ---
-    const PrimitiveVariable* barbsHairIdPV = nullptr;
-    auto barbsHairIdIt = inBarbsCurves->variables.find( hairIdAttrName );
-    if( barbsHairIdIt != inBarbsCurves->variables.end() )
-    {
-        barbsHairIdPV = &(barbsHairIdIt->second);
-    }
-
-    const PrimitiveVariable* barbsShaftPointIdPV = nullptr;
-    auto barbsShaftPointIdIt = inBarbsCurves->variables.find( shaftPointIdAttrName );
-    if( barbsShaftPointIdIt != inBarbsCurves->variables.end() )
-    {
-        barbsShaftPointIdPV = &(barbsShaftPointIdIt->second);
-    }
-
-    const PrimitiveVariable* barbsParamPV = nullptr;
-    auto barbsParamIt = inBarbsCurves->variables.find( barbParamAttrName );
-    if( barbsParamIt != inBarbsCurves->variables.end() )
-    {
-        barbsParamPV = &(barbsParamIt->second);
-    }
-
-    if( !barbsHairIdPV || !barbsShaftPointIdPV || !barbsParamPV )
-    {
-        msg( Msg::Warning, "FeatherAttachBarbs", boost::format("Barbs missing one or more required attributes: '%1%', '%2%', '%3%'.") % hairIdAttrName % shaftPointIdAttrName % barbParamAttrName );
-        return inputObject;
-    }
-
-    const IntVectorData* barbsHairIdInt = runTimeCast<const IntVectorData>( barbsHairIdPV->data.get() );
-    const IntVectorData* barbsShaftPointId = runTimeCast<const IntVectorData>( barbsShaftPointIdPV->data.get() );
-    const FloatVectorData* barbsParam = runTimeCast<const FloatVectorData>( barbsParamPV->data.get() );
-
-    if( !barbsHairIdInt || !barbsShaftPointId || !barbsParam )
-    {
-        msg( Msg::Warning, "FeatherAttachBarbs", "Barb attributes have incorrect data types (expecting hairId as Int, shaftPointId as Int, param as Float)." );
-        return inputObject;
-    }
-    if( (barbsHairIdPV->interpolation != PrimitiveVariable::Uniform) ||
-        (barbsShaftPointIdPV->interpolation != PrimitiveVariable::Uniform) ||
-        barbsParamPV->interpolation != PrimitiveVariable::Vertex )
-    {
-        msg( Msg::Warning, "FeatherAttachBarbs", "Barb attributes have incorrect interpolation types." );
-        return inputObject;
-    }
-
-    // --- Output attribute data ---
-    IntVectorDataPtr bindShaftHairIdData = new IntVectorData();
+    // Get positions
+    const V3fVectorData *shaftPositions = shafts->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
+    const V3fVectorData *barbPositions = barbs->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
     
-    IntVectorDataPtr bindShaftPointIdData = new IntVectorData;
-    V3fVectorDataPtr bindShaftRestPData = new V3fVectorData;
-    V3fVectorDataPtr bindShaftRestTData = new V3fVectorData;
-    V3fVectorDataPtr bindShaftRestBData = new V3fVectorData;
-    V3fVectorDataPtr bindShaftRestNData = new V3fVectorData;
-    V3fVectorDataPtr bindBarbRootOffsetLocalData = new V3fVectorData;
-
-    std::vector<int>& bindShaftPointIdVec = bindShaftPointIdData->writable();
-    std::vector<V3f>& bindShaftRestPVec = bindShaftRestPData->writable();
-    std::vector<V3f>& bindShaftRestTVec = bindShaftRestTData->writable();
-    std::vector<V3f>& bindShaftRestBVec = bindShaftRestBData->writable();
-    std::vector<V3f>& bindShaftRestNVec = bindShaftRestNData->writable();
-    std::vector<V3f>& bindBarbRootOffsetLocalVec = bindBarbRootOffsetLocalData->writable();
-
-    const std::vector<int>& vertsPerBarb = inBarbsCurves->verticesPerCurve()->readable();
-    size_t barbVertexOffset = 0;
-
-    // --- Iterate through barb primitives ---
-    for( size_t i = 0; i < inBarbsCurves->numCurves(); ++i )
+    if (!shaftPositions || !barbPositions)
     {
-        int currentBarbHairId;
-        size_t barbHairIdIndex = (barbsHairIdPV->interpolation == PrimitiveVariable::Uniform && barbsHairIdInt && !barbsHairIdInt->readable().empty()) ? 0 : i;
-        if (barbHairIdIndex >= barbsHairIdInt->readable().size()) { 
-            msg( Msg::Warning, "FeatherAttachBarbs", boost::format("Barb %1% hairId index out of bounds.") % i ); 
-            barbVertexOffset += vertsPerBarb[i]; continue; 
-        }
-        currentBarbHairId = barbsHairIdInt->readable()[barbHairIdIndex];
-
-        size_t barbShaftPointIdIndex = (barbsShaftPointIdPV->interpolation == PrimitiveVariable::Uniform && !barbsShaftPointId->readable().empty()) ? 0 : i;
-        if (barbShaftPointIdIndex >= barbsShaftPointId->readable().size()) { 
-            msg( Msg::Warning, "FeatherAttachBarbs", boost::format("Barb %1% shaftPointId index out of bounds.") % i ); 
-            barbVertexOffset += vertsPerBarb[i];
-            continue; 
-        }
-        int targetShaftPtIdx = barbsShaftPointId->readable()[barbShaftPointIdIndex];
-
-        auto shaftIt = shaftDataMap.find( currentBarbHairId );
-        if( shaftIt == shaftDataMap.end() )
-        {
-            msg( Msg::Warning, "FeatherAttachBarbs", boost::format("Barb %1% with hairId cannot find matching shaft.") % i );
-            barbVertexOffset += vertsPerBarb[i];
+        throw IECore::Exception("Missing position data");
+    }
+    
+    // Get up vectors if available
+    const V3fVectorData *upVectors = nullptr;
+    if (!upVectorName.empty())
+    {
+        upVectors = shafts->variableData<V3fVectorData>(upVectorName, PrimitiveVariable::Vertex);
+    }
+    
+    // Get orientation quaternions if available
+    const QuatfVectorData *orientations = nullptr;
+    if (!orientAttrName.empty())
+    {
+        orientations = shafts->variableData<QuatfVectorData>(orientAttrName, PrimitiveVariable::Vertex);
+    }
+    
+    // Calculate shaft curve offsets
+    const std::vector<int> &shaftVertsPerCurve = shafts->verticesPerCurve()->readable();
+    std::vector<size_t> shaftOffsets;
+    shaftOffsets.reserve(shaftVertsPerCurve.size());
+    
+    size_t offset = 0;
+    for (int count : shaftVertsPerCurve)
+    {
+        shaftOffsets.push_back(offset);
+        offset += count;
+    }
+    
+    // Calculate barb curve offsets
+    const std::vector<int> &barbVertsPerCurve = barbs->verticesPerCurve()->readable();
+    std::vector<size_t> barbOffsets;
+    barbOffsets.reserve(barbVertsPerCurve.size());
+    
+    offset = 0;
+    for (int count : barbVertsPerCurve)
+    {
+        barbOffsets.push_back(offset);
+        offset += count;
+    }
+    
+    // Access data
+    const std::vector<int> &shaftHairIdValues = shaftHairIds->readable();
+    const std::vector<int> &barbHairIdValues = barbHairIds->readable();
+    const std::vector<int> &barbShaftPointIdValues = barbShaftPointIds->readable();
+    const std::vector<float> &barbParamValues = barbParams->readable();
+    
+    const std::vector<V3f> &shaftPositionValues = shaftPositions->readable();
+    const std::vector<V3f> &barbPositionValues = barbPositions->readable();
+    
+    // Create map from hair ID to shaft curve index for quick lookup
+    std::unordered_map<int, size_t> hairIdToShaftIndex;
+    for (size_t i = 0; i < shaftHairIdValues.size(); ++i)
+    {
+        hairIdToShaftIndex[shaftHairIdValues[i]] = i;
+    }
+    
+    // Process barbs in parallel
+    const size_t numBarbs = barbVertsPerCurve.size();
+    const size_t numThreads = std::thread::hardware_concurrency();
+    const size_t batchSize = calculateBatchSize(numBarbs, numThreads);
+    
+    std::vector<BarbBinding> bindings(numBarbs);
+    
+    parallel_for(blocked_range<size_t>(0, numBarbs, batchSize),
+                [&](const blocked_range<size_t> &range)
+                {
+                    for (size_t i = range.begin(); i != range.end(); ++i)
+                    {
+                        BarbBinding &binding = bindings[i];
+                        
+                        // Find matching shaft using hair ID
+                        const int barbHairId = barbHairIdValues[i];
+                        auto shaftIt = hairIdToShaftIndex.find(barbHairId);
+                        
+                        if (shaftIt == hairIdToShaftIndex.end())
+                        {
+                            // No matching shaft found
+                            binding.valid = false;
+                            continue;
+                        }
+                        
+                        const size_t shaftIndex = shaftIt->second;
+                        const int shaftPointId = barbShaftPointIdValues[i];
+                        const float barbParam = barbParamValues[i];
+                        
+                        // Validate shaft point index
+                        if (shaftPointId < 0 || 
+                            shaftPointId >= shaftVertsPerCurve[shaftIndex])
+                        {
+                            binding.valid = false;
+                            continue;
+                        }
+                        
+                        // Get shaft point global index
+                        const size_t shaftPointGlobalIndex = shaftOffsets[shaftIndex] + shaftPointId;
+                        
+                        // Get barb root point
+                        const size_t barbRootIndex = barbOffsets[i];
+                        const V3f &barbRootPos = barbPositionValues[barbRootIndex];
+                        
+                        // Get shaft point and its local frame
+                        const V3f &shaftPointPos = shaftPositionValues[shaftPointGlobalIndex];
+                        
+                        // Calculate tangent vector along shaft
+                        V3f tangent;
+                        if (shaftPointId + 1 < shaftVertsPerCurve[shaftIndex])
+                        {
+                            const size_t nextPointIndex = shaftOffsets[shaftIndex] + shaftPointId + 1;
+                            tangent = shaftPositionValues[nextPointIndex] - shaftPointPos;
+                        }
+                        else if (shaftPointId > 0)
+                        {
+                            const size_t prevPointIndex = shaftOffsets[shaftIndex] + shaftPointId - 1;
+                            tangent = shaftPointPos - shaftPositionValues[prevPointIndex];
+                        }
+                        else
+                        {
+                            // Single-point shaft, use up direction
+                            tangent = V3f(0, 1, 0);
+                        }
+                        
+                        // Compute normal (perpendicular to tangent)
+                        V3f normal;
+                        if (upVectors)
+                        {
+                            // Use provided up vector for normal calculation
+                            const V3f &up = upVectors->readable()[shaftPointGlobalIndex];
+                            normal = safeNormalize(up - tangent * up.dot(tangent));
+                        }
+                        else if (orientations)
+                        {
+                            // Use orientation quaternion if available
+                            const Quatf &orient = orientations->readable()[shaftPointGlobalIndex];
+                            V3f localNormal(1, 0, 0);
+                            normal = orient.rotateVector(localNormal);
+                        }
+                        else
+                        {
+                            // Default normal calculation
+                            V3f worldUp(0, 1, 0);
+                            
+                            // If tangent is too aligned with up, use a different direction
+                            V3f upDotTangent = safeNormalize(tangent).dot(worldUp);
+                            if (std::abs(upDotTangent) > 0.95f)
+                            {
+                                worldUp = V3f(1, 0, 0);
+                            }
+                            
+                            normal = worldUp - tangent * worldUp.dot(tangent);
+                            normal.normalize();
+                        }
+                        
+                        // Store binding data
+                        binding.shaftHairId = barbHairId;
+                        binding.shaftPointId = shaftPointId;
+                        binding.barbParam = barbParam;
+                        
+                        // Store rest frame
+                        binding.restFrame.position = shaftPointPos;
+                        binding.restFrame.normal = normal;
+                        binding.restFrame.tangent = safeNormalize(tangent);
+                        binding.restFrame.orthonormalize();
+                        
+                        // Calculate barb root offset from shaft point
+                        V3f rootOffset = barbRootPos - shaftPointPos;
+                        
+                        // Store barb root point
+                        binding.triangleIndex = 0; // Not using triangles for feather barbs
+                        binding.baryCoords = V3f(1, 0, 0); // Not using barycentric coords
+                        binding.uvCoords = V2f(0, barbParam); // Store param in uv.y
+                        binding.valid = true;
+                    }
+                });
+    
+    // Store binding data as primitive variables
+    V3fVectorDataPtr restPositionsData = new V3fVectorData;
+    V3fVectorDataPtr restNormalsData = new V3fVectorData;
+    V3fVectorDataPtr restTangentsData = new V3fVectorData;
+    V3fVectorDataPtr restBitangentsData = new V3fVectorData;
+    
+    std::vector<V3f> &restPositions = restPositionsData->writable();
+    std::vector<V3f> &restNormals = restNormalsData->writable();
+    std::vector<V3f> &restTangents = restTangentsData->writable();
+    std::vector<V3f> &restBitangents = restBitangentsData->writable();
+    
+    // Pre-allocate arrays
+    restPositions.resize(numBarbs);
+    restNormals.resize(numBarbs);
+    restTangents.resize(numBarbs);
+    restBitangents.resize(numBarbs);
+    
+    // Store optimization data
+    IntVectorDataPtr shaftHairIdsData = new IntVectorData;
+    IntVectorDataPtr shaftPointIdsData = new IntVectorData;
+    FloatVectorDataPtr barbParamsData = new FloatVectorData;
+    
+    std::vector<int> &outShaftHairIds = shaftHairIdsData->writable();
+    std::vector<int> &outShaftPointIds = shaftPointIdsData->writable();
+    std::vector<float> &outBarbParams = barbParamsData->writable();
+    
+    outShaftHairIds.resize(numBarbs);
+    outShaftPointIds.resize(numBarbs);
+    outBarbParams.resize(numBarbs);
+    
+    // Copy data from bindings
+    for (size_t i = 0; i < numBarbs; ++i)
+    {
+        const BarbBinding &binding = bindings[i];
+        if (!binding.valid)
             continue;
-        }
-        const ShaftInfo &shaftInfo = shaftIt->second;
-        const V3fVectorData* currentShaftPData = shaftInfo.pData;
-
-        // Get shaft points for this specific shaft curve
-        const std::vector<int>& vertsPerShaft = inShaftsCurves->verticesPerCurve()->readable();
-        size_t shaftVertexStart = 0;
-        for(int sIdx = 0; sIdx < shaftInfo.primitiveIndex; ++sIdx) shaftVertexStart += vertsPerShaft[sIdx];
-        int numShaftPoints = vertsPerShaft[shaftInfo.primitiveIndex];
-
-        if( targetShaftPtIdx < 0 || targetShaftPtIdx >= numShaftPoints )
-        {
-            msg( Msg::Warning, "FeatherAttachBarbs", boost::format("Barb %1% target_shaft_pt_idx %2% out of range for shaft with %3% points.") % i % targetShaftPtIdx % numShaftPoints );
-            barbVertexOffset += vertsPerBarb[i];
-            continue;
-        }
-        size_t actualShaftPointIndexInP = shaftVertexStart + targetShaftPtIdx;
-
-        // Calculate Shaft Attachment Frame (Rest)
-        V3f P_attach_shaft_rest = currentShaftPData->readable()[actualShaftPointIndexInP];
-        V3f T_attach_shaft_rest, B_attach_shaft_rest, N_attach_shaft_rest;
+            
+        restPositions[i] = binding.restFrame.position;
+        restNormals[i] = binding.restFrame.normal;
+        restTangents[i] = binding.restFrame.tangent;
+        restBitangents[i] = binding.restFrame.bitangent;
         
-        V3f shaftUpVecVal;
-        const V3f* shaftUpVecPtr = nullptr;
-        Quatf shaftOrientVal;
-        const Quatf* shaftOrientPtr = nullptr;
-
-        if(shaftInfo.upVectorPrimVar)
-        {
-            if(getV3fPrimVarValue(*shaftInfo.upVectorPrimVar, shaftInfo.primitiveIndex, actualShaftPointIndexInP, shaftUpVecVal))
-            {
-                 shaftUpVecPtr = &shaftUpVecVal;
-            }
-        }
-        if(shaftInfo.orientationPrimVar)
-        {
-            if(getQuatfPrimVarValue(*shaftInfo.orientationPrimVar, shaftInfo.primitiveIndex, shaftOrientVal))
-            {
-                shaftOrientPtr = &shaftOrientVal;
-            }
-        }
-
-        calculateCurveFrame( currentShaftPData, actualShaftPointIndexInP, 
-                               currentShaftPData->readable().size(), // Pass total points, calculateCurveFrame will use actualShaftPointIndexInP to access points
-                               shaftUpVecPtr, shaftOrientPtr, 
-                               T_attach_shaft_rest, B_attach_shaft_rest, N_attach_shaft_rest );
-
-        // Find barb root point
-        size_t barbRootVertexIndex = barbVertexOffset;
-        float minParamU = std::numeric_limits<float>::max();
-        for( int v = 0; v < vertsPerBarb[i]; ++v )
-        {
-            size_t currentVertexGlobalIndex = barbVertexOffset + v;
-            if (currentVertexGlobalIndex >= barbsParam->readable().size()) {
-                 msg( Msg::Warning, "FeatherAttachBarbs", boost::format("Barb %1% vertex param index out of bounds.") % i ); 
-                 // This barb is malformed, we should skip it, but need to advance offset
-                 goto next_barb; 
-            }
-            float currentParamU = barbsParam->readable()[currentVertexGlobalIndex];
-            if( currentParamU < minParamU )
-            {
-                minParamU = currentParamU;
-                barbRootVertexIndex = currentVertexGlobalIndex;
-            }
-        }
-        if (barbRootVertexIndex >= barbsP->readable().size()) {
-            msg( Msg::Warning, "FeatherAttachBarbs", boost::format("Barb %1% root vertex index out of P bounds.") % i ); 
-            goto next_barb; 
-        }
-
-        V3f P_barb_root_rest = barbsP->readable()[barbRootVertexIndex];
-
-        // Construct shaft rest frame matrix
-        M44f M_shaft_rest( T_attach_shaft_rest.x, T_attach_shaft_rest.y, T_attach_shaft_rest.z, 0.0f,
-                           B_attach_shaft_rest.x, B_attach_shaft_rest.y, B_attach_shaft_rest.z, 0.0f,
-                           N_attach_shaft_rest.x, N_attach_shaft_rest.y, N_attach_shaft_rest.z, 0.0f,
-                           P_attach_shaft_rest.x, P_attach_shaft_rest.y, P_attach_shaft_rest.z, 1.0f );
-
-        V3f world_offset_vector = P_barb_root_rest - P_attach_shaft_rest;
-        V3f bind_barbRootOffsetLocal; // Initialize if necessary, or ensure it's assigned before use
-        M_shaft_rest.inverse().multDirMatrix(world_offset_vector, bind_barbRootOffsetLocal);
-
-        // Store bind attributes
-        bindShaftHairIdData->writable().push_back(currentBarbHairId);
-        bindShaftPointIdVec.push_back( targetShaftPtIdx );
-        bindShaftRestPVec.push_back( P_attach_shaft_rest );
-        bindShaftRestTVec.push_back( T_attach_shaft_rest );
-        bindShaftRestBVec.push_back( B_attach_shaft_rest );
-        bindShaftRestNVec.push_back( N_attach_shaft_rest );
-        bindBarbRootOffsetLocalVec.push_back( bind_barbRootOffsetLocal );
-
-    next_barb:
-        barbVertexOffset += vertsPerBarb[i];
+        outShaftHairIds[i] = binding.shaftHairId;
+        outShaftPointIds[i] = binding.shaftPointId;
+        outBarbParams[i] = binding.barbParam;
     }
-
-    // Create output CurvesPrimitive
-    CurvesPrimitivePtr outCurves = new CurvesPrimitive();
-    outCurves->setTopology( inBarbsCurves->verticesPerCurve(), inBarbsCurves->basis(), inBarbsCurves->periodic() );
-
-    // Copy existing primvars from inBarbs
-    for( const auto &pvPair : inBarbsCurves->variables )
-    {
-        outCurves->variables[pvPair.first] = pvPair.second;
-    }
-
-    // Add new bind attributes
-    outCurves->variables["bind_shaftHairId"] = PrimitiveVariable( PrimitiveVariable::Uniform, bindShaftHairIdData );
-    outCurves->variables["bind_shaftPointId"] = PrimitiveVariable( PrimitiveVariable::Uniform, bindShaftPointIdData );
-    outCurves->variables["bind_shaftRest_P"] = PrimitiveVariable( PrimitiveVariable::Uniform, bindShaftRestPData );
-    outCurves->variables["bind_shaftRest_T"] = PrimitiveVariable( PrimitiveVariable::Uniform, bindShaftRestTData );
-    outCurves->variables["bind_shaftRest_B"] = PrimitiveVariable( PrimitiveVariable::Uniform, bindShaftRestBData );
-    outCurves->variables["bind_shaftRest_N"] = PrimitiveVariable( PrimitiveVariable::Uniform, bindShaftRestNData );
-    outCurves->variables["bind_barbRootOffsetLocal"] = PrimitiveVariable( PrimitiveVariable::Uniform, bindBarbRootOffsetLocalData );
-
-    return outCurves;
+    
+    // Store all data as primitive variables
+    outputBarbs->variables["restPosition"] = PrimitiveVariable(PrimitiveVariable::Uniform, restPositionsData);
+    outputBarbs->variables["restNormal"] = PrimitiveVariable(PrimitiveVariable::Uniform, restNormalsData);
+    outputBarbs->variables["restTangent"] = PrimitiveVariable(PrimitiveVariable::Uniform, restTangentsData);
+    outputBarbs->variables["restBitangent"] = PrimitiveVariable(PrimitiveVariable::Uniform, restBitangentsData);
+    
+    // Store binding data
+    outputBarbs->variables["shaftHairId"] = PrimitiveVariable(PrimitiveVariable::Uniform, shaftHairIdsData);
+    outputBarbs->variables["shaftPointId"] = PrimitiveVariable(PrimitiveVariable::Uniform, shaftPointIdsData);
+    outputBarbs->variables["barbParam"] = PrimitiveVariable(PrimitiveVariable::Uniform, barbParamsData);
 }
-

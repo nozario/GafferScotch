@@ -48,6 +48,11 @@ namespace GafferScotch
         Imath::Box3f computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const override;
 
     private:
+        void deformBarbs(
+            const IECoreScene::CurvesPrimitive *barbs,
+            const IECoreScene::CurvesPrimitive *animatedShafts,
+            IECoreScene::CurvesPrimitive *outputBarbs) const;
+            
         static size_t g_firstPlugIndex;
     };
 
