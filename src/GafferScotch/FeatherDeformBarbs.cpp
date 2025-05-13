@@ -282,7 +282,9 @@ void calculateCurveFrame( const IECore::V3fVectorData *pointsData, int pointIdxO
 }
 
 // Templated getter for bind attributes to handle different HairId types
-template<typename TIdType>
+// Since hairId is now always int, this template might be overkill or simplified.
+// For now, we'll keep the structure but expect TIdType to always be int when used.
+template<typename TIdType> // Effectively, TIdType will be int
 struct BindAttributeReaders
 {
     const TypedData<std::vector<TIdType>> *bindShaftHairIdReader = nullptr;
@@ -386,38 +388,30 @@ IECore::ConstObjectPtr FeatherDeformBarbs::computeProcessedObject( const ScenePa
     auto bindShaftHairIdIt = inBarbsCurves->variables.find("bind_shaftHairId");
     if(bindShaftHairIdIt == inBarbsCurves->variables.end() || !bindShaftHairIdIt->second.data)
     {
-        msg( Msg::Warning, "FeatherDeformBarbs", "Input barbs missing 'bind_shaftHairId' attribute." );
+        msg( Msg::Warning, "FeatherDeformBarbs", "Input barbs missing 'bind_shaftHairId' attribute (expected IntVectorData)." );
         return inputObject;
     }
 
-    bool idsAreInt = runTimeCast<IntVectorData>(bindShaftHairIdIt->second.data.get()) != nullptr;
-    std::unique_ptr<void, void(*)(void*)> readersDeleter{nullptr, [](void*){}};
-    void* rawReadersPtr = nullptr;
-
-    if(idsAreInt)
-    {
-        auto readers = new BindAttributeReaders<int>(inBarbsCurves, barbParamAttrNameFromAttach);
-        rawReadersPtr = readers;
-        readersDeleter = {readers, [](void* ptr){ delete static_cast<BindAttributeReaders<int>*>(ptr); } };
-        if(!readers->isValid()) { msg( Msg::Warning, "FeatherDeformBarbs", "Input barbs missing one or more required bind_* attributes (Int ID type)."); return inputObject;}
+    // bool idsAreInt = runTimeCast<IntVectorData>(bindShaftHairIdIt->second.data.get()) != nullptr; // REMOVE THIS, should always be true
+    // The following smart pointer and void* for readers might be simplified if we only have one type of reader.
+    // For now, let's assume the structure to minimize large scale changes, but it will always take the "idsAreInt" path.
+    std::unique_ptr<BindAttributeReaders<int>> readers(new BindAttributeReaders<int>(inBarbsCurves, barbParamAttrNameFromAttach));
+    if(!readers->isValid()) { 
+        msg( Msg::Warning, "FeatherDeformBarbs", "Input barbs missing one or more required bind_* attributes (expecting Int ID type)."); 
+        return inputObject;
     }
-    else
-    {
-        auto readers = new BindAttributeReaders<std::string>(inBarbsCurves, barbParamAttrNameFromAttach);
-        rawReadersPtr = readers;
-        readersDeleter = {readers, [](void* ptr){ delete static_cast<BindAttributeReaders<std::string>*>(ptr); } };
-        if(!readers->isValid()) { msg( Msg::Warning, "FeatherDeformBarbs", "Input barbs missing one or more required bind_* attributes (String ID type)."); return inputObject;}
-    }
+    // The old else branch for BindAttributeReaders<std::string> is removed.
 
     // --- Prepare animated shaft data map ---
-    using HairIdVariant = std::variant<int, std::string>;
+    // using HairIdVariant = std::variant<int, std::string>; // REMOVE
     struct AnimShaftInfo {
         int primitiveIndex;
         const V3fVectorData* pData;
         const PrimitiveVariable* upVectorPrimVar;
         const PrimitiveVariable* orientationPrimVar;
     };
-    std::map<HairIdVariant, AnimShaftInfo> animShaftDataMap;
+    // std::map<HairIdVariant, AnimShaftInfo> animShaftDataMap; // REPLACE
+    std::map<int, AnimShaftInfo> animShaftDataMap; // WITH THIS
 
     const PrimitiveVariable* animShaftsHairIdPV = findPrimitiveVariable( animatedShaftsCurves->variables, hairIdAttrName );
     if( !animShaftsHairIdPV )
@@ -426,11 +420,13 @@ IECore::ConstObjectPtr FeatherDeformBarbs::computeProcessedObject( const ScenePa
         return inputObject;
     }
     const IntVectorData* animShaftsHairIdInt = runTimeCast<const IntVectorData>( animShaftsHairIdPV->data.get() );
-    const StringVectorData* animShaftsHairIdString = runTimeCast<const StringVectorData>( animShaftsHairIdPV->data.get() );
-    if( (!animShaftsHairIdInt && !animShaftsHairIdString) || 
+    // const StringVectorData* animShaftsHairIdString = runTimeCast<const StringVectorData>( animShaftsHairIdPV->data.get() ); // REMOVE
+    // if( (!animShaftsHairIdInt && !animShaftsHairIdString) ||  // REPLACE
+    if( !animShaftsHairIdInt || 
         (animShaftsHairIdPV->interpolation != PrimitiveVariable::Uniform && animShaftsHairIdPV->interpolation != PrimitiveVariable::Primitive) )
     {
-        msg( Msg::Warning, "FeatherDeformBarbs", boost::format("'%1%' attribute on animated shafts has incorrect type or interpolation.") % hairIdAttrName );
+        // msg( Msg::Warning, "FeatherDeformBarbs", boost::format("'%1%' attribute on animated shafts has incorrect type or interpolation.") % hairIdAttrName ); // REPLACE
+        msg( Msg::Warning, "FeatherDeformBarbs", boost::format("'%1%' attribute on animated shafts must be IntVectorData with Uniform or Primitive interpolation.") % hairIdAttrName ); // WITH THIS
         return inputObject;
     }
 
@@ -441,9 +437,11 @@ IECore::ConstObjectPtr FeatherDeformBarbs::computeProcessedObject( const ScenePa
 
     for( size_t i = 0; i < animatedShaftsCurves->numCurves(); ++i )
     {
-        HairIdVariant id;
-        if( animShaftsHairIdInt ) id = animShaftsHairIdInt->readable()[(animShaftsHairIdPV->interpolation == PrimitiveVariable::Uniform && !animShaftsHairIdInt->readable().empty()) ? 0 : i];
-        else id = animShaftsHairIdString->readable()[(animShaftsHairIdPV->interpolation == PrimitiveVariable::Uniform && !animShaftsHairIdString->readable().empty()) ? 0 : i];
+        // HairIdVariant id; // REPLACE
+        int id; // WITH THIS
+        // if( animShaftsHairIdInt ) id = animShaftsHairIdInt->readable()[(animShaftsHairIdPV->interpolation == PrimitiveVariable::Uniform && !animShaftsHairIdInt->readable().empty()) ? 0 : i]; // SIMPLIFY
+        // else id = animShaftsHairIdString->readable()[(animShaftsHairIdPV->interpolation == PrimitiveVariable::Uniform && !animShaftsHairIdString->readable().empty()) ? 0 : i]; // REMOVE ELSE
+        id = animShaftsHairIdInt->readable()[(animShaftsHairIdPV->interpolation == PrimitiveVariable::Uniform && !animShaftsHairIdInt->readable().empty()) ? 0 : i];
         animShaftDataMap[id] = { (int)i, animShaftsP, animShaftsUpVecPV, animShaftsOrientPV };
     }
 
@@ -459,50 +457,33 @@ IECore::ConstObjectPtr FeatherDeformBarbs::computeProcessedObject( const ScenePa
     for( size_t i = 0; i < inBarbsCurves->numCurves(); ++i )
     {
         // Read bind attributes for this barb
-        HairIdVariant bind_shaftHairId_val;
+        // HairIdVariant bind_shaftHairId_val; // REPLACE
+        int bind_shaftHairId_val; // WITH THIS
         int bind_shaftPointId_val;
         V3f bind_shaftRest_P_val, bind_shaftRest_T_val, bind_shaftRest_B_val, bind_shaftRest_N_val, bind_barbRootOffsetLocal_val;
 
-        if(idsAreInt)
+        // if(idsAreInt) // REMOVE THIS CONDITION, it's the only path
+        // { // REMOVE
+        // auto readers_ptr = static_cast<BindAttributeReaders<int>*>(rawReadersPtr); // Use the unique_ptr directly
+        if (i >= readers->bindShaftHairIdReader->readable().size() || i >= readers->bindShaftPointIdReader->readable().size() ||
+            i >= readers->bindShaftRestPReader->readable().size() || i >= readers->bindShaftRestTReader->readable().size() ||
+            i >= readers->bindShaftRestBReader->readable().size() || i >= readers->bindShaftRestNReader->readable().size() ||
+            i >= readers->bindBarbRootOffsetLocalReader->readable().size())
         {
-            auto readers = static_cast<BindAttributeReaders<int>*>(rawReadersPtr);
-            if (i >= readers->bindShaftHairIdReader->readable().size() || i >= readers->bindShaftPointIdReader->readable().size() ||
-                i >= readers->bindShaftRestPReader->readable().size() || i >= readers->bindShaftRestTReader->readable().size() ||
-                i >= readers->bindShaftRestBReader->readable().size() || i >= readers->bindShaftRestNReader->readable().size() ||
-                i >= readers->bindBarbRootOffsetLocalReader->readable().size())
-            {
-                msg(Msg::Warning, "FeatherDeformBarbs", boost::format("Barb %1% bind attribute index out of bounds (Int ID).") % i);
-                for(int v=0; v < vertsPerBarb[i]; ++v) outBarbsPVec[barbVertexOffset + v] = inBarbsP->readable()[barbVertexOffset+v];
-                barbVertexOffset += vertsPerBarb[i]; continue;
-            }
-            bind_shaftHairId_val = readers->bindShaftHairIdReader->readable()[i];
-            bind_shaftPointId_val = readers->bindShaftPointIdReader->readable()[i];
-            bind_shaftRest_P_val = readers->bindShaftRestPReader->readable()[i];
-            bind_shaftRest_T_val = readers->bindShaftRestTReader->readable()[i];
-            bind_shaftRest_B_val = readers->bindShaftRestBReader->readable()[i];
-            bind_shaftRest_N_val = readers->bindShaftRestNReader->readable()[i];
-            bind_barbRootOffsetLocal_val = readers->bindBarbRootOffsetLocalReader->readable()[i];
+            msg(Msg::Warning, "FeatherDeformBarbs", boost::format("Barb %1% bind attribute index out of bounds (Int ID).") % i);
+            for(int v=0; v < vertsPerBarb[i]; ++v) outBarbsPVec[barbVertexOffset + v] = inBarbsP->readable()[barbVertexOffset+v];
+            barbVertexOffset += vertsPerBarb[i]; continue;
         }
-        else
-        {
-            auto readers = static_cast<BindAttributeReaders<std::string>*>(rawReadersPtr);
-             if (i >= readers->bindShaftHairIdReader->readable().size() || i >= readers->bindShaftPointIdReader->readable().size() ||
-                i >= readers->bindShaftRestPReader->readable().size() || i >= readers->bindShaftRestTReader->readable().size() ||
-                i >= readers->bindShaftRestBReader->readable().size() || i >= readers->bindShaftRestNReader->readable().size() ||
-                i >= readers->bindBarbRootOffsetLocalReader->readable().size())
-            {
-                msg(Msg::Warning, "FeatherDeformBarbs", boost::format("Barb %1% bind attribute index out of bounds (String ID).") % i);
-                for(int v=0; v < vertsPerBarb[i]; ++v) outBarbsPVec[barbVertexOffset + v] = inBarbsP->readable()[barbVertexOffset+v];
-                barbVertexOffset += vertsPerBarb[i]; continue;
-            }
-            bind_shaftHairId_val = readers->bindShaftHairIdReader->readable()[i];
-            bind_shaftPointId_val = readers->bindShaftPointIdReader->readable()[i];
-            bind_shaftRest_P_val = readers->bindShaftRestPReader->readable()[i];
-            bind_shaftRest_T_val = readers->bindShaftRestTReader->readable()[i];
-            bind_shaftRest_B_val = readers->bindShaftRestBReader->readable()[i];
-            bind_shaftRest_N_val = readers->bindShaftRestNReader->readable()[i];
-            bind_barbRootOffsetLocal_val = readers->bindBarbRootOffsetLocalReader->readable()[i];
-        }
+        bind_shaftHairId_val = readers->bindShaftHairIdReader->readable()[i];
+        bind_shaftPointId_val = readers->bindShaftPointIdReader->readable()[i];
+        bind_shaftRest_P_val = readers->bindShaftRestPReader->readable()[i];
+        bind_shaftRest_T_val = readers->bindShaftRestTReader->readable()[i];
+        bind_shaftRest_B_val = readers->bindShaftRestBReader->readable()[i];
+        bind_shaftRest_N_val = readers->bindShaftRestNReader->readable()[i];
+        bind_barbRootOffsetLocal_val = readers->bindBarbRootOffsetLocalReader->readable()[i];
+        // } // REMOVE
+        // else // REMOVE THIS ELSE BRANCH ENTIRELY
+        // { ... } // REMOVE
 
         auto animShaftIt = animShaftDataMap.find( bind_shaftHairId_val );
         if( animShaftIt == animShaftDataMap.end() )
@@ -585,8 +566,9 @@ IECore::ConstObjectPtr FeatherDeformBarbs::computeProcessedObject( const ScenePa
         size_t barbRootVertexIndex = barbVertexOffset;
         float minParamU = std::numeric_limits<float>::max();
         const FloatVectorData* currentBarbParamReader = nullptr;
-        if(idsAreInt) currentBarbParamReader = static_cast<BindAttributeReaders<int>*>(rawReadersPtr)->barbParamReader;
-        else currentBarbParamReader = static_cast<BindAttributeReaders<std::string>*>(rawReadersPtr)->barbParamReader;
+        // if(idsAreInt) currentBarbParamReader = static_cast<BindAttributeReaders<int>*>(rawReadersPtr)->barbParamReader; // SIMPLIFY
+        // else currentBarbParamReader = static_cast<BindAttributeReaders<std::string>*>(rawReadersPtr)->barbParamReader; // REMOVE
+        currentBarbParamReader = readers->barbParamReader; // Use the unique_ptr directly
 
         for( int v = 0; v < vertsPerBarb[i]; ++v )
         {

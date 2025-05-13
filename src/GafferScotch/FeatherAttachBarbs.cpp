@@ -317,9 +317,6 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePa
     const V3fVectorData *shaftsP = runTimeCast<const V3fVectorData>(shaftPIt->second.data.get());
 
     // --- Prepare shaft data map ---
-    // Map: hair_id (int or string) -> { shaft_primitive_index, shaft_P_data, shaft_up_vector_data (optional), shaft_orient_data (optional) }
-    // Using variant for hair_id type
-    using HairIdVariant = std::variant<int, std::string>;
     struct ShaftInfo {
         int primitiveIndex;
         const V3fVectorData* pData;
@@ -328,7 +325,7 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePa
         const PrimitiveVariable* upVectorPrimVar;
         const PrimitiveVariable* orientationPrimVar;
     };
-    std::map<HairIdVariant, ShaftInfo> shaftDataMap;
+    std::map<int, ShaftInfo> shaftDataMap;
 
     const PrimitiveVariable* shaftsHairIdPV = findPrimitiveVariable( inShaftsCurves->variables, hairIdAttrName );
     if( !shaftsHairIdPV )
@@ -338,11 +335,10 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePa
     }
 
     const IntVectorData* shaftsHairIdInt = runTimeCast<const IntVectorData>( shaftsHairIdPV->data.get() );
-    const StringVectorData* shaftsHairIdString = runTimeCast<const StringVectorData>( shaftsHairIdPV->data.get() );
 
-    if( !shaftsHairIdInt && !shaftsHairIdString )
+    if( !shaftsHairIdInt )
     {
-        msg( Msg::Warning, "FeatherAttachBarbs", boost::format("'%1%' attribute on shafts must be IntVectorData or StringVectorData.") % hairIdAttrName );
+        msg( Msg::Warning, "FeatherAttachBarbs", boost::format("'%1%' attribute on shafts must be IntVectorData.") % hairIdAttrName );
         return inputObject;
     }
     if( shaftsHairIdPV->interpolation != PrimitiveVariable::Uniform && shaftsHairIdPV->interpolation != PrimitiveVariable::Primitive )
@@ -361,15 +357,8 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePa
 
     for( size_t i = 0; i < inShaftsCurves->numCurves(); ++i )
     {
-        HairIdVariant id;
-        if( shaftsHairIdInt )
-        {
-            id = shaftsHairIdInt->readable()[ (shaftsHairIdPV->interpolation == PrimitiveVariable::Uniform && !shaftsHairIdInt->readable().empty()) ? 0 : i ];
-        }
-        else // shaftsHairIdString must be valid
-        {
-            id = shaftsHairIdString->readable()[ (shaftsHairIdPV->interpolation == PrimitiveVariable::Uniform && !shaftsHairIdString->readable().empty()) ? 0 : i ];
-        }
+        int id;
+        id = shaftsHairIdInt->readable()[ (shaftsHairIdPV->interpolation == PrimitiveVariable::Uniform && !shaftsHairIdInt->readable().empty()) ? 0 : i ];
         shaftDataMap[id] = { (int)i, shaftsP, 
                              runTimeCast<const V3fVectorData>(shaftsUpVecPV ? shaftsUpVecPV->data.get() : nullptr),
                              runTimeCast<const V4fVectorData>(shaftsOrientPV ? shaftsOrientPV->data.get() : nullptr),
@@ -390,13 +379,12 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePa
     }
 
     const IntVectorData* barbsHairIdInt = runTimeCast<const IntVectorData>( barbsHairIdPV->data.get() );
-    const StringVectorData* barbsHairIdString = runTimeCast<const StringVectorData>( barbsHairIdPV->data.get() );
     const IntVectorData* barbsShaftPointId = runTimeCast<const IntVectorData>( barbsShaftPointIdPV->data.get() );
     const FloatVectorData* barbsParam = runTimeCast<const FloatVectorData>( barbsParamPV->data.get() );
 
-    if( (!barbsHairIdInt && !barbsHairIdString) || !barbsShaftPointId || !barbsParam )
+    if( !barbsHairIdInt || !barbsShaftPointId || !barbsParam )
     {
-        msg( Msg::Warning, "FeatherAttachBarbs", "Barb attributes have incorrect data types." );
+        msg( Msg::Warning, "FeatherAttachBarbs", "Barb attributes have incorrect data types (expecting hairId as Int, shaftPointId as Int, param as Float)." );
         return inputObject;
     }
     if( (barbsHairIdPV->interpolation != PrimitiveVariable::Uniform && barbsHairIdPV->interpolation != PrimitiveVariable::Primitive) ||
@@ -408,10 +396,7 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePa
     }
 
     // --- Output attribute data ---
-    // For bind_shaftHairId, we need to match the type of the input hairIdAttrName
-    DataPtr bindShaftHairIdData;
-    if (shaftsHairIdInt) bindShaftHairIdData = new IntVectorData;
-    else bindShaftHairIdData = new StringVectorData;
+    IntVectorDataPtr bindShaftHairIdData = new IntVectorData();
     
     IntVectorDataPtr bindShaftPointIdData = new IntVectorData;
     V3fVectorDataPtr bindShaftRestPData = new V3fVectorData;
@@ -433,24 +418,13 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePa
     // --- Iterate through barb primitives ---
     for( size_t i = 0; i < inBarbsCurves->numCurves(); ++i )
     {
-        HairIdVariant currentBarbHairId;
-        size_t barbHairIdIndex = (barbsHairIdPV->interpolation == PrimitiveVariable::Uniform && ((barbsHairIdInt && !barbsHairIdInt->readable().empty()) || (barbsHairIdString && !barbsHairIdString->readable().empty()))) ? 0 : i;
-        if( barbsHairIdInt )
-        {
-            if (barbHairIdIndex >= barbsHairIdInt->readable().size()) { 
-                msg( Msg::Warning, "FeatherAttachBarbs", boost::format("Barb %1% hairId index out of bounds.") % i ); 
-                barbVertexOffset += vertsPerBarb[i]; continue; 
-            }
-            currentBarbHairId = barbsHairIdInt->readable()[barbHairIdIndex];
+        int currentBarbHairId;
+        size_t barbHairIdIndex = (barbsHairIdPV->interpolation == PrimitiveVariable::Uniform && barbsHairIdInt && !barbsHairIdInt->readable().empty()) ? 0 : i;
+        if (barbHairIdIndex >= barbsHairIdInt->readable().size()) { 
+            msg( Msg::Warning, "FeatherAttachBarbs", boost::format("Barb %1% hairId index out of bounds.") % i ); 
+            barbVertexOffset += vertsPerBarb[i]; continue; 
         }
-        else
-        {
-             if (barbHairIdIndex >= barbsHairIdString->readable().size()) { 
-                msg( Msg::Warning, "FeatherAttachBarbs", boost::format("Barb %1% hairId index out of bounds.") % i ); 
-                barbVertexOffset += vertsPerBarb[i]; continue; 
-            }
-            currentBarbHairId = barbsHairIdString->readable()[barbHairIdIndex];
-        }
+        currentBarbHairId = barbsHairIdInt->readable()[barbHairIdIndex];
 
         size_t barbShaftPointIdIndex = (barbsShaftPointIdPV->interpolation == PrimitiveVariable::Uniform && !barbsShaftPointId->readable().empty()) ? 0 : i;
         if (barbShaftPointIdIndex >= barbsShaftPointId->readable().size()) { 
@@ -539,28 +513,17 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePa
         V3f P_barb_root_rest = barbsP->readable()[barbRootVertexIndex];
 
         // Construct shaft rest frame matrix
-        M44f M_shaft_rest;
-        M_shaft_rest.setValue( T_attach_shaft_rest.x, T_attach_shaft_rest.y, T_attach_shaft_rest.z, 0.0f,
-                               B_attach_shaft_rest.x, B_attach_shaft_rest.y, B_attach_shaft_rest.z, 0.0f,
-                               N_attach_shaft_rest.x, N_attach_shaft_rest.y, N_attach_shaft_rest.z, 0.0f,
-                               P_attach_shaft_rest.x, P_attach_shaft_rest.y, P_attach_shaft_rest.z, 1.0f );
+        M44f M_shaft_rest( T_attach_shaft_rest.x, T_attach_shaft_rest.y, T_attach_shaft_rest.z, 0.0f,
+                           B_attach_shaft_rest.x, B_attach_shaft_rest.y, B_attach_shaft_rest.z, 0.0f,
+                           N_attach_shaft_rest.x, N_attach_shaft_rest.y, N_attach_shaft_rest.z, 0.0f,
+                           P_attach_shaft_rest.x, P_attach_shaft_rest.y, P_attach_shaft_rest.z, 1.0f );
 
         V3f world_offset_vector = P_barb_root_rest - P_attach_shaft_rest;
-        V3f bind_barbRootOffsetLocal = world_offset_vector * M_shaft_rest.inverse(); // Transform world-space offset vector into shaft's local frame.
-                                                                                    // For direction vector, only rotational part of inverse needed.
-                                                                                    // P_local = (P_world - Origin_world) * Rotation_world_to_local
-        bind_barbRootOffsetLocal = world_offset_vector;
+        V3f bind_barbRootOffsetLocal; // Initialize if necessary, or ensure it's assigned before use
         M_shaft_rest.inverse().multDirMatrix(world_offset_vector, bind_barbRootOffsetLocal);
 
         // Store bind attributes
-        if (shaftsHairIdInt)
-        {
-            std::get<std::vector<int>>(bindShaftHairIdData->writable()).push_back(std::get<int>(currentBarbHairId));
-        }
-        else
-        {
-            std::get<std::vector<std::string>>(bindShaftHairIdData->writable()).push_back(std::get<std::string>(currentBarbHairId));
-        }
+        bindShaftHairIdData->writable().push_back(currentBarbHairId);
         bindShaftPointIdVec.push_back( targetShaftPtIdx );
         bindShaftRestPVec.push_back( P_attach_shaft_rest );
         bindShaftRestTVec.push_back( T_attach_shaft_rest );
