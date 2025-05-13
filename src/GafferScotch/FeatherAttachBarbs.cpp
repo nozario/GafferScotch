@@ -189,25 +189,25 @@ bool getV3fPrimVarValue( const IECoreScene::PrimitiveVariable &pv, size_t primIn
     return false;
 }
 
-// Helper to get a Quatf from a PrimitiveVariable (assumed V4f or V4fVectorData Uniform)
-bool getQuatfPrimVarValue( const IECoreScene::PrimitiveVariable &pv, size_t primIndex, Quatf &outValue )
+// Helper to get a Quatf from a PrimitiveVariable
+// Assumes Uniform interpolation and that pv.data is QuatfData or QuatfVectorData
+bool getQuatfPrimVarValue( const IECoreScene::PrimitiveVariable &pv, size_t primIndex, Imath::Quatf &outValue )
 {
     if( pv.interpolation == PrimitiveVariable::Uniform )
     {
-        if( const V4fData *data = runTimeCast<const V4fData>( pv.data.get() ) )
+        if( const IECore::QuatfData *data = runTimeCast<const IECore::QuatfData>( pv.data.get() ) )
         {
-            const V4f& q = data->readable();
-            outValue = Quatf(q[3], q[0], q[1], q[2]); // Assuming xyzw stored, Quatf constructor is (r, i, j, k)
+            outValue = data->readable(); // Data is a single Imath::Quatf
             return true;
         }
-        else if( const V4fVectorData *data = runTimeCast<const V4fVectorData>( pv.data.get() ) )
+        else if( const IECore::QuatfVectorData *data = runTimeCast<const IECore::QuatfVectorData>( pv.data.get() ) )
         {
-            if( !data->readable().empty() )
+            const std::vector<Imath::Quatf>& quatVec = data->readable();
+            if( !quatVec.empty() )
             {
                 // For Uniform, take the value for the specific primitive if available, otherwise first.
-                size_t indexToUse = (primIndex < data->readable().size()) ? primIndex : 0;
-                const V4f& q = data->readable()[indexToUse];
-                outValue = Quatf(q[3], q[0], q[1], q[2]);
+                size_t indexToUse = (primIndex < quatVec.size()) ? primIndex : 0;
+                outValue = quatVec[indexToUse];
                 return true;
             }
         }
@@ -276,7 +276,7 @@ void calculateCurveFrame( const IECore::V3fVectorData *pointsData, int pointIdx,
 
 }
 
-IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject )
+IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject ) const
 {
     const CurvesPrimitive *inBarbsCurves = runTimeCast<const CurvesPrimitive>( inputObject );
     if( !inBarbsCurves )
@@ -319,9 +319,8 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePa
     // --- Prepare shaft data map ---
     struct ShaftInfo {
         int primitiveIndex;
-        const V3fVectorData* pData;
-        const V3fVectorData* upVectorData; // Could be per-primitive (Uniform) or per-vertex
-        const V4fVectorData* orientationData; // Could be per-primitive (Uniform)
+        const IECore::V3fVectorData* pData;
+        const IECore::V3fVectorData* upVectorData; // Could be per-primitive (Uniform) or per-vertex
         const PrimitiveVariable* upVectorPrimVar;
         const PrimitiveVariable* orientationPrimVar;
     };
@@ -379,7 +378,6 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject( const ScenePa
         id = shaftsHairIdInt->readable()[ (shaftsHairIdPV->interpolation == PrimitiveVariable::Uniform && !shaftsHairIdInt->readable().empty()) ? 0 : i ];
         shaftDataMap[id] = { (int)i, shaftsP, 
                              runTimeCast<const IECore::V3fVectorData>(shaftsUpVecPV ? shaftsUpVecPV->data.get() : nullptr),
-                             runTimeCast<const IECore::V4fVectorData>(shaftsOrientPV ? shaftsOrientPV->data.get() : nullptr),
                              shaftsUpVecPV,
                              shaftsOrientPV
                            };
