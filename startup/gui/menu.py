@@ -1,4 +1,3 @@
-import GafferScotchUI
 import GafferUI
 
 import GafferScotch

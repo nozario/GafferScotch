@@ -1,15 +1,9 @@
 import Gaffer
-import GafferUI
 import imath
 
 import GafferScotch
 
 from ._IconPath import ICON_PATH
-
-# For now, we'll use the default UI generation based on plug metadata.
-# If custom UI elements or layouts are needed, a specific creation function
-# would be provided here.
-GafferUI.NodeUI.registerNodeUI(GafferScotch.FeatherDeformBarbs, None)
 
 Gaffer.Metadata.registerNode(
     GafferScotch.FeatherDeformBarbs,
@@ -56,7 +50,7 @@ Gaffer.Metadata.registerNode(
         "hairIdAttrName": [
             "description",
             """
-            Name of the primitive variable (int or string, Uniform) on animated shafts that 
+            Name of the primitive variable (int or string, Uniform) on animated shafts that
             identifies matching hair/feather groups (must match 'bind_shaftHairId' on barbs).
             """,
             "layout:section",
@@ -65,7 +59,7 @@ Gaffer.Metadata.registerNode(
         "shaftUpVectorPrimVarName": [
             "description",
             """
-            Optional name of the primitive variable (V3f, Uniform) on animated shafts 
+            Optional name of the primitive variable (V3f, Uniform) on animated shafts
             defining their up-vector for orientation calculation.
             """,
             "layout:section",
@@ -83,7 +77,7 @@ Gaffer.Metadata.registerNode(
         "cleanupBindAttributes": [
             "description",
             """
-            If true, the 'bind_*' attributes created by FeatherAttachBarbs will be 
+            If true, the 'bind_*' attributes created by FeatherAttachBarbs will be
             removed from the output barb geometry.
             """,
             "layout:section",

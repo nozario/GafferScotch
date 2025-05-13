@@ -1,15 +1,9 @@
 import Gaffer
-import GafferUI
 import imath
 
 import GafferScotch
 
 from ._IconPath import ICON_PATH
-
-# For now, we'll use the default UI generation based on plug metadata.
-# If custom UI elements or layouts are needed, a specific creation function
-# would be provided here.
-GafferUI.NodeUI.registerNodeUI(GafferScotch.FeatherAttachBarbs, None)
 
 Gaffer.Metadata.registerNode(
     GafferScotch.FeatherAttachBarbs,
@@ -56,7 +50,7 @@ Gaffer.Metadata.registerNode(
         "hairIdAttrName": [
             "description",
             """
-            Name of the primitive variable (int or string, Uniform) on shafts and barbs 
+            Name of the primitive variable (int or string, Uniform) on shafts and barbs
             that identifies matching hair/feather groups.
             """,
             "layout:section",
@@ -65,7 +59,7 @@ Gaffer.Metadata.registerNode(
         "shaftPointIdAttrName": [
             "description",
             """
-            Name of the primitive variable (int, Uniform) on barbs specifying 
+            Name of the primitive variable (int, Uniform) on barbs specifying
             the target point index on the parent shaft curve.
             """,
             "layout:section",
@@ -74,7 +68,7 @@ Gaffer.Metadata.registerNode(
         "barbParamAttrName": [
             "description",
             """
-            Name of the vertex primitive variable (float, Vertex) on barbs (e.g., 'curveu') 
+            Name of the vertex primitive variable (float, Vertex) on barbs (e.g., 'curveu')
             used to identify the barb's root point (minimum value).
             """,
             "layout:section",
@@ -83,7 +77,7 @@ Gaffer.Metadata.registerNode(
         "shaftUpVectorPrimVarName": [
             "description",
             """
-            Optional name of the primitive variable (V3f, Uniform) on shafts 
+            Optional name of the primitive variable (V3f, Uniform) on shafts
             defining their up-vector for orientation calculation.
             """,
             "layout:section",
@@ -92,7 +86,7 @@ Gaffer.Metadata.registerNode(
         "shaftPointOrientAttrName": [
             "description",
             """
-            Optional name of the primitive variable (Quaternionf, Uniform or Vertex) 
+            Optional name of the primitive variable (Quaternionf, Uniform or Vertex)
             on shafts defining their explicit orientation.
             """,
             "layout:section",
@@ -101,7 +95,7 @@ Gaffer.Metadata.registerNode(
         "defaultUpVector": [
             "description",
             """
-            Default up-vector to use for shaft orientation if no up-vector primvar 
+            Default up-vector to use for shaft orientation if no up-vector primvar
             or explicit orientation is found.
             """,
             "layout:section",
