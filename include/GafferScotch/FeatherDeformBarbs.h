@@ -40,6 +40,9 @@ namespace GafferScotch
         Gaffer::BoolPlug *cleanupBindAttributesPlug();
         const Gaffer::BoolPlug *cleanupBindAttributesPlug() const;
 
+        void affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const override;
+        bool acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plug *inputPlug) const override;
+
     protected:
         // This method is from the Deformer base class, which itself inherits it from ObjectProcessor.
         // It determines if the main geometric properties of the object are affected.
@@ -51,9 +54,6 @@ namespace GafferScotch
         bool affectsProcessedObjectBound(const Gaffer::Plug *input) const override;
         void hashProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const override;
         Imath::Box3f computeProcessedObjectBound(const ScenePath &path, const Gaffer::Context *context) const override;
-        
-        void affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const override;
-        bool acceptsInput(const Gaffer::Plug *plug, const Gaffer::Plug *inputPlug) const override;
 
     private:
         void deformBarbs(
