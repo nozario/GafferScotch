@@ -122,9 +122,6 @@ FeatherAttachBarbs::FeatherAttachBarbs(const std::string &name)
     // Add shafts input
     addChild(new ScenePlug("inShafts", Plug::In));
 
-    // Add barbs input
-    addChild(new ScenePlug("inBarbs", Plug::In));
-
     // Attribute names for binding
     addChild(new StringPlug("hairIdAttrName", Plug::In, "hairId"));
     addChild(new StringPlug("shaftPointIdAttrName", Plug::In, "shaftPointId"));
@@ -154,64 +151,54 @@ const ScenePlug *FeatherAttachBarbs::inShaftsPlug() const
     return getChild<ScenePlug>(g_firstPlugIndex);
 }
 
-ScenePlug *FeatherAttachBarbs::inBarbsPlug()
-{
-    return getChild<ScenePlug>(g_firstPlugIndex + 1);
-}
-
-const ScenePlug *FeatherAttachBarbs::inBarbsPlug() const
-{
-    return getChild<ScenePlug>(g_firstPlugIndex + 1);
-}
-
 StringPlug *FeatherAttachBarbs::hairIdAttrNamePlug()
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 2);
+    return getChild<StringPlug>(g_firstPlugIndex + 1);
 }
 
 const StringPlug *FeatherAttachBarbs::hairIdAttrNamePlug() const
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 2);
+    return getChild<StringPlug>(g_firstPlugIndex + 1);
 }
 
 StringPlug *FeatherAttachBarbs::shaftPointIdAttrNamePlug()
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 3);
+    return getChild<StringPlug>(g_firstPlugIndex + 2);
 }
 
 const StringPlug *FeatherAttachBarbs::shaftPointIdAttrNamePlug() const
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 3);
+    return getChild<StringPlug>(g_firstPlugIndex + 2);
 }
 
 StringPlug *FeatherAttachBarbs::barbParamAttrNamePlug()
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 4);
+    return getChild<StringPlug>(g_firstPlugIndex + 3);
 }
 
 const StringPlug *FeatherAttachBarbs::barbParamAttrNamePlug() const
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 4);
+    return getChild<StringPlug>(g_firstPlugIndex + 3);
 }
 
 StringPlug *FeatherAttachBarbs::shaftUpVectorPrimVarNamePlug()
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 5);
+    return getChild<StringPlug>(g_firstPlugIndex + 4);
 }
 
 const StringPlug *FeatherAttachBarbs::shaftUpVectorPrimVarNamePlug() const
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 5);
+    return getChild<StringPlug>(g_firstPlugIndex + 4);
 }
 
 StringPlug *FeatherAttachBarbs::shaftPointOrientAttrNamePlug()
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 6);
+    return getChild<StringPlug>(g_firstPlugIndex + 5);
 }
 
 const StringPlug *FeatherAttachBarbs::shaftPointOrientAttrNamePlug() const
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 6);
+    return getChild<StringPlug>(g_firstPlugIndex + 5);
 }
 
 void FeatherAttachBarbs::affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const
@@ -219,7 +206,6 @@ void FeatherAttachBarbs::affects(const Gaffer::Plug *input, AffectedPlugsContain
     ObjectProcessor::affects(input, outputs);
 
     if (input == inShaftsPlug()->objectPlug() ||
-        input == inBarbsPlug()->objectPlug() ||
         input == hairIdAttrNamePlug() ||
         input == shaftPointIdAttrNamePlug() ||
         input == barbParamAttrNamePlug() ||
@@ -243,7 +229,6 @@ bool FeatherAttachBarbs::acceptsInput(const Gaffer::Plug *plug, const Gaffer::Pl
 bool FeatherAttachBarbs::affectsProcessedObject(const Gaffer::Plug *input) const
 {
     return input == inShaftsPlug()->objectPlug() ||
-           input == inBarbsPlug()->objectPlug() ||
            input == hairIdAttrNamePlug() ||
            input == shaftPointIdAttrNamePlug() ||
            input == barbParamAttrNamePlug() ||
@@ -269,15 +254,8 @@ void FeatherAttachBarbs::hashProcessedObject(const ScenePath &path, const Gaffer
 
     if (!shafts)
     {
-        // Try to get shafts from barbs input
-        ConstObjectPtr barbsObject = inBarbsPlug()->object(path);
-        const CurvesPrimitive *altBarbs = runTimeCast<const CurvesPrimitive>(barbsObject.get());
-
-        if (!altBarbs)
-        {
-            h = inputObject->hash();
-            return;
-        }
+        h = inputObject->hash();
+        return;
     }
 
     // Hash input curves - only positions and topology are needed
@@ -311,17 +289,7 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
 
     if (!shafts)
     {
-        // Try to get shafts from barbs input
-        ConstObjectPtr barbsObject = inBarbsPlug()->object(path);
-        const CurvesPrimitive *altBarbs = runTimeCast<const CurvesPrimitive>(barbsObject.get());
-
-        if (!altBarbs)
-        {
-            return inputObject;
-        }
-
-        // Use alternative barbs as shafts
-        shafts = altBarbs;
+        return inputObject;
     }
 
     // Validate shafts and barbs have the necessary attributes

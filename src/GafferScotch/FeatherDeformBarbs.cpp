@@ -163,6 +163,9 @@ FeatherDeformBarbs::FeatherDeformBarbs(const std::string &name)
 
     // Add animated shafts input
     addChild(new ScenePlug("animatedShafts", Plug::In));
+    
+    // Add rest shafts input
+    addChild(new ScenePlug("restShafts", Plug::In));
 
     // Attribute names for binding
     addChild(new StringPlug("hairIdAttrName", Plug::In, "hairId"));
@@ -194,44 +197,54 @@ const ScenePlug *FeatherDeformBarbs::animatedShaftsPlug() const
     return getChild<ScenePlug>(g_firstPlugIndex);
 }
 
+ScenePlug *FeatherDeformBarbs::restShaftsPlug()
+{
+    return getChild<ScenePlug>(g_firstPlugIndex + 1);
+}
+
+const ScenePlug *FeatherDeformBarbs::restShaftsPlug() const
+{
+    return getChild<ScenePlug>(g_firstPlugIndex + 1);
+}
+
 StringPlug *FeatherDeformBarbs::hairIdAttrNamePlug()
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 1);
+    return getChild<StringPlug>(g_firstPlugIndex + 2);
 }
 
 const StringPlug *FeatherDeformBarbs::hairIdAttrNamePlug() const
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 1);
+    return getChild<StringPlug>(g_firstPlugIndex + 2);
 }
 
 StringPlug *FeatherDeformBarbs::shaftUpVectorPrimVarNamePlug()
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 2);
+    return getChild<StringPlug>(g_firstPlugIndex + 3);
 }
 
 const StringPlug *FeatherDeformBarbs::shaftUpVectorPrimVarNamePlug() const
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 2);
+    return getChild<StringPlug>(g_firstPlugIndex + 3);
 }
 
 StringPlug *FeatherDeformBarbs::shaftPointOrientAttrNamePlug()
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 3);
+    return getChild<StringPlug>(g_firstPlugIndex + 4);
 }
 
 const StringPlug *FeatherDeformBarbs::shaftPointOrientAttrNamePlug() const
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 3);
+    return getChild<StringPlug>(g_firstPlugIndex + 4);
 }
 
 BoolPlug *FeatherDeformBarbs::cleanupBindAttributesPlug()
 {
-    return getChild<BoolPlug>(g_firstPlugIndex + 4);
+    return getChild<BoolPlug>(g_firstPlugIndex + 5);
 }
 
 const BoolPlug *FeatherDeformBarbs::cleanupBindAttributesPlug() const
 {
-    return getChild<BoolPlug>(g_firstPlugIndex + 4);
+    return getChild<BoolPlug>(g_firstPlugIndex + 5);
 }
 
 void FeatherDeformBarbs::affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const
@@ -239,6 +252,7 @@ void FeatherDeformBarbs::affects(const Gaffer::Plug *input, AffectedPlugsContain
     Deformer::affects(input, outputs);
 
     if (input == animatedShaftsPlug()->objectPlug() ||
+        input == restShaftsPlug()->objectPlug() ||
         input == hairIdAttrNamePlug() ||
         input == shaftUpVectorPrimVarNamePlug() ||
         input == shaftPointOrientAttrNamePlug() ||
@@ -261,6 +275,7 @@ bool FeatherDeformBarbs::acceptsInput(const Gaffer::Plug *plug, const Gaffer::Pl
 bool FeatherDeformBarbs::affectsProcessedObject(const Gaffer::Plug *input) const
 {
     return input == animatedShaftsPlug()->objectPlug() ||
+           input == restShaftsPlug()->objectPlug() ||
            input == hairIdAttrNamePlug() ||
            input == shaftUpVectorPrimVarNamePlug() ||
            input == shaftPointOrientAttrNamePlug() ||
@@ -270,6 +285,7 @@ bool FeatherDeformBarbs::affectsProcessedObject(const Gaffer::Plug *input) const
 bool FeatherDeformBarbs::affectsProcessedObjectBound(const Gaffer::Plug *input) const
 {
     return input == animatedShaftsPlug()->objectPlug() ||
+           input == restShaftsPlug()->objectPlug() ||
            input == hairIdAttrNamePlug() ||
            input == shaftUpVectorPrimVarNamePlug() ||
            input == shaftPointOrientAttrNamePlug();
@@ -301,6 +317,21 @@ void FeatherDeformBarbs::hashProcessedObject(const ScenePath &path, const Gaffer
         h = inputObject->hash();
         return;
     }
+    
+    // Get rest shafts
+    ConstObjectPtr restShaftsObj = restShaftsPlug()->object(path);
+    if (!restShaftsObj)
+    {
+        h = inputObject->hash();
+        return;
+    }
+
+    const CurvesPrimitive *restShafts = runTimeCast<const CurvesPrimitive>(restShaftsObj.get());
+    if (!restShafts)
+    {
+        h = inputObject->hash();
+        return;
+    }
 
     // Hash input barbs - only positions and topology are needed
     hashPositions(barbs, h);
@@ -309,6 +340,10 @@ void FeatherDeformBarbs::hashProcessedObject(const ScenePath &path, const Gaffer
     // Hash animated shafts - only positions and topology are needed
     hashPositions(animatedShafts, h);
     hashTopology(animatedShafts, h);
+    
+    // Hash rest shafts - only positions and topology are needed
+    hashPositions(restShafts, h);
+    hashTopology(restShafts, h);
 
     // Hash binding data
     hashBindingData(barbs, h);
@@ -346,6 +381,21 @@ void FeatherDeformBarbs::hashProcessedObjectBound(const ScenePath &path, const G
         h = inPlug()->boundHash(path);
         return;
     }
+    
+    // Get rest shafts
+    ConstObjectPtr restShaftsObj = restShaftsPlug()->object(path);
+    if (!restShaftsObj)
+    {
+        h = inPlug()->boundHash(path);
+        return;
+    }
+
+    const CurvesPrimitive *restShafts = runTimeCast<const CurvesPrimitive>(restShaftsObj.get());
+    if (!restShafts)
+    {
+        h = inPlug()->boundHash(path);
+        return;
+    }
 
     // Hash input barbs - only positions and topology are needed for bound calculation
     hashPositions(barbs, h);
@@ -354,6 +404,10 @@ void FeatherDeformBarbs::hashProcessedObjectBound(const ScenePath &path, const G
     // Hash animated shafts - only positions and topology are needed for bound calculation
     hashPositions(animatedShafts, h);
     hashTopology(animatedShafts, h);
+    
+    // Hash rest shafts - only positions and topology are needed for bound calculation
+    hashPositions(restShafts, h);
+    hashTopology(restShafts, h);
 
     // Hash binding data
     hashBindingData(barbs, h);
@@ -387,10 +441,24 @@ Imath::Box3f FeatherDeformBarbs::computeProcessedObjectBound(const ScenePath &pa
     {
         return inPlug()->bound(path);
     }
+    
+    // Get rest shafts
+    ConstObjectPtr restShaftsObj = restShaftsPlug()->object(path);
+    if (!restShaftsObj)
+    {
+        return inPlug()->bound(path);
+    }
 
-    // Combine both bounds to ensure deformed barbs are contained
+    const CurvesPrimitive *restShafts = runTimeCast<const CurvesPrimitive>(restShaftsObj.get());
+    if (!restShafts)
+    {
+        return inPlug()->bound(path);
+    }
+
+    // Combine bounds to ensure deformed barbs are contained
     Box3f combinedBound = inPlug()->bound(path);
     combinedBound.extendBy(animatedShaftsPlug()->bound(path));
+    combinedBound.extendBy(restShaftsPlug()->bound(path));
 
     // Add some margin for safety (could be parameterized)
     combinedBound.min -= V3f(0.1, 0.1, 0.1);
@@ -435,6 +503,21 @@ IECore::ConstObjectPtr FeatherDeformBarbs::computeProcessedObject(const ScenePat
             IECore::msg(IECore::Msg::Warning, "FeatherDeformBarbs", "Animated shafts is not a CurvesPrimitive");
             return inputObject;
         }
+        
+        // Get rest shafts
+        ConstObjectPtr restShaftsObj = restShaftsPlug()->object(path);
+        if (!restShaftsObj)
+        {
+            IECore::msg(IECore::Msg::Warning, "FeatherDeformBarbs", "Null rest shafts object");
+            return inputObject;
+        }
+
+        const CurvesPrimitive *restShafts = runTimeCast<const CurvesPrimitive>(restShaftsObj.get());
+        if (!restShafts)
+        {
+            IECore::msg(IECore::Msg::Warning, "FeatherDeformBarbs", "Rest shafts is not a CurvesPrimitive");
+            return inputObject;
+        }
 
         // Validate binding data
         // Check that binding data exists on barbs
@@ -460,12 +543,21 @@ IECore::ConstObjectPtr FeatherDeformBarbs::computeProcessedObject(const ScenePat
             return inputObject;
         }
 
-        // Check that hairId exists on shafts
-        auto shaftHairIdIt = animatedShafts->variables.find(hairIdAttrName);
-        if (shaftHairIdIt == animatedShafts->variables.end())
+        // Check that hairId exists on both animated and rest shafts
+        auto animatedShaftHairIdIt = animatedShafts->variables.find(hairIdAttrName);
+        auto restShaftHairIdIt = restShafts->variables.find(hairIdAttrName);
+        
+        if (animatedShaftHairIdIt == animatedShafts->variables.end())
         {
             IECore::msg(IECore::Msg::Warning, "FeatherDeformBarbs",
-                        (boost::format("Hair ID attribute '%s' not found on shafts") % hairIdAttrName).str());
+                        (boost::format("Hair ID attribute '%s' not found on animated shafts") % hairIdAttrName).str());
+            return inputObject;
+        }
+        
+        if (restShaftHairIdIt == restShafts->variables.end())
+        {
+            IECore::msg(IECore::Msg::Warning, "FeatherDeformBarbs",
+                        (boost::format("Hair ID attribute '%s' not found on rest shafts") % hairIdAttrName).str());
             return inputObject;
         }
 
@@ -486,7 +578,7 @@ IECore::ConstObjectPtr FeatherDeformBarbs::computeProcessedObject(const ScenePat
         // Deform barbs
         try
         {
-            deformBarbs(barbs, animatedShafts, outputBarbs.get());
+            deformBarbs(barbs, animatedShafts, restShafts, outputBarbs.get());
         }
         catch (const std::exception &e)
         {
@@ -531,9 +623,10 @@ IECore::ConstObjectPtr FeatherDeformBarbs::computeProcessedObject(const ScenePat
 void FeatherDeformBarbs::deformBarbs(
     const IECoreScene::CurvesPrimitive *barbs,
     const IECoreScene::CurvesPrimitive *animatedShafts,
+    const IECoreScene::CurvesPrimitive *restShafts,
     IECoreScene::CurvesPrimitive *outputBarbs) const
 {
-    if (!barbs || !animatedShafts || !outputBarbs)
+    if (!barbs || !animatedShafts || !restShafts || !outputBarbs)
     {
         throw IECore::Exception("Null input to deformBarbs");
     }
@@ -550,7 +643,10 @@ void FeatherDeformBarbs::deformBarbs(
 
         // Log input stats
         IECore::msg(IECore::Msg::Info, "FeatherDeformBarbs",
-                    (boost::format("Input: %d barbs curves, Animated shafts: %d curves") % barbs->verticesPerCurve()->readable().size() % animatedShafts->verticesPerCurve()->readable().size()).str());
+                    (boost::format("Input: %d barbs curves, Animated shafts: %d curves, Rest shafts: %d curves") 
+                    % barbs->verticesPerCurve()->readable().size() 
+                    % animatedShafts->verticesPerCurve()->readable().size()
+                    % restShafts->verticesPerCurve()->readable().size()).str());
 
         IECore::msg(IECore::Msg::Info, "FeatherDeformBarbs", "Reading binding data");
 
@@ -560,68 +656,85 @@ void FeatherDeformBarbs::deformBarbs(
         const std::string orientAttrName = shaftPointOrientAttrNamePlug()->getValue();
 
         // Read binding data
-        const IntVectorData *shaftHairIds = animatedShafts->variableData<IntVectorData>(hairIdAttrName, PrimitiveVariable::Uniform);
+        const IntVectorData *restShaftHairIds = restShafts->variableData<IntVectorData>(hairIdAttrName, PrimitiveVariable::Uniform);
+        const IntVectorData *animatedShaftHairIds = animatedShafts->variableData<IntVectorData>(hairIdAttrName, PrimitiveVariable::Uniform);
         const IntVectorData *barbShaftHairIds = barbs->variableData<IntVectorData>("shaftHairId", PrimitiveVariable::Uniform);
         const IntVectorData *barbShaftPointIds = barbs->variableData<IntVectorData>("shaftPointId", PrimitiveVariable::Uniform);
         const FloatVectorData *barbParams = barbs->variableData<FloatVectorData>("barbParam", PrimitiveVariable::Uniform);
 
-        const V3fVectorData *restPositionsData = barbs->variableData<V3fVectorData>("restPosition", PrimitiveVariable::Uniform);
-        const V3fVectorData *restNormalsData = barbs->variableData<V3fVectorData>("restNormal", PrimitiveVariable::Uniform);
-        const V3fVectorData *restTangentsData = barbs->variableData<V3fVectorData>("restTangent", PrimitiveVariable::Uniform);
-        const V3fVectorData *restBitangentsData = barbs->variableData<V3fVectorData>("restBitangent", PrimitiveVariable::Uniform);
-
-        if (!shaftHairIds || !barbShaftHairIds || !barbShaftPointIds || !barbParams ||
-            !restPositionsData || !restNormalsData || !restTangentsData || !restBitangentsData)
+        if (!restShaftHairIds || !animatedShaftHairIds || !barbShaftHairIds || !barbShaftPointIds || !barbParams)
         {
             IECore::msg(IECore::Msg::Error, "FeatherDeformBarbs", "Missing binding data attributes");
             throw IECore::Exception("Missing binding data");
         }
 
         // Get positions
-        const V3fVectorData *shaftPositions = animatedShafts->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
+        const V3fVectorData *animatedShaftPositions = animatedShafts->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
+        const V3fVectorData *restShaftPositions = restShafts->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
         const V3fVectorData *barbPositions = barbs->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
 
-        if (!shaftPositions || !barbPositions)
+        if (!animatedShaftPositions || !restShaftPositions || !barbPositions)
         {
             throw IECore::Exception("Missing position data");
         }
 
-        // Get optional shaft orientation attributes
-        const V3fVectorData *upVectors = nullptr;
+        // Get optional orientation attributes
+        const V3fVectorData *restUpVectors = nullptr;
         if (!upVectorName.empty())
         {
-            upVectors = animatedShafts->variableData<V3fVectorData>(upVectorName, PrimitiveVariable::Vertex);
+            restUpVectors = restShafts->variableData<V3fVectorData>(upVectorName, PrimitiveVariable::Vertex);
         }
 
-        const QuatfVectorData *orientations = nullptr;
+        const QuatfVectorData *restOrientations = nullptr;
         if (!orientAttrName.empty())
         {
-            orientations = animatedShafts->variableData<QuatfVectorData>(orientAttrName, PrimitiveVariable::Vertex);
+            restOrientations = restShafts->variableData<QuatfVectorData>(orientAttrName, PrimitiveVariable::Vertex);
+        }
+        
+        const V3fVectorData *animatedUpVectors = nullptr;
+        if (!upVectorName.empty())
+        {
+            animatedUpVectors = animatedShafts->variableData<V3fVectorData>(upVectorName, PrimitiveVariable::Vertex);
+        }
+
+        const QuatfVectorData *animatedOrientations = nullptr;
+        if (!orientAttrName.empty())
+        {
+            animatedOrientations = animatedShafts->variableData<QuatfVectorData>(orientAttrName, PrimitiveVariable::Vertex);
         }
 
         // Access data
-        const std::vector<int> &shaftHairIdValues = shaftHairIds->readable();
+        const std::vector<int> &restShaftHairIdValues = restShaftHairIds->readable();
+        const std::vector<int> &animatedShaftHairIdValues = animatedShaftHairIds->readable();
         const std::vector<int> &barbShaftHairIdValues = barbShaftHairIds->readable();
         const std::vector<int> &barbShaftPointIdValues = barbShaftPointIds->readable();
         const std::vector<float> &barbParamValues = barbParams->readable();
 
-        const std::vector<V3f> &restPositions = restPositionsData->readable();
-        const std::vector<V3f> &restNormals = restNormalsData->readable();
-        const std::vector<V3f> &restTangents = restTangentsData->readable();
-        const std::vector<V3f> &restBitangents = restBitangentsData->readable();
-
-        const std::vector<V3f> &shaftPositionValues = shaftPositions->readable();
+        const std::vector<V3f> &animatedShaftPositionValues = animatedShaftPositions->readable();
+        const std::vector<V3f> &restShaftPositionValues = restShaftPositions->readable();
         const std::vector<V3f> &barbPositionValues = barbPositions->readable();
 
-        // Calculate shaft curve offsets
-        const std::vector<int> &shaftVertsPerCurve = animatedShafts->verticesPerCurve()->readable();
-        std::vector<size_t> shaftOffsets;
-        shaftOffsets.reserve(shaftVertsPerCurve.size());
+        // Calculate shaft curve offsets for rest shafts
+        const std::vector<int> &restShaftVertsPerCurve = restShafts->verticesPerCurve()->readable();
+        std::vector<size_t> restShaftOffsets;
+        restShaftOffsets.reserve(restShaftVertsPerCurve.size());
 
         size_t offset = 0;
-        for (int count : shaftVertsPerCurve)
+        for (int count : restShaftVertsPerCurve)
         {
-            shaftOffsets.push_back(offset);
+            restShaftOffsets.push_back(offset);
+            offset += count;
+        }
+        
+        // Calculate shaft curve offsets for animated shafts
+        const std::vector<int> &animatedShaftVertsPerCurve = animatedShafts->verticesPerCurve()->readable();
+        std::vector<size_t> animatedShaftOffsets;
+        animatedShaftOffsets.reserve(animatedShaftVertsPerCurve.size());
+
+        offset = 0;
+        for (int count : animatedShaftVertsPerCurve)
+        {
+            animatedShaftOffsets.push_back(offset);
             offset += count;
         }
 
@@ -637,11 +750,17 @@ void FeatherDeformBarbs::deformBarbs(
             offset += count;
         }
 
-        // Create map from hair ID to shaft curve index for quick lookup
-        std::unordered_map<int, size_t> hairIdToShaftIndex;
-        for (size_t i = 0; i < shaftHairIdValues.size(); ++i)
+        // Create maps from hair ID to shaft curve index for quick lookup
+        std::unordered_map<int, size_t> restHairIdToShaftIndex;
+        for (size_t i = 0; i < restShaftHairIdValues.size(); ++i)
         {
-            hairIdToShaftIndex[shaftHairIdValues[i]] = i;
+            restHairIdToShaftIndex[restShaftHairIdValues[i]] = i;
+        }
+        
+        std::unordered_map<int, size_t> animatedHairIdToShaftIndex;
+        for (size_t i = 0; i < animatedShaftHairIdValues.size(); ++i)
+        {
+            animatedHairIdToShaftIndex[animatedShaftHairIdValues[i]] = i;
         }
 
         // Initialize position data for output
@@ -677,26 +796,44 @@ void FeatherDeformBarbs::deformBarbs(
                                  const int barbShaftPointId = barbShaftPointIdValues[i];
                                  const float barbParam = barbParamValues[i];
 
-                                 // Find matching shaft using hair ID
-                                 auto shaftIt = hairIdToShaftIndex.find(barbShaftHairId);
-                                 if (shaftIt == hairIdToShaftIndex.end())
+                                 // Find matching shaft in rest shafts using hair ID
+                                 auto restShaftIt = restHairIdToShaftIndex.find(barbShaftHairId);
+                                 if (restShaftIt == restHairIdToShaftIndex.end())
                                  {
                                      ++errorCount;
-                                     continue; // No matching shaft found
+                                     continue; // No matching rest shaft found
+                                 }
+                                 
+                                 // Find matching shaft in animated shafts using hair ID
+                                 auto animatedShaftIt = animatedHairIdToShaftIndex.find(barbShaftHairId);
+                                 if (animatedShaftIt == animatedHairIdToShaftIndex.end())
+                                 {
+                                     ++errorCount;
+                                     continue; // No matching animated shaft found
                                  }
 
-                                 const size_t shaftIndex = shaftIt->second;
+                                 const size_t restShaftIndex = restShaftIt->second;
+                                 const size_t animatedShaftIndex = animatedShaftIt->second;
 
-                                 // Validate shaft point index
+                                 // Validate shaft point index against rest shaft
                                  if (barbShaftPointId < 0 ||
-                                     barbShaftPointId >= shaftVertsPerCurve[shaftIndex])
+                                     barbShaftPointId >= restShaftVertsPerCurve[restShaftIndex])
+                                 {
+                                     ++errorCount;
+                                     continue;
+                                 }
+                                 
+                                 // Validate shaft point index against animated shaft
+                                 if (barbShaftPointId < 0 ||
+                                     barbShaftPointId >= animatedShaftVertsPerCurve[animatedShaftIndex])
                                  {
                                      ++errorCount;
                                      continue;
                                  }
 
-                                 // Get shaft point global index
-                                 const size_t shaftPointGlobalIndex = shaftOffsets[shaftIndex] + barbShaftPointId;
+                                 // Get shaft point global indices
+                                 const size_t restShaftPointGlobalIndex = restShaftOffsets[restShaftIndex] + barbShaftPointId;
+                                 const size_t animatedShaftPointGlobalIndex = animatedShaftOffsets[animatedShaftIndex] + barbShaftPointId;
 
                                  // Get barb vertex range
                                  const size_t startIdx = barbOffsets[i];
@@ -706,27 +843,66 @@ void FeatherDeformBarbs::deformBarbs(
                                  const V3f &barbRootPos = positions[startIdx];
 
                                  // Get rest and deformed shaft point positions
-                                 const V3f &restShaftPos = restPositions[i];
-                                 const V3f &deformedShaftPos = shaftPositionValues[shaftPointGlobalIndex];
+                                 const V3f &restShaftPos = restShaftPositionValues[restShaftPointGlobalIndex];
+                                 const V3f &deformedShaftPos = animatedShaftPositionValues[animatedShaftPointGlobalIndex];
 
-                                 // Build rest frame from binding data
+                                 // Build rest frame
                                  RestFrame restFrame;
-                                 restFrame.position = restPositions[i];
-                                 restFrame.normal = restNormals[i];
-                                 restFrame.tangent = restTangents[i];
-                                 restFrame.bitangent = restBitangents[i];
-
-                                 // Calculate tangent along shaft at point
-                                 V3f deformedTangent;
-                                 if (barbShaftPointId + 1 < shaftVertsPerCurve[shaftIndex])
+                                 restFrame.position = restShaftPos;
+                                 
+                                 // Calculate tangent along rest shaft at point
+                                 V3f restTangent;
+                                 if (barbShaftPointId + 1 < restShaftVertsPerCurve[restShaftIndex])
                                  {
-                                     const size_t nextPointIndex = shaftOffsets[shaftIndex] + barbShaftPointId + 1;
-                                     deformedTangent = shaftPositionValues[nextPointIndex] - deformedShaftPos;
+                                     const size_t nextPointIndex = restShaftOffsets[restShaftIndex] + barbShaftPointId + 1;
+                                     restTangent = restShaftPositionValues[nextPointIndex] - restShaftPos;
                                  }
                                  else if (barbShaftPointId > 0)
                                  {
-                                     const size_t prevPointIndex = shaftOffsets[shaftIndex] + barbShaftPointId - 1;
-                                     deformedTangent = deformedShaftPos - shaftPositionValues[prevPointIndex];
+                                     const size_t prevPointIndex = restShaftOffsets[restShaftIndex] + barbShaftPointId - 1;
+                                     restTangent = restShaftPos - restShaftPositionValues[prevPointIndex];
+                                 }
+                                 else
+                                 {
+                                     // Single-point shaft, use up direction
+                                     restTangent = V3f(0, 1, 0);
+                                 }
+                                 
+                                 restFrame.tangent = safeNormalize(restTangent);
+                                 
+                                 // Calculate normal for rest frame
+                                 V3f restNormal;
+                                 if (restOrientations)
+                                 {
+                                     // Use orientation quaternion (preferred method)
+                                     const Quatf &orient = restOrientations->readable()[restShaftPointGlobalIndex];
+                                     V3f localNormal(1, 0, 0);
+                                     restNormal = orient.rotateVector(localNormal);
+                                 }
+                                 else
+                                 {
+                                     // Orientation is required
+                                     IECore::msg(IECore::Msg::Warning, "FeatherDeformBarbs",
+                                                 "Orientation attribute not found on rest shafts. This will result in invalid frames.");
+
+                                     // Use a default normal as fallback, but this won't be correct
+                                     restNormal = V3f(1, 0, 0);
+                                 }
+                                 
+                                 restFrame.normal = safeNormalize(restNormal);
+                                 restFrame.orthonormalize();
+
+                                 // Calculate tangent along animated shaft at point
+                                 V3f deformedTangent;
+                                 if (barbShaftPointId + 1 < animatedShaftVertsPerCurve[animatedShaftIndex])
+                                 {
+                                     const size_t nextPointIndex = animatedShaftOffsets[animatedShaftIndex] + barbShaftPointId + 1;
+                                     deformedTangent = animatedShaftPositionValues[nextPointIndex] - deformedShaftPos;
+                                 }
+                                 else if (barbShaftPointId > 0)
+                                 {
+                                     const size_t prevPointIndex = animatedShaftOffsets[animatedShaftIndex] + barbShaftPointId - 1;
+                                     deformedTangent = deformedShaftPos - animatedShaftPositionValues[prevPointIndex];
                                  }
                                  else
                                  {
@@ -741,10 +917,10 @@ void FeatherDeformBarbs::deformBarbs(
 
                                  // Calculate normal for deformed frame
                                  V3f deformedNormal;
-                                 if (orientations)
+                                 if (animatedOrientations)
                                  {
                                      // Use orientation quaternion (preferred method)
-                                     const Quatf &orient = orientations->readable()[shaftPointGlobalIndex];
+                                     const Quatf &orient = animatedOrientations->readable()[animatedShaftPointGlobalIndex];
                                      V3f localNormal(1, 0, 0);
                                      deformedNormal = orient.rotateVector(localNormal);
                                  }
@@ -752,7 +928,7 @@ void FeatherDeformBarbs::deformBarbs(
                                  {
                                      // Orientation is required
                                      IECore::msg(IECore::Msg::Warning, "FeatherDeformBarbs",
-                                                 "Orientation attribute not found. This will result in invalid frames.");
+                                                 "Orientation attribute not found on animated shafts. This will result in invalid frames.");
 
                                      // Use a default normal as fallback, but this won't be correct
                                      deformedNormal = V3f(1, 0, 0);

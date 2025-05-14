@@ -20,7 +20,7 @@ Gaffer.Metadata.registerNode(
     # Section collapse states
     "layout:section:Input:collapsed",
     False,
-    "layout:section:Animated Shaft Attributes:collapsed",
+    "layout:section:Shaft Attributes:collapsed",
     False,
     "layout:section:Output Controls:collapsed",
     False,
@@ -29,6 +29,7 @@ Gaffer.Metadata.registerNode(
             "description",
             """
             The input barb geometry (CurvesPrimitive with bind attributes) to be deformed.
+            This should contain binding data created by the FeatherAttachBarbs node.
             """,
             "nodule:type",
             "GafferUI::StandardNodule",
@@ -39,6 +40,20 @@ Gaffer.Metadata.registerNode(
             "description",
             """
             The input animated shaft geometry (CurvesPrimitive) that will drive the barb deformation.
+            This is the deformed/animated version of the shafts.
+            """,
+            "nodule:type",
+            "GafferUI::StandardNodule",
+            "plugValueWidget:type",
+            "GafferUI.ScenePlugValueWidget",
+            "layout:section",
+            "Input",
+        ],
+        "restShafts": [
+            "description",
+            """
+            The input rest shaft geometry (CurvesPrimitive) in their bind pose.
+            This should match the shafts used in FeatherAttachBarbs.
             """,
             "nodule:type",
             "GafferUI::StandardNodule",
@@ -50,34 +65,34 @@ Gaffer.Metadata.registerNode(
         "hairIdAttrName": [
             "description",
             """
-            Name of the primitive variable (int or string, Uniform) on animated shafts that
-            identifies matching hair/feather groups (must match 'bind_shaftHairId' on barbs).
+            Name of the primitive variable (int or string, Uniform) on shafts that
+            identifies matching hair/feather groups. Must match the attribute on barbs.
             """,
             "layout:section",
-            "Animated Shaft Attributes",
+            "Shaft Attributes",
         ],
         "shaftUpVectorPrimVarName": [
             "description",
             """
-            Optional name of the primitive variable (V3f, Uniform) on animated shafts
+            Optional name of the primitive variable (V3f, Uniform) on shafts
             defining their up-vector for orientation calculation.
             """,
             "layout:section",
-            "Animated Shaft Attributes",
+            "Shaft Attributes",
         ],
         "shaftPointOrientAttrName": [
             "description",
             """
-            Optional name of the primitive variable (Quaternionf, Uniform or Vertex) on animated
-            shafts defining their explicit orientation.
+            Optional name of the primitive variable (Quaternionf, Uniform or Vertex) on shafts
+            defining their explicit orientation.
             """,
             "layout:section",
-            "Animated Shaft Attributes",
+            "Shaft Attributes",
         ],
         "cleanupBindAttributes": [
             "description",
             """
-            If true, the 'bind_*' attributes created by FeatherAttachBarbs will be
+            If true, the binding attributes created by FeatherAttachBarbs will be
             removed from the output barb geometry.
             """,
             "layout:section",

@@ -27,6 +27,9 @@ namespace GafferScotch
 
         GafferScene::ScenePlug *animatedShaftsPlug();
         const GafferScene::ScenePlug *animatedShaftsPlug() const;
+        
+        GafferScene::ScenePlug *restShaftsPlug();
+        const GafferScene::ScenePlug *restShaftsPlug() const;
 
         Gaffer::StringPlug *hairIdAttrNamePlug();
         const Gaffer::StringPlug *hairIdAttrNamePlug() const;
@@ -59,6 +62,7 @@ namespace GafferScotch
         void deformBarbs(
             const IECoreScene::CurvesPrimitive *barbs,
             const IECoreScene::CurvesPrimitive *animatedShafts,
+            const IECoreScene::CurvesPrimitive *restShafts,
             IECoreScene::CurvesPrimitive *outputBarbs) const;
 
         static size_t g_firstPlugIndex;

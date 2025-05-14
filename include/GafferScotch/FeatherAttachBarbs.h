@@ -23,9 +23,6 @@ namespace GafferScotch
         GafferScene::ScenePlug *inShaftsPlug();
         const GafferScene::ScenePlug *inShaftsPlug() const;
 
-        GafferScene::ScenePlug *inBarbsPlug();
-        const GafferScene::ScenePlug *inBarbsPlug() const;
-
         Gaffer::StringPlug *hairIdAttrNamePlug();
         const Gaffer::StringPlug *hairIdAttrNamePlug() const;
 

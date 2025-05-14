@@ -35,10 +35,10 @@ Gaffer.Metadata.registerNode(
             "layout:section",
             "Input",
         ],
-        "shafts": [
+        "inShafts": [
             "description",
             """
-            The input shaft geometry (CurvesPrimitive) to attach to.
+            The input shaft geometry (CurvesPrimitive) to attach barbs to.
             """,
             "nodule:type",
             "GafferUI::StandardNodule",
