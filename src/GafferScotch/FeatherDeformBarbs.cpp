@@ -116,17 +116,20 @@ namespace
     }
 
     // Helper to hash binding data
-    void hashBindingData(const Primitive *primitive, MurmurHash &h)
+    void hashBindingData(const Primitive *primitive, 
+                        const std::string &shaftPointIdAttrName,
+                        const std::string &barbParamAttrName,
+                        MurmurHash &h)
     {
         if (!primitive)
             return;
 
-        // Hash all binding attributes
-        const char *bindingAttrs[] = {
-            "restPosition", "restNormal", "restTangent", "restBitangent",
-            "shaftHairId", "shaftPointId", "barbParam"};
+        // Hash rest frame data attributes - these have fixed names
+        const char *restAttrs[] = {
+            "restPosition", "restNormal", "restTangent", "restBitangent"
+        };
 
-        for (const char *attrName : bindingAttrs)
+        for (const char *attrName : restAttrs)
         {
             auto it = primitive->variables.find(attrName);
             if (it != primitive->variables.end())
@@ -134,6 +137,22 @@ namespace
                 it->second.data->hash(h);
             }
         }
+        
+        // Hash binding attributes with user-specified names
+        auto shaftPointIdIt = primitive->variables.find(shaftPointIdAttrName);
+        if (shaftPointIdIt != primitive->variables.end())
+        {
+            shaftPointIdIt->second.data->hash(h);
+        }
+        
+        auto barbParamIt = primitive->variables.find(barbParamAttrName);
+        if (barbParamIt != primitive->variables.end())
+        {
+            barbParamIt->second.data->hash(h);
+        }
+        
+        // The hairId attribute name is handled separately in the
+        // FeatherDeformBarbs::hashProcessedObject method
     }
 
     // Helper to hash curves topology
@@ -169,6 +188,8 @@ FeatherDeformBarbs::FeatherDeformBarbs(const std::string &name)
 
     // Attribute names for binding
     addChild(new StringPlug("hairIdAttrName", Plug::In, "hairId"));
+    addChild(new StringPlug("shaftPointIdAttrName", Plug::In, "shaftPointId"));
+    addChild(new StringPlug("barbParamAttrName", Plug::In, "barbParam"));
 
     // Orientation options
     addChild(new StringPlug("shaftUpVectorPrimVarName", Plug::In, "up"));
@@ -217,34 +238,54 @@ const StringPlug *FeatherDeformBarbs::hairIdAttrNamePlug() const
     return getChild<StringPlug>(g_firstPlugIndex + 2);
 }
 
-StringPlug *FeatherDeformBarbs::shaftUpVectorPrimVarNamePlug()
+StringPlug *FeatherDeformBarbs::shaftPointIdAttrNamePlug()
 {
     return getChild<StringPlug>(g_firstPlugIndex + 3);
+}
+
+const StringPlug *FeatherDeformBarbs::shaftPointIdAttrNamePlug() const
+{
+    return getChild<StringPlug>(g_firstPlugIndex + 3);
+}
+
+StringPlug *FeatherDeformBarbs::barbParamAttrNamePlug()
+{
+    return getChild<StringPlug>(g_firstPlugIndex + 4);
+}
+
+const StringPlug *FeatherDeformBarbs::barbParamAttrNamePlug() const
+{
+    return getChild<StringPlug>(g_firstPlugIndex + 4);
+}
+
+StringPlug *FeatherDeformBarbs::shaftUpVectorPrimVarNamePlug()
+{
+    return getChild<StringPlug>(g_firstPlugIndex + 5);
 }
 
 const StringPlug *FeatherDeformBarbs::shaftUpVectorPrimVarNamePlug() const
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 3);
+    return getChild<StringPlug>(g_firstPlugIndex + 5);
 }
 
 StringPlug *FeatherDeformBarbs::shaftPointOrientAttrNamePlug()
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 4);
+    return getChild<StringPlug>(g_firstPlugIndex + 6);
 }
 
 const StringPlug *FeatherDeformBarbs::shaftPointOrientAttrNamePlug() const
 {
-    return getChild<StringPlug>(g_firstPlugIndex + 4);
+    return getChild<StringPlug>(g_firstPlugIndex + 6);
 }
 
 BoolPlug *FeatherDeformBarbs::cleanupBindAttributesPlug()
 {
-    return getChild<BoolPlug>(g_firstPlugIndex + 5);
+    return getChild<BoolPlug>(g_firstPlugIndex + 7);
 }
 
 const BoolPlug *FeatherDeformBarbs::cleanupBindAttributesPlug() const
 {
-    return getChild<BoolPlug>(g_firstPlugIndex + 5);
+    return getChild<BoolPlug>(g_firstPlugIndex + 7);
 }
 
 void FeatherDeformBarbs::affects(const Gaffer::Plug *input, AffectedPlugsContainer &outputs) const
@@ -254,6 +295,8 @@ void FeatherDeformBarbs::affects(const Gaffer::Plug *input, AffectedPlugsContain
     if (input == animatedShaftsPlug()->objectPlug() ||
         input == restShaftsPlug()->objectPlug() ||
         input == hairIdAttrNamePlug() ||
+        input == shaftPointIdAttrNamePlug() ||
+        input == barbParamAttrNamePlug() ||
         input == shaftUpVectorPrimVarNamePlug() ||
         input == shaftPointOrientAttrNamePlug() ||
         input == cleanupBindAttributesPlug())
@@ -277,6 +320,8 @@ bool FeatherDeformBarbs::affectsProcessedObject(const Gaffer::Plug *input) const
     return input == animatedShaftsPlug()->objectPlug() ||
            input == restShaftsPlug()->objectPlug() ||
            input == hairIdAttrNamePlug() ||
+           input == shaftPointIdAttrNamePlug() ||
+           input == barbParamAttrNamePlug() ||
            input == shaftUpVectorPrimVarNamePlug() ||
            input == shaftPointOrientAttrNamePlug() ||
            input == cleanupBindAttributesPlug();
@@ -287,6 +332,8 @@ bool FeatherDeformBarbs::affectsProcessedObjectBound(const Gaffer::Plug *input) 
     return input == animatedShaftsPlug()->objectPlug() ||
            input == restShaftsPlug()->objectPlug() ||
            input == hairIdAttrNamePlug() ||
+           input == shaftPointIdAttrNamePlug() ||
+           input == barbParamAttrNamePlug() ||
            input == shaftUpVectorPrimVarNamePlug() ||
            input == shaftPointOrientAttrNamePlug();
 }
@@ -346,10 +393,32 @@ void FeatherDeformBarbs::hashProcessedObject(const ScenePath &path, const Gaffer
     hashTopology(restShafts, h);
 
     // Hash binding data
-    hashBindingData(barbs, h);
+    hashBindingData(barbs, shaftPointIdAttrNamePlug()->getValue(), barbParamAttrNamePlug()->getValue(), h);
+    
+    // Hash the dynamic hairId attribute from all inputs
+    const std::string hairIdAttrName = hairIdAttrNamePlug()->getValue();
+    auto barbHairIdIt = barbs->variables.find(hairIdAttrName);
+    if (barbHairIdIt != barbs->variables.end())
+    {
+        barbHairIdIt->second.data->hash(h);
+    }
+    
+    auto animatedShaftHairIdIt = animatedShafts->variables.find(hairIdAttrName);
+    if (animatedShaftHairIdIt != animatedShafts->variables.end())
+    {
+        animatedShaftHairIdIt->second.data->hash(h);
+    }
+    
+    auto restShaftHairIdIt = restShafts->variables.find(hairIdAttrName);
+    if (restShaftHairIdIt != restShafts->variables.end())
+    {
+        restShaftHairIdIt->second.data->hash(h);
+    }
 
     // Hash parameters
     hairIdAttrNamePlug()->hash(h);
+    shaftPointIdAttrNamePlug()->hash(h);
+    barbParamAttrNamePlug()->hash(h);
     shaftUpVectorPrimVarNamePlug()->hash(h);
     shaftPointOrientAttrNamePlug()->hash(h);
     cleanupBindAttributesPlug()->hash(h);
@@ -410,10 +479,32 @@ void FeatherDeformBarbs::hashProcessedObjectBound(const ScenePath &path, const G
     hashTopology(restShafts, h);
 
     // Hash binding data
-    hashBindingData(barbs, h);
+    hashBindingData(barbs, shaftPointIdAttrNamePlug()->getValue(), barbParamAttrNamePlug()->getValue(), h);
+    
+    // Hash the dynamic hairId attribute from all inputs
+    const std::string hairIdAttrName = hairIdAttrNamePlug()->getValue();
+    auto barbHairIdIt = barbs->variables.find(hairIdAttrName);
+    if (barbHairIdIt != barbs->variables.end())
+    {
+        barbHairIdIt->second.data->hash(h);
+    }
+    
+    auto animatedShaftHairIdIt = animatedShafts->variables.find(hairIdAttrName);
+    if (animatedShaftHairIdIt != animatedShafts->variables.end())
+    {
+        animatedShaftHairIdIt->second.data->hash(h);
+    }
+    
+    auto restShaftHairIdIt = restShafts->variables.find(hairIdAttrName);
+    if (restShaftHairIdIt != restShafts->variables.end())
+    {
+        restShaftHairIdIt->second.data->hash(h);
+    }
 
     // Hash parameters
     hairIdAttrNamePlug()->hash(h);
+    shaftPointIdAttrNamePlug()->hash(h);
+    barbParamAttrNamePlug()->hash(h);
     shaftUpVectorPrimVarNamePlug()->hash(h);
     shaftPointOrientAttrNamePlug()->hash(h);
 }
@@ -519,27 +610,50 @@ IECore::ConstObjectPtr FeatherDeformBarbs::computeProcessedObject(const ScenePat
             return inputObject;
         }
 
+        // Get attribute names from plugs
+        const std::string hairIdAttrName = hairIdAttrNamePlug()->getValue();
+        const std::string shaftPointIdAttrName = shaftPointIdAttrNamePlug()->getValue();
+        const std::string barbParamAttrName = barbParamAttrNamePlug()->getValue();
+        const std::string shaftUpVectorName = shaftUpVectorPrimVarNamePlug()->getValue();
+        const std::string orientAttrName = shaftPointOrientAttrNamePlug()->getValue();
+        
         // Validate binding data
         // Check that binding data exists on barbs
-        const std::string hairIdAttrName = hairIdAttrNamePlug()->getValue();
-
-        auto barbHairIdIt = barbs->variables.find("shaftHairId");
-        auto barbShaftPointIdIt = barbs->variables.find("shaftPointId");
-        auto barbParamIt = barbs->variables.find("barbParam");
+        auto barbHairIdIt = barbs->variables.find(hairIdAttrName);
+        auto barbShaftPointIdIt = barbs->variables.find(shaftPointIdAttrName);
+        auto barbParamIt = barbs->variables.find(barbParamAttrName);
         auto restPositionIt = barbs->variables.find("restPosition");
         auto restNormalIt = barbs->variables.find("restNormal");
         auto restTangentIt = barbs->variables.find("restTangent");
         auto restBitangentIt = barbs->variables.find("restBitangent");
 
-        if (barbHairIdIt == barbs->variables.end() ||
-            barbShaftPointIdIt == barbs->variables.end() ||
-            barbParamIt == barbs->variables.end() ||
-            restPositionIt == barbs->variables.end() ||
+        if (barbHairIdIt == barbs->variables.end())
+        {
+            IECore::msg(IECore::Msg::Warning, "FeatherDeformBarbs",
+                        (boost::format("Hair ID attribute '%s' not found on barbs") % hairIdAttrName).str());
+            return inputObject;
+        }
+        
+        if (barbShaftPointIdIt == barbs->variables.end())
+        {
+            IECore::msg(IECore::Msg::Warning, "FeatherDeformBarbs",
+                        (boost::format("Shaft point ID attribute '%s' not found on barbs") % shaftPointIdAttrName).str());
+            return inputObject;
+        }
+        
+        if (barbParamIt == barbs->variables.end())
+        {
+            IECore::msg(IECore::Msg::Warning, "FeatherDeformBarbs",
+                        (boost::format("Barb parameter attribute '%s' not found on barbs") % barbParamAttrName).str());
+            return inputObject;
+        }
+        
+        if (restPositionIt == barbs->variables.end() ||
             restNormalIt == barbs->variables.end() ||
             restTangentIt == barbs->variables.end() ||
             restBitangentIt == barbs->variables.end())
         {
-            IECore::msg(IECore::Msg::Warning, "FeatherDeformBarbs", "Missing binding data on barbs");
+            IECore::msg(IECore::Msg::Warning, "FeatherDeformBarbs", "Missing rest frame attributes on barbs");
             return inputObject;
         }
 
@@ -578,7 +692,10 @@ IECore::ConstObjectPtr FeatherDeformBarbs::computeProcessedObject(const ScenePat
         // Deform barbs
         try
         {
-            deformBarbs(barbs, animatedShafts, restShafts, outputBarbs.get());
+            // Pass the attribute names to the deformBarbs method
+            deformBarbs(barbs, animatedShafts, restShafts, outputBarbs.get(), 
+                       hairIdAttrName, shaftPointIdAttrName, barbParamAttrName,
+                       shaftUpVectorName, orientAttrName);
         }
         catch (const std::exception &e)
         {
@@ -590,11 +707,13 @@ IECore::ConstObjectPtr FeatherDeformBarbs::computeProcessedObject(const ScenePat
         // Clean up binding attributes if requested
         if (cleanupBindAttributesPlug()->getValue())
         {
-            const std::vector<std::string> bindingAttrs = {
-                "restPosition", "restNormal", "restTangent", "restBitangent",
-                "shaftHairId", "shaftPointId", "barbParam"};
+            // Only clean up the internal implementation rest frame attributes,
+            // NEVER touch the user-specified attributes
+            const std::vector<std::string> restFrameAttrs = {
+                "restPosition", "restNormal", "restTangent", "restBitangent"
+            };
 
-            for (const std::string &attr : bindingAttrs)
+            for (const std::string &attr : restFrameAttrs)
             {
                 auto it = outputBarbs->variables.find(attr);
                 if (it != outputBarbs->variables.end())
@@ -624,7 +743,12 @@ void FeatherDeformBarbs::deformBarbs(
     const IECoreScene::CurvesPrimitive *barbs,
     const IECoreScene::CurvesPrimitive *animatedShafts,
     const IECoreScene::CurvesPrimitive *restShafts,
-    IECoreScene::CurvesPrimitive *outputBarbs) const
+    IECoreScene::CurvesPrimitive *outputBarbs,
+    const std::string &hairIdAttrName,
+    const std::string &shaftPointIdAttrName,
+    const std::string &barbParamAttrName,
+    const std::string &shaftUpVectorName,
+    const std::string &orientAttrName) const
 {
     if (!barbs || !animatedShafts || !restShafts || !outputBarbs)
     {
@@ -650,17 +774,12 @@ void FeatherDeformBarbs::deformBarbs(
 
         IECore::msg(IECore::Msg::Info, "FeatherDeformBarbs", "Reading binding data");
 
-        // Get attribute names
-        const std::string hairIdAttrName = hairIdAttrNamePlug()->getValue();
-        const std::string upVectorName = shaftUpVectorPrimVarNamePlug()->getValue();
-        const std::string orientAttrName = shaftPointOrientAttrNamePlug()->getValue();
-
         // Read binding data
         const IntVectorData *restShaftHairIds = restShafts->variableData<IntVectorData>(hairIdAttrName, PrimitiveVariable::Uniform);
         const IntVectorData *animatedShaftHairIds = animatedShafts->variableData<IntVectorData>(hairIdAttrName, PrimitiveVariable::Uniform);
-        const IntVectorData *barbShaftHairIds = barbs->variableData<IntVectorData>("shaftHairId", PrimitiveVariable::Uniform);
-        const IntVectorData *barbShaftPointIds = barbs->variableData<IntVectorData>("shaftPointId", PrimitiveVariable::Uniform);
-        const FloatVectorData *barbParams = barbs->variableData<FloatVectorData>("barbParam", PrimitiveVariable::Uniform);
+        const IntVectorData *barbShaftHairIds = barbs->variableData<IntVectorData>(hairIdAttrName, PrimitiveVariable::Uniform);
+        const IntVectorData *barbShaftPointIds = barbs->variableData<IntVectorData>(shaftPointIdAttrName, PrimitiveVariable::Uniform);
+        const FloatVectorData *barbParams = barbs->variableData<FloatVectorData>(barbParamAttrName, PrimitiveVariable::Uniform);
 
         if (!restShaftHairIds || !animatedShaftHairIds || !barbShaftHairIds || !barbShaftPointIds || !barbParams)
         {
@@ -680,9 +799,9 @@ void FeatherDeformBarbs::deformBarbs(
 
         // Get optional orientation attributes
         const V3fVectorData *restUpVectors = nullptr;
-        if (!upVectorName.empty())
+        if (!shaftUpVectorName.empty())
         {
-            restUpVectors = restShafts->variableData<V3fVectorData>(upVectorName, PrimitiveVariable::Vertex);
+            restUpVectors = restShafts->variableData<V3fVectorData>(shaftUpVectorName, PrimitiveVariable::Vertex);
         }
 
         const QuatfVectorData *restOrientations = nullptr;
@@ -692,9 +811,9 @@ void FeatherDeformBarbs::deformBarbs(
         }
         
         const V3fVectorData *animatedUpVectors = nullptr;
-        if (!upVectorName.empty())
+        if (!shaftUpVectorName.empty())
         {
-            animatedUpVectors = animatedShafts->variableData<V3fVectorData>(upVectorName, PrimitiveVariable::Vertex);
+            animatedUpVectors = animatedShafts->variableData<V3fVectorData>(shaftUpVectorName, PrimitiveVariable::Vertex);
         }
 
         const QuatfVectorData *animatedOrientations = nullptr;

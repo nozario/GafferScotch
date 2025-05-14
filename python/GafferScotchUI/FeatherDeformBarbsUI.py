@@ -71,6 +71,24 @@ Gaffer.Metadata.registerNode(
             "layout:section",
             "Shaft Attributes",
         ],
+        "shaftPointIdAttrName": [
+            "description",
+            """
+            Name of the primitive variable (int, Uniform) on barbs that
+            identifies which point along the shaft curve each barb is attached to.
+            """,
+            "layout:section",
+            "Shaft Attributes",
+        ],
+        "barbParamAttrName": [
+            "description",
+            """
+            Name of the primitive variable (float, Uniform) on barbs that
+            stores the parametric position of each barb along the shaft curve segment.
+            """,
+            "layout:section",
+            "Shaft Attributes",
+        ],
         "shaftUpVectorPrimVarName": [
             "description",
             """

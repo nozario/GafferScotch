@@ -34,6 +34,12 @@ namespace GafferScotch
         Gaffer::StringPlug *hairIdAttrNamePlug();
         const Gaffer::StringPlug *hairIdAttrNamePlug() const;
 
+        Gaffer::StringPlug *shaftPointIdAttrNamePlug();
+        const Gaffer::StringPlug *shaftPointIdAttrNamePlug() const;
+
+        Gaffer::StringPlug *barbParamAttrNamePlug();
+        const Gaffer::StringPlug *barbParamAttrNamePlug() const;
+
         Gaffer::StringPlug *shaftUpVectorPrimVarNamePlug();
         const Gaffer::StringPlug *shaftUpVectorPrimVarNamePlug() const;
 
@@ -63,7 +69,12 @@ namespace GafferScotch
             const IECoreScene::CurvesPrimitive *barbs,
             const IECoreScene::CurvesPrimitive *animatedShafts,
             const IECoreScene::CurvesPrimitive *restShafts,
-            IECoreScene::CurvesPrimitive *outputBarbs) const;
+            IECoreScene::CurvesPrimitive *outputBarbs,
+            const std::string &hairIdAttrName,
+            const std::string &shaftPointIdAttrName,
+            const std::string &barbParamAttrName,
+            const std::string &shaftUpVectorName,
+            const std::string &orientAttrName) const;
 
         static size_t g_firstPlugIndex;
     };

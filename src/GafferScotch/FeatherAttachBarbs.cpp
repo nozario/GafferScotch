@@ -300,8 +300,18 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
     // Validate hairId on both shafts and barbs
     auto shaftHairIdIt = shafts->variables.find(hairIdAttrName);
     auto barbHairIdIt = barbs->variables.find(hairIdAttrName);
-    if (shaftHairIdIt == shafts->variables.end() || barbHairIdIt == barbs->variables.end())
+    
+    if (shaftHairIdIt == shafts->variables.end())
     {
+        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
+                    (boost::format("Hair ID attribute '%s' not found on shafts") % hairIdAttrName).str());
+        return inputObject;
+    }
+    
+    if (barbHairIdIt == barbs->variables.end())
+    {
+        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
+                    (boost::format("Hair ID attribute '%s' not found on barbs") % hairIdAttrName).str());
         return inputObject;
     }
 
@@ -309,6 +319,8 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
     auto barbShaftPointIdIt = barbs->variables.find(shaftPointIdAttrName);
     if (barbShaftPointIdIt == barbs->variables.end())
     {
+        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
+                    (boost::format("Shaft point ID attribute '%s' not found on barbs") % shaftPointIdAttrName).str());
         return inputObject;
     }
 
@@ -316,6 +328,8 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
     auto barbParamIt = barbs->variables.find(barbParamAttrName);
     if (barbParamIt == barbs->variables.end())
     {
+        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
+                    (boost::format("Barb parameter attribute '%s' not found on barbs") % barbParamAttrName).str());
         return inputObject;
     }
 
@@ -611,14 +625,13 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
         outBarbParams[i] = binding.barbParam;
     }
 
-    // Store all data as primitive variables
+    // Store all data as primitive variables with consistent naming
     outputBarbs->variables["restPosition"] = PrimitiveVariable(PrimitiveVariable::Uniform, restPositionsData);
     outputBarbs->variables["restNormal"] = PrimitiveVariable(PrimitiveVariable::Uniform, restNormalsData);
     outputBarbs->variables["restTangent"] = PrimitiveVariable(PrimitiveVariable::Uniform, restTangentsData);
     outputBarbs->variables["restBitangent"] = PrimitiveVariable(PrimitiveVariable::Uniform, restBitangentsData);
 
-    // Store binding data
-    outputBarbs->variables["shaftHairId"] = PrimitiveVariable(PrimitiveVariable::Uniform, shaftHairIdsData);
-    outputBarbs->variables["shaftPointId"] = PrimitiveVariable(PrimitiveVariable::Uniform, shaftPointIdsData);
-    outputBarbs->variables["barbParam"] = PrimitiveVariable(PrimitiveVariable::Uniform, barbParamsData);
+    // Note: We do NOT modify or replace the user-specified attributes
+    // (hairIdAttrName, shaftPointIdAttrName, barbParamAttrName)
+    // The original attributes were already copied from the input barbs earlier
 }
