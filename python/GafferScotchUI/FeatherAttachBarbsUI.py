@@ -12,6 +12,12 @@ Gaffer.Metadata.registerNode(
     Attaches barb geometry to shaft curves to create complete feather structures.
     Computes and stores the necessary binding data for later deformation by
     the FeatherDeformBarbs node.
+    
+    For each barb, the node:
+    1. Finds the matching shaft curve using the hair ID attribute
+    2. Identifies the barb's root point using the parametric curve value
+    3. Finds the closest point on the matching shaft curve
+    4. Computes the local reference frame for rigid deformation
     """,
     "icon",
     ICON_PATH,
@@ -56,29 +62,12 @@ Gaffer.Metadata.registerNode(
             "layout:section",
             "Attribute Names",
         ],
-        "shaftPointIdAttrName": [
+        "curveParamAttrName": [
             "description",
             """
-            Name of the primitive variable (int, Uniform) on barbs specifying
-            the target point index on the parent shaft curve.
-            """,
-            "layout:section",
-            "Attribute Names",
-        ],
-        "barbParamAttrName": [
-            "description",
-            """
-            Name of the vertex primitive variable (float, Vertex) on barbs (e.g., 'curveu')
-            used to identify the barb's root point (minimum value).
-            """,
-            "layout:section",
-            "Attribute Names",
-        ],
-        "shaftUpVectorPrimVarName": [
-            "description",
-            """
-            Optional name of the primitive variable (V3f, Uniform) on shafts
-            defining their up-vector for orientation calculation.
+            Name of the vertex primitive variable (float, Vertex) on barbs that represents
+            the parametric position along the curve (e.g., 'curveu'). The point with the
+            minimum value is considered to be the barb's root point.
             """,
             "layout:section",
             "Attribute Names",
@@ -86,8 +75,9 @@ Gaffer.Metadata.registerNode(
         "shaftPointOrientAttrName": [
             "description",
             """
-            Optional name of the primitive variable (Quaternionf, Uniform or Vertex)
-            on shafts defining their explicit orientation.
+            Name of the primitive variable (Quaternionf, Uniform or Vertex)
+            on shafts defining their explicit orientation. This is required
+            for computing the correct normal and tangent frame.
             """,
             "layout:section",
             "Attribute Names",

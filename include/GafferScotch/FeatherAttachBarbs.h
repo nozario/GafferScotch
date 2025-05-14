@@ -26,14 +26,8 @@ namespace GafferScotch
         Gaffer::StringPlug *hairIdAttrNamePlug();
         const Gaffer::StringPlug *hairIdAttrNamePlug() const;
 
-        Gaffer::StringPlug *shaftPointIdAttrNamePlug();
-        const Gaffer::StringPlug *shaftPointIdAttrNamePlug() const;
-
-        Gaffer::StringPlug *barbParamAttrNamePlug();
-        const Gaffer::StringPlug *barbParamAttrNamePlug() const;
-
-        Gaffer::StringPlug *shaftUpVectorPrimVarNamePlug();
-        const Gaffer::StringPlug *shaftUpVectorPrimVarNamePlug() const;
+        Gaffer::StringPlug *curveParamAttrNamePlug();
+        const Gaffer::StringPlug *curveParamAttrNamePlug() const;
 
         Gaffer::StringPlug *shaftPointOrientAttrNamePlug();
         const Gaffer::StringPlug *shaftPointOrientAttrNamePlug() const;
@@ -50,7 +44,13 @@ namespace GafferScotch
         void computeBindings(
             const IECoreScene::CurvesPrimitive *shafts,
             const IECoreScene::CurvesPrimitive *barbs,
-            IECoreScene::CurvesPrimitive *outputBarbs) const;
+            IECoreScene::CurvesPrimitive *outputBarbs,
+            const IECore::IntVectorData *shaftHairIds,
+            const IECore::IntVectorData *barbHairIds,
+            const IECore::FloatVectorData *curveParams,
+            const IECore::V3fVectorData *shaftPositions,
+            const IECore::V3fVectorData *barbPositions,
+            const IECore::QuatfVectorData *orientations) const;
 
         static size_t g_firstPlugIndex;
     };
