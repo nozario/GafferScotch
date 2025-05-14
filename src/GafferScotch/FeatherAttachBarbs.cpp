@@ -343,6 +343,9 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
     const QuatfVectorData *shaftOrientations = runTimeCast<const QuatfVectorData>(shaftOrientIt->second.data.get());
     const QuatfVectorData *barbOrientations = runTimeCast<const QuatfVectorData>(barbOrientIt->second.data.get());
 
+
+    IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+                (boost::format("Just before creating output curves")));
     // Create output curves with same topology
     CurvesPrimitivePtr outputBarbs = new CurvesPrimitive(
         barbs->verticesPerCurve(),
@@ -356,6 +359,8 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
     }
 
     // Compute bindings
+    IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+            (boost::format("Just before computeBindings")));
     try
     {
         // Compute rest frames and bindings
@@ -392,6 +397,9 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
     const V3fVectorData *barbPositions,
     const QuatfVectorData *orientations) const
 {
+
+    IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+                (boost::format("Just before calculating shaft curve offsets")));
     // Calculate shaft curve offsets
     const std::vector<int> &shaftVertsPerCurve = shafts->verticesPerCurve()->readable();
     std::vector<size_t> shaftOffsets;
@@ -404,6 +412,8 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
         offset += count;
     }
 
+    IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+                (boost::format("Just before calculating barb curve offsets")));
     // Calculate barb curve offsets
     const std::vector<int> &barbVertsPerCurve = barbs->verticesPerCurve()->readable();
     std::vector<size_t> barbOffsets;
@@ -416,6 +426,8 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
         offset += count;
     }
 
+    IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+                (boost::format("Just before accessing data")));
     // Access data
     const std::vector<int> &shaftHairIdValues = shaftHairIds->readable();
     const std::vector<int> &barbHairIdValues = barbHairIds->readable();
@@ -424,6 +436,8 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
     const std::vector<V3f> &shaftPositionValues = shaftPositions->readable();
     const std::vector<V3f> &barbPositionValues = barbPositions->readable();
 
+    IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+                (boost::format("Just before creating map from hair ID to shaft index")));
     // Create map from hair ID to shaft curve index for quick lookup
     std::unordered_map<int, size_t> hairIdToShaftIndex;
     for (size_t i = 0; i < shaftHairIdValues.size(); ++i)
@@ -431,6 +445,8 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
         hairIdToShaftIndex[shaftHairIdValues[i]] = i;
     }
 
+    IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+                (boost::format("Just before creating CurvesPrimitiveEvaluator for shafts")));
     // Create CurvesPrimitiveEvaluator for shafts
     CurvesPrimitiveEvaluatorPtr shaftEvaluator = new CurvesPrimitiveEvaluator(shafts);
     PrimitiveEvaluator::ResultPtr result = shaftEvaluator->createResult();
