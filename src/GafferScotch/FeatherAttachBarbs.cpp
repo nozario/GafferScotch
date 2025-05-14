@@ -363,7 +363,7 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
             shafts, barbs, outputBarbs.get(),
             shaftHairIds, barbHairIds, curveParams,
             shaftPositions, barbPositions,
-            orientations
+            barbOrientations
         );
 
         return outputBarbs;
@@ -442,6 +442,10 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
 
     std::vector<BarbBinding> bindings(numBarbs);
 
+    IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+                (boost::format("Processing %d barbs with %d threads and batch size %d")
+                 % numBarbs % numThreads % batchSize).str());
+
     parallel_for(blocked_range<size_t>(0, numBarbs, batchSize),
                  [&](const blocked_range<size_t> &range)
                  {
@@ -497,6 +501,11 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
                          // We need to get the curve-specific data by casting to CurvesPrimitiveEvaluator::Result
                          // Get the base class result first
                          PrimitiveEvaluator::Result* baseResult = threadResult.get();
+
+                         IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+                                     (boost::format("Closest point result: %s") % baseResult->toString()).str());
+                         IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+                                     (boost::format("Curve index: %d") % shaftIndex).str());
                          
                          // Now cast to derived Result class from CurvesPrimitiveEvaluator
                          CurvesPrimitiveEvaluator::Result* curvesResult = dynamic_cast<CurvesPrimitiveEvaluator::Result*>(baseResult);
@@ -508,7 +517,8 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
                              binding.valid = false;
                              continue;
                          }
-                         
+                         IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+                                     (boost::format("Curves result: %s") % curvesResult->toString()).str());
                          // Verify this is the correct curve
                          if (curvesResult->curveIndex() != shaftIndex)
                          {
