@@ -503,9 +503,7 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
                          PrimitiveEvaluator::Result* baseResult = threadResult.get();
 
                          IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
-                                     (boost::format("Closest point result: %s") % baseResult->toString()).str());
-                         IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
-                                     (boost::format("Curve index: %d") % shaftIndex).str());
+                                     (boost::format("Just before casting to CurvesPrimitiveEvaluator::Result")));
                          
                          // Now cast to derived Result class from CurvesPrimitiveEvaluator
                          CurvesPrimitiveEvaluator::Result* curvesResult = dynamic_cast<CurvesPrimitiveEvaluator::Result*>(baseResult);
@@ -518,7 +516,7 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
                              continue;
                          }
                          IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
-                                     (boost::format("Curves result: %s") % curvesResult->toString()).str());
+                                     (boost::format("Just after casting to CurvesPrimitiveEvaluator::Result")));
                          // Verify this is the correct curve
                          if (curvesResult->curveIndex() != shaftIndex)
                          {
