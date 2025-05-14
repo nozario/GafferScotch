@@ -424,8 +424,7 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
                      // Each thread needs its own evaluator and result
                      CurvesPrimitiveEvaluatorPtr threadShaftEvaluator = new CurvesPrimitiveEvaluator(shafts);
                      PrimitiveEvaluator::ResultPtr threadResult = threadShaftEvaluator->createResult();
-                     CurvesPrimitiveEvaluator::CurvesResult *curvesResult = static_cast<CurvesPrimitiveEvaluator::CurvesResult *>(threadResult.get());
-
+                     
                      for (size_t i = range.begin(); i != range.end(); ++i)
                      {
                          BarbBinding &binding = bindings[i];
@@ -469,18 +468,36 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
                          bool found = false;
                          
                          // We must look at the specific shaft curve matching this barb's hair ID
-                         threadShaftEvaluator->closestPointOnCurve(barbRootPos, shaftIndex, threadResult);
-                         found = true;  // Assume success, as failures are rare with direct curve index
+                         threadShaftEvaluator->closestPoint(barbRootPos, threadResult.get());
+                         
+                         // Verify this is the correct curve - if not, try a direct approach
+                         if (threadResult->curveIndex() != shaftIndex)
+                         {
+                             // If the closest point is on the wrong curve, we'll try to find a point directly on the right curve
+                             // Get parametric position along the correct curve - use 0.5 as a starting point
+                             found = threadShaftEvaluator->pointAtV(shaftIndex, 0.5f, threadResult.get());
+                             
+                             // Now use the general closestPoint method which will find the closest point on all curves
+                             if (found)
+                             {
+                                 threadShaftEvaluator->closestPoint(barbRootPos, threadResult.get());
+                                 found = (threadResult->curveIndex() == shaftIndex);
+                             }
+                         }
+                         else
+                         {
+                             found = true;
+                         }
 
                          if (found)
                          {
                              // Get information about the closest point
-                             const V3f shaftPointPos = curvesResult->point();
-                             const int curveIndex = curvesResult->curveIndex();
-                             const float v = curvesResult->uv()[1];  // Parametric position (0-1) along the curve
+                             const V3f shaftPointPos = threadResult->point();
+                             const int curveIndex = threadResult->curveIndex();
+                             const float v = threadResult->uv()[1];  // Parametric position (0-1) along the curve
                             
                              // Get tangent at the closest point
-                             V3f tangent = curvesResult->tangent();
+                             V3f tangent = threadResult->vTangent();
                             
                              // Compute normal using orientation quaternion
                              V3f normal;
