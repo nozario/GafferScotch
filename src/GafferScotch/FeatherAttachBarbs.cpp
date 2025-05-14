@@ -271,48 +271,101 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
     const std::string curveParamAttrName = curveParamAttrNamePlug()->getValue();
     const std::string orientAttrName = shaftPointOrientAttrNamePlug()->getValue();
 
-    // Extract data from barbs and shafts
-    const IntVectorData *shaftHairIds = shafts->variableData<IntVectorData>(hairIdAttrName, PrimitiveVariable::Uniform);
-    const IntVectorData *barbHairIds = barbs->variableData<IntVectorData>(hairIdAttrName, PrimitiveVariable::Uniform);
-    const FloatVectorData *curveParams = barbs->variableData<FloatVectorData>(curveParamAttrName, PrimitiveVariable::Vertex);
+    // Extract data from barbs and shafts using the variables.find() approach
+    // Check for shaftHairIds with Uniform interpolation
+    const IntVectorData *shaftHairIds = nullptr;
+    auto shaftHairIdIt = shafts->variables.find(hairIdAttrName);
+    if (shaftHairIdIt != shafts->variables.end() && 
+        shaftHairIdIt->second.data && 
+        runTimeCast<const IntVectorData>(shaftHairIdIt->second.data.get()) &&
+        shaftHairIdIt->second.interpolation == PrimitiveVariable::Uniform)
+    {
+        shaftHairIds = runTimeCast<const IntVectorData>(shaftHairIdIt->second.data.get());
+    }
+    
+    // Check for barbHairIds with Uniform interpolation
+    const IntVectorData *barbHairIds = nullptr;
+    auto barbHairIdIt = barbs->variables.find(hairIdAttrName);
+    if (barbHairIdIt != barbs->variables.end() && 
+        barbHairIdIt->second.data && 
+        runTimeCast<const IntVectorData>(barbHairIdIt->second.data.get()) &&
+        barbHairIdIt->second.interpolation == PrimitiveVariable::Uniform)
+    {
+        barbHairIds = runTimeCast<const IntVectorData>(barbHairIdIt->second.data.get());
+    }
+    
+    // Check for curveParams with Vertex interpolation
+    const FloatVectorData *curveParams = nullptr;
+    auto curveParamIt = barbs->variables.find(curveParamAttrName);
+    if (curveParamIt != barbs->variables.end() && 
+        curveParamIt->second.data && 
+        runTimeCast<const FloatVectorData>(curveParamIt->second.data.get()) &&
+        curveParamIt->second.interpolation == PrimitiveVariable::Vertex)
+    {
+        curveParams = runTimeCast<const FloatVectorData>(curveParamIt->second.data.get());
+    }
 
     // Validate all required attributes are present
     if (!shaftHairIds)
     {
         IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
-                    (boost::format("Hair ID attribute '%s' not found on shafts") % hairIdAttrName).str());
+                    (boost::format("Hair ID attribute '%s' not found on shafts with Uniform interpolation") % hairIdAttrName).str());
         return inputObject;
     }
     
     if (!barbHairIds)
     {
         IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
-                    (boost::format("Hair ID attribute '%s' not found on barbs") % hairIdAttrName).str());
+                    (boost::format("Hair ID attribute '%s' not found on barbs with Uniform interpolation") % hairIdAttrName).str());
         return inputObject;
     }
 
     if (!curveParams)
     {
         IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
-                    (boost::format("Curve parameter attribute '%s' not found on barbs") % curveParamAttrName).str());
+                    (boost::format("Curve parameter attribute '%s' not found on barbs with Vertex interpolation") % curveParamAttrName).str());
         return inputObject;
     }
 
-    // Get position data
-    const V3fVectorData *shaftPositions = shafts->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
-    const V3fVectorData *barbPositions = barbs->variableData<V3fVectorData>("P", PrimitiveVariable::Vertex);
+    // Check for position data with Vertex interpolation
+    const V3fVectorData *shaftPositions = nullptr;
+    auto shaftPosIt = shafts->variables.find("P");
+    if (shaftPosIt != shafts->variables.end() && 
+        shaftPosIt->second.data && 
+        runTimeCast<const V3fVectorData>(shaftPosIt->second.data.get()) &&
+        shaftPosIt->second.interpolation == PrimitiveVariable::Vertex)
+    {
+        shaftPositions = runTimeCast<const V3fVectorData>(shaftPosIt->second.data.get());
+    }
+    
+    const V3fVectorData *barbPositions = nullptr;
+    auto barbPosIt = barbs->variables.find("P");
+    if (barbPosIt != barbs->variables.end() && 
+        barbPosIt->second.data && 
+        runTimeCast<const V3fVectorData>(barbPosIt->second.data.get()) &&
+        barbPosIt->second.interpolation == PrimitiveVariable::Vertex)
+    {
+        barbPositions = runTimeCast<const V3fVectorData>(barbPosIt->second.data.get());
+    }
 
     if (!shaftPositions || !barbPositions)
     {
-        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs", "Missing position data on shafts or barbs");
+        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs", "Missing position data on shafts or barbs with Vertex interpolation");
         return inputObject;
     }
 
-    // Get orientation quaternions if available
+    // Get orientation quaternions with Vertex interpolation if available
     const QuatfVectorData *orientations = nullptr;
     if (!orientAttrName.empty())
     {
-        orientations = shafts->variableData<QuatfVectorData>(orientAttrName, PrimitiveVariable::Vertex);
+        auto orientIt = shafts->variables.find(orientAttrName);
+        if (orientIt != shafts->variables.end() && 
+            orientIt->second.data && 
+            runTimeCast<const QuatfVectorData>(orientIt->second.data.get()) &&
+            orientIt->second.interpolation == PrimitiveVariable::Vertex)
+        {
+            orientations = runTimeCast<const QuatfVectorData>(orientIt->second.data.get());
+        }
     }
 
     // Create output curves with same topology
