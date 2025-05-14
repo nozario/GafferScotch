@@ -271,102 +271,77 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
     const std::string curveParamAttrName = curveParamAttrNamePlug()->getValue();
     const std::string orientAttrName = shaftPointOrientAttrNamePlug()->getValue();
 
-    // Extract data from barbs and shafts using the variables.find() approach
-    // Check for shaftHairIds with Uniform interpolation
-    const IntVectorData *shaftHairIds = nullptr;
+    // Try to find hairIdAttrName in shafts
     auto shaftHairIdIt = shafts->variables.find(hairIdAttrName);
-    if (shaftHairIdIt != shafts->variables.end() && 
-        shaftHairIdIt->second.data && 
-        runTimeCast<const IntVectorData>(shaftHairIdIt->second.data.get()) &&
-        shaftHairIdIt->second.interpolation == PrimitiveVariable::Uniform)
+    if (shaftHairIdIt == shafts->variables.end())
     {
-        shaftHairIds = runTimeCast<const IntVectorData>(shaftHairIdIt->second.data.get());
+        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
+                    (boost::format("Hair ID attribute '%s' not found on shafts") % hairIdAttrName).str());
+        return inputObject;
     }
-    
-    // Check for barbHairIds with Uniform interpolation
-    const IntVectorData *barbHairIds = nullptr;
+
+    // Try to find hairIdAttrName in barbs
     auto barbHairIdIt = barbs->variables.find(hairIdAttrName);
-    if (barbHairIdIt != barbs->variables.end() && 
-        barbHairIdIt->second.data && 
-        runTimeCast<const IntVectorData>(barbHairIdIt->second.data.get()) &&
-        barbHairIdIt->second.interpolation == PrimitiveVariable::Uniform)
+    if (barbHairIdIt == barbs->variables.end())
     {
-        barbHairIds = runTimeCast<const IntVectorData>(barbHairIdIt->second.data.get());
+        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
+                    (boost::format("Hair ID attribute '%s' not found on barbs") % hairIdAttrName).str());
+        return inputObject;
     }
-    
-    // Check for curveParams with Vertex interpolation
-    const FloatVectorData *curveParams = nullptr;
+
+    // Try to find curveParamAttrName in barbs
     auto curveParamIt = barbs->variables.find(curveParamAttrName);
-    if (curveParamIt != barbs->variables.end() && 
-        curveParamIt->second.data && 
-        runTimeCast<const FloatVectorData>(curveParamIt->second.data.get()) &&
-        curveParamIt->second.interpolation == PrimitiveVariable::Vertex)
-    {
-        curveParams = runTimeCast<const FloatVectorData>(curveParamIt->second.data.get());
-    }
-
-    // Validate all required attributes are present
-    if (!shaftHairIds)
+    if (curveParamIt == barbs->variables.end())
     {
         IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
-                    (boost::format("Hair ID attribute '%s' not found on shafts with Uniform interpolation") % hairIdAttrName).str());
-        return inputObject;
-    }
-    
-    if (!barbHairIds)
-    {
-        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
-                    (boost::format("Hair ID attribute '%s' not found on barbs with Uniform interpolation") % hairIdAttrName).str());
+                    (boost::format("Curve parameter attribute '%s' not found on barbs") % curveParamAttrName).str());   
         return inputObject;
     }
 
-    if (!curveParams)
-    {
-        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
-                    (boost::format("Curve parameter attribute '%s' not found on barbs with Vertex interpolation") % curveParamAttrName).str());
-        return inputObject;
-    }
-
-    // Check for position data with Vertex interpolation
-    const V3fVectorData *shaftPositions = nullptr;
+    // Get position data for shafts
     auto shaftPosIt = shafts->variables.find("P");
-    if (shaftPosIt != shafts->variables.end() && 
-        shaftPosIt->second.data && 
-        runTimeCast<const V3fVectorData>(shaftPosIt->second.data.get()) &&
-        shaftPosIt->second.interpolation == PrimitiveVariable::Vertex)
+    if (shaftPosIt == shafts->variables.end())
     {
-        shaftPositions = runTimeCast<const V3fVectorData>(shaftPosIt->second.data.get());
-    }
-    
-    const V3fVectorData *barbPositions = nullptr;
-    auto barbPosIt = barbs->variables.find("P");
-    if (barbPosIt != barbs->variables.end() && 
-        barbPosIt->second.data && 
-        runTimeCast<const V3fVectorData>(barbPosIt->second.data.get()) &&
-        barbPosIt->second.interpolation == PrimitiveVariable::Vertex)
-    {
-        barbPositions = runTimeCast<const V3fVectorData>(barbPosIt->second.data.get());
-    }
-
-    if (!shaftPositions || !barbPositions)
-    {
-        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs", "Missing position data on shafts or barbs with Vertex interpolation");
+        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
+                    (boost::format("Position attribute 'P' not found on shafts") % curveParamAttrName).str());   
         return inputObject;
     }
 
-    // Get orientation quaternions with Vertex interpolation if available
-    const QuatfVectorData *orientations = nullptr;
-    if (!orientAttrName.empty())
+    // Get position data for barbs
+    auto barbPosIt = barbs->variables.find("P");
+    if (barbPosIt == barbs->variables.end())
     {
-        auto orientIt = shafts->variables.find(orientAttrName);
-        if (orientIt != shafts->variables.end() && 
-            orientIt->second.data && 
-            runTimeCast<const QuatfVectorData>(orientIt->second.data.get()) &&
-            orientIt->second.interpolation == PrimitiveVariable::Vertex)
-        {
-            orientations = runTimeCast<const QuatfVectorData>(orientIt->second.data.get());
-        }
+        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
+                    (boost::format("Position attribute 'P' not found on barbs") % curveParamAttrName).str());   
+        return inputObject;
     }
+
+    // Get orientation quaternions from shafts
+    auto shaftOrientIt = shafts->variables.find(orientAttrName);
+    if (shaftOrientIt == shafts->variables.end())
+    {
+        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
+                    (boost::format("Orientation attribute '%s' not found on shafts") % orientAttrName).str());
+        return inputObject;
+    }
+
+    // Get orientation quaternions from barbs
+    auto barbOrientIt = barbs->variables.find(orientAttrName);
+    if (barbOrientIt == barbs->variables.end())
+    {
+        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
+                    (boost::format("Orientation attribute '%s' not found on barbs") % orientAttrName).str());
+        return inputObject;
+    }
+
+    // Now that we have the attributes, get the data
+    const IntVectorData *shaftHairIds = runTimeCast<const IntVectorData>(shaftHairIdIt->second.data.get());
+    const IntVectorData *barbHairIds = runTimeCast<const IntVectorData>(barbHairIdIt->second.data.get());
+    const FloatVectorData *curveParams = runTimeCast<const FloatVectorData>(curveParamIt->second.data.get());
+    const V3fVectorData *shaftPositions = runTimeCast<const V3fVectorData>(shaftPosIt->second.data.get());
+    const V3fVectorData *barbPositions = runTimeCast<const V3fVectorData>(barbPosIt->second.data.get());
+    const QuatfVectorData *shaftOrientations = runTimeCast<const QuatfVectorData>(shaftOrientIt->second.data.get());
+    const QuatfVectorData *barbOrientations = runTimeCast<const QuatfVectorData>(barbOrientIt->second.data.get());
 
     // Create output curves with same topology
     CurvesPrimitivePtr outputBarbs = new CurvesPrimitive(
@@ -417,10 +392,6 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
     const V3fVectorData *barbPositions,
     const QuatfVectorData *orientations) const
 {
-    // Get attribute names from plugs
-    const std::string hairIdAttrName = hairIdAttrNamePlug()->getValue();
-    const std::string curveParamAttrName = curveParamAttrNamePlug()->getValue();
-
     // Calculate shaft curve offsets
     const std::vector<int> &shaftVertsPerCurve = shafts->verticesPerCurve()->readable();
     std::vector<size_t> shaftOffsets;
