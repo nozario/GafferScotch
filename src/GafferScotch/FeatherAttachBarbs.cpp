@@ -225,7 +225,8 @@ void FeatherAttachBarbs::hashProcessedObject(const ScenePath &path, const Gaffer
     }
 
     // Get shafts using path
-    ConstObjectPtr shaftsObject = inShaftsPlug()->object(path);
+    ScenePath shaftsPath = path;
+    ConstObjectPtr shaftsObject = inShaftsPlug()->object(shaftsPath);
     const CurvesPrimitive *shafts = runTimeCast<const CurvesPrimitive>(shaftsObject.get());
 
     if (!shafts)
@@ -258,7 +259,7 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
     }
 
     // Get shafts using path
-    ScenePath shaftsPath = GafferScotch::makeScenePath(inShaftsPlug()->pathPlug()->getValue());
+    ScenePath shaftsPath = path;
     ConstObjectPtr shaftsObject = inShaftsPlug()->object(shaftsPath);
     const CurvesPrimitive *shafts = runTimeCast<const CurvesPrimitive>(shaftsObject.get());
 
