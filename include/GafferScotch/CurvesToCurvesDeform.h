@@ -50,21 +50,17 @@ public:
     Gaffer::BoolPlug *cleanupBindAttributesPlug();
     const Gaffer::BoolPlug *cleanupBindAttributesPlug() const;
 
-protected:
-
     void affects( const Gaffer::Plug *input, AffectedPlugsContainer &outputs ) const override;
     bool affectsProcessedObject( const Gaffer::Plug *input ) const override;
     void hashProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const override;
     IECore::ConstObjectPtr computeProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject ) const override;
 
-    // Declarations for bound methods
     bool affectsProcessedObjectBound( const Gaffer::Plug *input ) const override;
     void hashProcessedObjectBound( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const override;
     Imath::Box3f computeProcessedObjectBound( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context ) const override;
 
 private:
 
-    // Deforms the child curves based on the parent deformers and binding data
     void deformChildCurves(
         const IECoreScene::CurvesPrimitive *inputChildCurves,
         const IECoreScene::CurvesPrimitive *staticParentDeformerCurves, // May be null if rest frame is directly on child

@@ -47,8 +47,6 @@ public:
     Gaffer::StringPlug *upVectorAttrPlug();
     const Gaffer::StringPlug *upVectorAttrPlug() const;
 
-protected:
-
     bool affectsProcessedObject( const Gaffer::Plug *input ) const override;
     void hashProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const override;
     IECore::ConstObjectPtr computeProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject ) const override;
