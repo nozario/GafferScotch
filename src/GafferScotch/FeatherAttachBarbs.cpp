@@ -463,7 +463,7 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
     std::vector<V3f> &restNormals = restNormalsData->writable();
     std::vector<V3f> &restTangents = restTangentsData->writable();
     std::vector<V3f> &restBitangents = restBitangentsData->writable();
-    std::vector<int> &shaftCurveIndices = shaftCurveIndicesData->writable();
+    std::vector<int> &outputShaftCurveIndices = shaftCurveIndicesData->writable();
     std::vector<float> &shaftCurveVParams = shaftCurveVParamsData->writable();
     std::vector<int> &shaftHairIdsOut = shaftHairIdsData->writable();
     std::vector<V3f> &rootPointOffsets = rootPointOffsetsData->writable();
@@ -474,7 +474,7 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
     restNormals.resize(numBarbCurves);
     restTangents.resize(numBarbCurves);
     restBitangents.resize(numBarbCurves);
-    shaftCurveIndices.resize(numBarbCurves, -1);
+    outputShaftCurveIndices.resize(numBarbCurves, -1);
     shaftCurveVParams.resize(numBarbCurves, 0.0f);
     shaftHairIdsOut.resize(numBarbCurves, -1);
     rootPointOffsets.resize(numBarbCurves);
@@ -536,10 +536,10 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
                                                    barbPositionsArray[rootPointIdx] : V3f(0);
                         
                         // Find the matching shaft curves for this hairId
-                        const std::vector<size_t> &shaftCurveIndices = hairIdToShaftCurveIndices[barbHairId];
+                        const std::vector<size_t> &shaftCurveIndicesForHairId = hairIdToShaftCurveIndices[barbHairId];
                         
                         // If no shaft curves match, skip this barb
-                        if (shaftCurveIndices.empty())
+                        if (shaftCurveIndicesForHairId.empty())
                         {
                             continue;
                         }
@@ -551,7 +551,7 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
                         V3f closestPoint;
                         V3f closestTangent;
                         
-                        for (size_t shaftCurveIdx : shaftCurveIndices)
+                        for (size_t shaftCurveIdx : shaftCurveIndicesForHairId)
                         {
                             // Try to find closest point on this shaft curve
                             if (shaftEvaluator->closestPoint(rootPointPos, localResult.get()))
@@ -561,7 +561,7 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
                                 {
                                     closestDist = dist;
                                     bestShaftCurveIdx = static_cast<int>(shaftCurveIdx);
-                                    bestV = curveResult->v();
+                                    bestV = curveResult->uv()[1];
                                     closestPoint = curveResult->point();
                                     // Get tangent from curve evaluation
                                     closestTangent = curveResult->vTangent().normalized();
@@ -654,7 +654,7 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
                             V3f rootOffset = rootPointPos - closestPoint;
                             
                             // Store data
-                            shaftCurveIndices[barbCurveIdx] = bestShaftCurveIdx;
+                            outputShaftCurveIndices[barbCurveIdx] = bestShaftCurveIdx;
                             shaftCurveVParams[barbCurveIdx] = bestV;
                             shaftHairIdsOut[barbCurveIdx] = barbHairId;
                             restPositions[barbCurveIdx] = restFrame.position;
