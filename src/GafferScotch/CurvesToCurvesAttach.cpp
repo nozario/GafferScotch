@@ -25,6 +25,8 @@ using namespace IECore;
 using namespace IECoreScene;
 using namespace Imath;
 
+// YOUHOU
+
 namespace
 {
     // Helper function for safe vector normalization (copied from RigidAttachCurves.cpp)
@@ -76,28 +78,28 @@ namespace
     };
 }
 
-IE_CORE_DEFINERUNTIMETYPED( CurvesToCurvesAttach );
+IE_CORE_DEFINERUNTIMETYPED(CurvesToCurvesAttach);
 
 size_t CurvesToCurvesAttach::g_firstPlugIndex = 0;
 
-CurvesToCurvesAttach::CurvesToCurvesAttach( const std::string &name )
-    : ObjectProcessor( name )
+CurvesToCurvesAttach::CurvesToCurvesAttach(const std::string &name)
+    : ObjectProcessor(name)
 {
-    storeIndexOfNextChild( g_firstPlugIndex );
+    storeIndexOfNextChild(g_firstPlugIndex);
 
-    addChild( new ScenePlug( "parentDeformer", Plug::In ) );
-    addChild( new StringPlug( "curveRootAttr", Plug::In, "" ) );
-    addChild( new BoolPlug( "useBindAttr", Plug::In, false ) );
-    addChild( new StringPlug( "deformerPath", Plug::In, "" ) );
-    addChild( new StringPlug( "bindAttr", Plug::In, "" ) );
-    addChild( new V3fPlug( "upVector", Plug::In, V3f( 0.0f, 1.0f, 0.0f ) ) );
-    addChild( new BoolPlug( "useUpVectorAttr", Plug::In, false ) );
-    addChild( new StringPlug( "upVectorAttr", Plug::In, "" ) );
+    addChild(new ScenePlug("parentDeformer", Plug::In));
+    addChild(new StringPlug("curveRootAttr", Plug::In, ""));
+    addChild(new BoolPlug("useBindAttr", Plug::In, false));
+    addChild(new StringPlug("deformerPath", Plug::In, ""));
+    addChild(new StringPlug("bindAttr", Plug::In, ""));
+    addChild(new V3fPlug("upVector", Plug::In, V3f(0.0f, 1.0f, 0.0f)));
+    addChild(new BoolPlug("useUpVectorAttr", Plug::In, false));
+    addChild(new StringPlug("upVectorAttr", Plug::In, ""));
 
     // Fast pass-throughs for things we don't modify by default
-    outPlug()->attributesPlug()->setInput( inPlug()->attributesPlug() );
-    outPlug()->transformPlug()->setInput( inPlug()->transformPlug() );
-    outPlug()->boundPlug()->setInput( inPlug()->boundPlug() );
+    outPlug()->attributesPlug()->setInput(inPlug()->attributesPlug());
+    outPlug()->transformPlug()->setInput(inPlug()->transformPlug());
+    outPlug()->boundPlug()->setInput(inPlug()->boundPlug());
 }
 
 CurvesToCurvesAttach::~CurvesToCurvesAttach()
@@ -106,106 +108,104 @@ CurvesToCurvesAttach::~CurvesToCurvesAttach()
 
 ScenePlug *CurvesToCurvesAttach::parentDeformerPlug()
 {
-    return getChild<ScenePlug>( g_firstPlugIndex );
+    return getChild<ScenePlug>(g_firstPlugIndex);
 }
 
 const ScenePlug *CurvesToCurvesAttach::parentDeformerPlug() const
 {
-    return getChild<ScenePlug>( g_firstPlugIndex );
+    return getChild<ScenePlug>(g_firstPlugIndex);
 }
 
 StringPlug *CurvesToCurvesAttach::curveRootAttrPlug()
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 1 );
+    return getChild<StringPlug>(g_firstPlugIndex + 1);
 }
 
 const StringPlug *CurvesToCurvesAttach::curveRootAttrPlug() const
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 1 );
+    return getChild<StringPlug>(g_firstPlugIndex + 1);
 }
 
 BoolPlug *CurvesToCurvesAttach::useBindAttrPlug()
 {
-    return getChild<BoolPlug>( g_firstPlugIndex + 2 );
+    return getChild<BoolPlug>(g_firstPlugIndex + 2);
 }
 
 const BoolPlug *CurvesToCurvesAttach::useBindAttrPlug() const
 {
-    return getChild<BoolPlug>( g_firstPlugIndex + 2 );
+    return getChild<BoolPlug>(g_firstPlugIndex + 2);
 }
 
 StringPlug *CurvesToCurvesAttach::deformerPathPlug()
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 3 );
+    return getChild<StringPlug>(g_firstPlugIndex + 3);
 }
 
 const StringPlug *CurvesToCurvesAttach::deformerPathPlug() const
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 3 );
+    return getChild<StringPlug>(g_firstPlugIndex + 3);
 }
 
 StringPlug *CurvesToCurvesAttach::bindAttrPlug()
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 4 );
+    return getChild<StringPlug>(g_firstPlugIndex + 4);
 }
 
 const StringPlug *CurvesToCurvesAttach::bindAttrPlug() const
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 4 );
+    return getChild<StringPlug>(g_firstPlugIndex + 4);
 }
 
 V3fPlug *CurvesToCurvesAttach::upVectorPlug()
 {
-    return getChild<V3fPlug>( g_firstPlugIndex + 5 );
+    return getChild<V3fPlug>(g_firstPlugIndex + 5);
 }
 
 const V3fPlug *CurvesToCurvesAttach::upVectorPlug() const
 {
-    return getChild<V3fPlug>( g_firstPlugIndex + 5 );
+    return getChild<V3fPlug>(g_firstPlugIndex + 5);
 }
 
 BoolPlug *CurvesToCurvesAttach::useUpVectorAttrPlug()
 {
-    return getChild<BoolPlug>( g_firstPlugIndex + 6 );
+    return getChild<BoolPlug>(g_firstPlugIndex + 6);
 }
 
 const BoolPlug *CurvesToCurvesAttach::useUpVectorAttrPlug() const
 {
-    return getChild<BoolPlug>( g_firstPlugIndex + 6 );
+    return getChild<BoolPlug>(g_firstPlugIndex + 6);
 }
 
 StringPlug *CurvesToCurvesAttach::upVectorAttrPlug()
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 7 );
+    return getChild<StringPlug>(g_firstPlugIndex + 7);
 }
 
 const StringPlug *CurvesToCurvesAttach::upVectorAttrPlug() const
 {
-    return getChild<StringPlug>( g_firstPlugIndex + 7 );
+    return getChild<StringPlug>(g_firstPlugIndex + 7);
 }
 
-
-bool CurvesToCurvesAttach::affectsProcessedObject( const Gaffer::Plug *input ) const
+bool CurvesToCurvesAttach::affectsProcessedObject(const Gaffer::Plug *input) const
 {
-    return
-        input == parentDeformerPlug()->objectPlug() ||
-        input == curveRootAttrPlug() ||
-        input == useBindAttrPlug() ||
-        input == deformerPathPlug() ||
-        input == bindAttrPlug() ||
-        input == upVectorPlug() ||
-        input == useUpVectorAttrPlug() ||
-        input == upVectorAttrPlug();
+    return input == parentDeformerPlug()->objectPlug() ||
+           input == curveRootAttrPlug() ||
+           input == useBindAttrPlug() ||
+           input == deformerPathPlug() ||
+           input == bindAttrPlug() ||
+           input == upVectorPlug() ||
+           input == useUpVectorAttrPlug() ||
+           input == upVectorAttrPlug();
 }
 
-void CurvesToCurvesAttach::hashProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const
+void CurvesToCurvesAttach::hashProcessedObject(const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h) const
 {
-    ObjectProcessor::hashProcessedObject( path, context, h ); // Hash input object first
+    ObjectProcessor::hashProcessedObject(path, context, h); // Hash input object first
 
-    ConstObjectPtr childInputObject = inPlug()->object( path );
-    const CurvesPrimitive *childCurves = runTimeCast<const CurvesPrimitive>( childInputObject.get() );
+    ConstObjectPtr childInputObject = inPlug()->object(path);
+    const CurvesPrimitive *childCurves = runTimeCast<const CurvesPrimitive>(childInputObject.get());
 
-    if( !childCurves )
+    if (!childCurves)
     {
         // If it's not curves, or null, the hash of inputObject is enough
         return;
@@ -213,24 +213,24 @@ void CurvesToCurvesAttach::hashProcessedObject( const GafferScene::ScenePlug::Sc
 
     ScenePath parentDeformerScenePath;
     const bool useBind = useBindAttrPlug()->getValue();
-    if( useBind )
+    if (useBind)
     {
         const std::string bindAttrName = bindAttrPlug()->getValue();
-        if( !bindAttrName.empty() )
+        if (!bindAttrName.empty())
         {
-            auto it = childCurves->variables.find( bindAttrName );
-            if( it != childCurves->variables.end() )
+            auto it = childCurves->variables.find(bindAttrName);
+            if (it != childCurves->variables.end())
             {
-                if( const StringData *pathData = runTimeCast<const StringData>( it->second.data.get() ) )
+                if (const StringData *pathData = runTimeCast<const StringData>(it->second.data.get()))
                 {
-                    parentDeformerScenePath = GafferScotch::makeScenePath( pathData->readable() );
+                    parentDeformerScenePath = GafferScotch::makeScenePath(pathData->readable());
                 }
-                else if( const StringVectorData *pathVectorData = runTimeCast<const StringVectorData>( it->second.data.get() ) )
+                else if (const StringVectorData *pathVectorData = runTimeCast<const StringVectorData>(it->second.data.get()))
                 {
                     const std::vector<std::string> &paths = pathVectorData->readable();
-                    if( !paths.empty() )
+                    if (!paths.empty())
                     {
-                        parentDeformerScenePath = GafferScotch::makeScenePath( paths[0] ); // Use first path
+                        parentDeformerScenePath = GafferScotch::makeScenePath(paths[0]); // Use first path
                     }
                 }
             }
@@ -238,38 +238,38 @@ void CurvesToCurvesAttach::hashProcessedObject( const GafferScene::ScenePlug::Sc
     }
     else
     {
-        parentDeformerScenePath = GafferScotch::makeScenePath( deformerPathPlug()->getValue() );
+        parentDeformerScenePath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
     }
 
-    if( !parentDeformerScenePath.empty() )
+    if (!parentDeformerScenePath.empty())
     {
-        h.append( parentDeformerPlug()->objectHash( parentDeformerScenePath ) );
+        h.append(parentDeformerPlug()->objectHash(parentDeformerScenePath));
     }
     else
     {
         // If path is empty, hash something to signify no parent deformer
         IECore::MurmurHash emptyPathHash;
-        emptyPathHash.append( "emptyParentDeformerPath" );
-        h.append( emptyPathHash );
+        emptyPathHash.append("emptyParentDeformerPath");
+        h.append(emptyPathHash);
     }
 
     // Hash own plugs
-    curveRootAttrPlug()->hash( h );
-    useBindAttrPlug()->hash( h );
-    deformerPathPlug()->hash( h );
-    bindAttrPlug()->hash( h );
-    upVectorPlug()->hash( h );
-    useUpVectorAttrPlug()->hash( h );
-    upVectorAttrPlug()->hash( h );
+    curveRootAttrPlug()->hash(h);
+    useBindAttrPlug()->hash(h);
+    deformerPathPlug()->hash(h);
+    bindAttrPlug()->hash(h);
+    upVectorPlug()->hash(h);
+    useUpVectorAttrPlug()->hash(h);
+    upVectorAttrPlug()->hash(h);
 
     // If up-vector is from an attribute, hash that attribute on the child curves
-    if (useUpVectorAttrPlug()->getValue()) 
+    if (useUpVectorAttrPlug()->getValue())
     {
         const std::string upVecAttrName = upVectorAttrPlug()->getValue();
-        if (!upVecAttrName.empty()) 
+        if (!upVecAttrName.empty())
         {
             auto it = childCurves->variables.find(upVecAttrName);
-            if (it != childCurves->variables.end() && it->second.data) 
+            if (it != childCurves->variables.end() && it->second.data)
             {
                 it->second.data->hash(h);
             }
@@ -295,7 +295,7 @@ size_t CurvesToCurvesAttach::findRootPointIndex(
     }
 
     const size_t startIdx = vertexOffsets[curveIndex];
-    const size_t numVertsOnCurve = (curveIndex + 1 < vertexOffsets.size()) ? (vertexOffsets[curveIndex + 1] - startIdx) : (curves->variableSize(PrimitiveVariable::Vertex) - startIdx) ;
+    const size_t numVertsOnCurve = (curveIndex + 1 < vertexOffsets.size()) ? (vertexOffsets[curveIndex + 1] - startIdx) : (curves->variableSize(PrimitiveVariable::Vertex) - startIdx);
 
     size_t rootIdx = startIdx;
     float maxVal = -std::numeric_limits<float>::max(); // Initialize with a very small number
@@ -318,16 +318,17 @@ size_t CurvesToCurvesAttach::findRootPointIndex(
         }
         else if (it->second.interpolation == PrimitiveVariable::Uniform && curveIndex < values.size())
         {
-             // If uniform, the value applies to the whole curve, so first point is effectively the root by attribute.
-             // This case might not make sense for root finding but handle defensively.
-            if (values[curveIndex] > 0.0f) return startIdx; // Or some other logic for Uniform root
+            // If uniform, the value applies to the whole curve, so first point is effectively the root by attribute.
+            // This case might not make sense for root finding but handle defensively.
+            if (values[curveIndex] > 0.0f)
+                return startIdx; // Or some other logic for Uniform root
         }
     }
     // Check for IntVectorData
     else if (const IntVectorData *rootData = runTimeCast<const IntVectorData>(it->second.data.get()))
     {
         const std::vector<int> &values = rootData->readable();
-         if (it->second.interpolation == PrimitiveVariable::Vertex || it->second.interpolation == PrimitiveVariable::Varying)
+        if (it->second.interpolation == PrimitiveVariable::Vertex || it->second.interpolation == PrimitiveVariable::Varying)
         {
             for (size_t i = 0; i < numVertsOnCurve; ++i)
             {
@@ -341,7 +342,8 @@ size_t CurvesToCurvesAttach::findRootPointIndex(
         }
         else if (it->second.interpolation == PrimitiveVariable::Uniform && curveIndex < values.size())
         {
-            if (values[curveIndex] > 0) return startIdx;
+            if (values[curveIndex] > 0)
+                return startIdx;
         }
     }
 
@@ -349,9 +351,9 @@ size_t CurvesToCurvesAttach::findRootPointIndex(
     // In such cases, or if rootAttrName was empty, we default to the first point of the curve.
     if (maxVal <= 0.0f && !rootAttrName.empty()) // Check maxVal only if an attribute was specified
     {
-         // If an attribute was specified but no vertex had a value > 0, warn or fallback gracefully.
-         // For now, fallback to first point if no positive value found.
-         return vertexOffsets[curveIndex];
+        // If an attribute was specified but no vertex had a value > 0, warn or fallback gracefully.
+        // For now, fallback to first point if no positive value found.
+        return vertexOffsets[curveIndex];
     }
     else if (rootAttrName.empty())
     {
@@ -444,25 +446,25 @@ void CurvesToCurvesAttach::computeAndStoreBindings(
         binding.parentDeformerCurveU = evalRes->uv()[1];
 
         V3f upVector = defaultUpVector;
-        if (useUpVecAttr && !upVecAttrName.empty()) 
+        if (useUpVecAttr && !upVecAttrName.empty())
         {
             // Try to get up vector from attribute (Uniform or Vertex/Varying on root point)
             auto it = childCurves->variables.find(upVecAttrName);
-            if (it != childCurves->variables.end() && it->second.data) 
+            if (it != childCurves->variables.end() && it->second.data)
             {
-                if (it->second.interpolation == PrimitiveVariable::Uniform) 
+                if (it->second.interpolation == PrimitiveVariable::Uniform)
                 {
-                    if (const V3fData *upData = runTimeCast<const V3fData>(it->second.data.get())) 
+                    if (const V3fData *upData = runTimeCast<const V3fData>(it->second.data.get()))
                     {
                         upVector = upData->readable();
                     }
-                     // Could also support V3fVectorData with Uniform interpolation, taking values[i]
+                    // Could also support V3fVectorData with Uniform interpolation, taking values[i]
                 }
-                else if (it->second.interpolation == PrimitiveVariable::Vertex || it->second.interpolation == PrimitiveVariable::Varying) 
+                else if (it->second.interpolation == PrimitiveVariable::Vertex || it->second.interpolation == PrimitiveVariable::Varying)
                 {
-                    if (const V3fVectorData *upVecData = runTimeCast<const V3fVectorData>(it->second.data.get())) 
+                    if (const V3fVectorData *upVecData = runTimeCast<const V3fVectorData>(it->second.data.get()))
                     {
-                        if (rootPointVtxIdx < upVecData->readable().size()) 
+                        if (rootPointVtxIdx < upVecData->readable().size())
                         {
                             upVector = upVecData->readable()[rootPointVtxIdx];
                         }
@@ -470,7 +472,7 @@ void CurvesToCurvesAttach::computeAndStoreBindings(
                 }
             }
         }
-        
+
         binding.restFrame.orthonormalize(upVector);
         binding.rootPointOffset = childRootP - binding.restFrame.position;
         binding.valid = true;
@@ -517,8 +519,8 @@ void CurvesToCurvesAttach::computeAndStoreBindings(
         else // Push default/invalid values to maintain parallel arrays
         {
             restPositions.push_back(V3f(0.0f));
-            restTangents.push_back(V3f(1.0f, 0.0f, 0.0f)); // Default tangent
-            restNormals.push_back(V3f(0.0f, 1.0f, 0.0f));  // Default normal
+            restTangents.push_back(V3f(1.0f, 0.0f, 0.0f));   // Default tangent
+            restNormals.push_back(V3f(0.0f, 1.0f, 0.0f));    // Default normal
             restBitangents.push_back(V3f(0.0f, 0.0f, 1.0f)); // Default bitangent
             rootPointOffsets.push_back(V3f(0.0f));
             parentCurveIndices.push_back(-1);
@@ -535,35 +537,34 @@ void CurvesToCurvesAttach::computeAndStoreBindings(
     outputCurves->variables["cfx:parentCurveU"] = PrimitiveVariable(PrimitiveVariable::Uniform, parentCurveUsData);
 }
 
-
-IECore::ConstObjectPtr CurvesToCurvesAttach::computeProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject ) const
+IECore::ConstObjectPtr CurvesToCurvesAttach::computeProcessedObject(const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject) const
 {
-    const CurvesPrimitive *childCurves = runTimeCast<const CurvesPrimitive>( inputObject );
-    if( !childCurves || childCurves->verticesPerCurve()->readable().empty() )
+    const CurvesPrimitive *childCurves = runTimeCast<const CurvesPrimitive>(inputObject);
+    if (!childCurves || childCurves->verticesPerCurve()->readable().empty())
     {
         return inputObject; // Not curves or no curves to process
     }
 
     ScenePath parentDeformerScenePath;
     const bool useBind = useBindAttrPlug()->getValue();
-    if( useBind )
+    if (useBind)
     {
         const std::string bindAttrName = bindAttrPlug()->getValue();
-        if( !bindAttrName.empty() )
+        if (!bindAttrName.empty())
         {
-            auto it = childCurves->variables.find( bindAttrName );
-            if( it != childCurves->variables.end() )
+            auto it = childCurves->variables.find(bindAttrName);
+            if (it != childCurves->variables.end())
             {
-                if( const StringData *pathData = runTimeCast<const StringData>( it->second.data.get() ) )
+                if (const StringData *pathData = runTimeCast<const StringData>(it->second.data.get()))
                 {
-                    parentDeformerScenePath = GafferScotch::makeScenePath( pathData->readable() );
+                    parentDeformerScenePath = GafferScotch::makeScenePath(pathData->readable());
                 }
-                else if( const StringVectorData *pathVectorData = runTimeCast<const StringVectorData>( it->second.data.get() ) )
+                else if (const StringVectorData *pathVectorData = runTimeCast<const StringVectorData>(it->second.data.get()))
                 {
                     const std::vector<std::string> &paths = pathVectorData->readable();
-                    if( !paths.empty() )
+                    if (!paths.empty())
                     {
-                        parentDeformerScenePath = GafferScotch::makeScenePath( paths[0] ); // Use first path
+                        parentDeformerScenePath = GafferScotch::makeScenePath(paths[0]); // Use first path
                     }
                 }
             }
@@ -571,20 +572,20 @@ IECore::ConstObjectPtr CurvesToCurvesAttach::computeProcessedObject( const Gaffe
     }
     else
     {
-        parentDeformerScenePath = GafferScotch::makeScenePath( deformerPathPlug()->getValue() );
+        parentDeformerScenePath = GafferScotch::makeScenePath(deformerPathPlug()->getValue());
     }
 
-    if( parentDeformerScenePath.empty() )
+    if (parentDeformerScenePath.empty())
     {
         // Path to parent deformer is not specified or found.
         // It might be desirable to issue a warning here.
-        return inputObject; 
+        return inputObject;
     }
 
-    ConstObjectPtr parentDeformerObject = parentDeformerPlug()->object( parentDeformerScenePath );
-    const CurvesPrimitive *parentDeformerCurves = runTimeCast<const CurvesPrimitive>( parentDeformerObject.get() );
+    ConstObjectPtr parentDeformerObject = parentDeformerPlug()->object(parentDeformerScenePath);
+    const CurvesPrimitive *parentDeformerCurves = runTimeCast<const CurvesPrimitive>(parentDeformerObject.get());
 
-    if( !parentDeformerCurves || parentDeformerCurves->verticesPerCurve()->readable().empty() )
+    if (!parentDeformerCurves || parentDeformerCurves->verticesPerCurve()->readable().empty())
     {
         // Parent deformer is not valid curves or has no curves.
         // It might be desirable to issue a warning here.
@@ -595,7 +596,7 @@ IECore::ConstObjectPtr CurvesToCurvesAttach::computeProcessedObject( const Gaffe
     CurvesPrimitivePtr outputCurves = childCurves->copy();
 
     // Compute and store the binding data
-    computeAndStoreBindings( parentDeformerCurves, childCurves, outputCurves.get() );
+    computeAndStoreBindings(parentDeformerCurves, childCurves, outputCurves.get());
 
     return outputCurves;
-} 
+}
