@@ -13,7 +13,7 @@
 namespace GafferScotch
 {
 
-class CurvesToCurvesDeform : public GafferScene::Deformer
+class GAFFERSCOTCH_API CurvesToCurvesDeform : public GafferScene::Deformer
 {
 
 public:

@@ -13,7 +13,7 @@
 namespace GafferScotch
 {
 
-class CurvesToCurvesAttach : public GafferScene::ObjectProcessor
+class GAFFERSCOTCH_API CurvesToCurvesAttach : public GafferScene::ObjectProcessor
 {
 
 public:
