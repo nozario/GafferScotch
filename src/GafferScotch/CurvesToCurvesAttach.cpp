@@ -198,7 +198,7 @@ bool CurvesToCurvesAttach::affectsProcessedObject( const Gaffer::Plug *input ) c
         input == upVectorAttrPlug();
 }
 
-void CurvesToCurvesAttach::hashProcessedObject( const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const
+void CurvesToCurvesAttach::hashProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const
 {
     ObjectProcessor::hashProcessedObject( path, context, h ); // Hash input object first
 
@@ -439,9 +439,9 @@ void CurvesToCurvesAttach::computeAndStoreBindings(
         const CurvesPrimitiveEvaluator::Result *evalRes = static_cast<const CurvesPrimitiveEvaluator::Result *>(parentEvalResult.get());
 
         binding.restFrame.position = evalRes->point();
-        binding.restFrame.tangent = evalRes->tangent();
+        binding.restFrame.tangent = evalRes->vTangent();
         binding.parentDeformerCurveIndex = evalRes->curveIndex();
-        binding.parentDeformerCurveU = evalRes->v(); // 'v' is the parametric coordinate along the curve segment
+        binding.parentDeformerCurveU = evalRes->uv()[1];
 
         V3f upVector = defaultUpVector;
         if (useUpVecAttr && !upVecAttrName.empty()) 
@@ -536,7 +536,7 @@ void CurvesToCurvesAttach::computeAndStoreBindings(
 }
 
 
-IECore::ConstObjectPtr CurvesToCurvesAttach::computeProcessedObject( const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject ) const
+IECore::ConstObjectPtr CurvesToCurvesAttach::computeProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject ) const
 {
     const CurvesPrimitive *childCurves = runTimeCast<const CurvesPrimitive>( inputObject );
     if( !childCurves || childCurves->verticesPerCurve()->readable().empty() )

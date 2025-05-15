@@ -258,7 +258,7 @@ bool CurvesToCurvesDeform::affectsProcessedObject( const Gaffer::Plug *input ) c
         input == cleanupBindAttributesPlug();
 }
 
-void CurvesToCurvesDeform::hashProcessedObject( const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const
+void CurvesToCurvesDeform::hashProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const
 {
     Deformer::hashProcessedObject( path, context, h ); // Hashes inPlug()->objectPlug() among other things.
 
@@ -338,7 +338,7 @@ void CurvesToCurvesDeform::hashProcessedObject( const ScenePath &path, const Gaf
     }
 }
 
-IECore::ConstObjectPtr CurvesToCurvesDeform::computeProcessedObject( const ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject )
+IECore::ConstObjectPtr CurvesToCurvesDeform::computeProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject ) const
 {
     const CurvesPrimitive *inputChildCurves = runTimeCast<const CurvesPrimitive>( inputObject );
     if( !inputChildCurves || inputChildCurves->verticesPerCurve()->readable().empty() )
@@ -530,7 +530,7 @@ void CurvesToCurvesDeform::deformChildCurves(
 
                 DeformFrame deformedFrameOnParent;
                 deformedFrameOnParent.position = animEvalRes->point();
-                deformedFrameOnParent.tangent = animEvalRes->tangent();
+                deformedFrameOnParent.tangent = animEvalRes->vTangent();
                 
                 V3f upVectorHint = defaultUpVector;
                 if (useUpVecAttr && !upVecAttrName.empty()) {
@@ -590,7 +590,7 @@ bool CurvesToCurvesDeform::affectsProcessedObjectBound( const Gaffer::Plug *inpu
            input == bindAttrPlug();
 }
 
-void CurvesToCurvesDeform::hashProcessedObjectBound( const ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const
+void CurvesToCurvesDeform::hashProcessedObjectBound( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const
 {
     Deformer::hashProcessedObjectBound( path, context, h );
 
@@ -648,7 +648,7 @@ void CurvesToCurvesDeform::hashProcessedObjectBound( const ScenePath &path, cons
     // Other plugs don't directly influence the bound beyond the animatedParentDeformer's bound itself.
 }
 
-Imath::Box3f CurvesToCurvesDeform::computeProcessedObjectBound( const ScenePath &path, const Gaffer::Context *context ) const
+Imath::Box3f CurvesToCurvesDeform::computeProcessedObjectBound( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context ) const
 {
     ConstObjectPtr inputObject = inPlug()->object(path);
     const CurvesPrimitive *childCurves = runTimeCast<const CurvesPrimitive>(inputObject.get());

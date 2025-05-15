@@ -3,8 +3,7 @@
 
 #include "GafferScene/Deformer.h"
 #include "Gaffer/StringPlug.h"
-#include "Gaffer/BoolPlug.h"
-#include "Gaffer/V3fPlug.h"
+#include "Gaffer/TypedPlug.h"
 
 #include "IECoreScene/CurvesPrimitive.h"
 
@@ -19,7 +18,7 @@ public:
     CurvesToCurvesDeform( const std::string &name = staticTypeName() );
     ~CurvesToCurvesDeform() override;
 
-    IE_CORE_DECLARERUNTIMETYPEDEXTENSION( GafferScotch::CurvesToCurvesDeform, TypeId::CurvesToCurvesDeformTypeId, GafferScene::Deformer );
+    IE_CORE_DECLARERUNTIMETYPEDEXTENSION( GafferScotch::CurvesToCurvesDeform, GafferScotch::TypeId::CurvesToCurvesDeformTypeId, GafferScene::Deformer );
 
     GafferScene::ScenePlug *staticParentDeformerPlug();
     const GafferScene::ScenePlug *staticParentDeformerPlug() const;
@@ -52,8 +51,8 @@ protected:
 
     void affects( const Gaffer::Plug *input, AffectedPlugsContainer &outputs ) const override;
     bool affectsProcessedObject( const Gaffer::Plug *input ) const override;
-    void hashProcessedObject( const GafferScene::ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const override;
-    IECore::ConstObjectPtr computeProcessedObject( const GafferScene::ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject ) const override;
+    void hashProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const override;
+    IECore::ConstObjectPtr computeProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject ) const override;
 
 private:
 

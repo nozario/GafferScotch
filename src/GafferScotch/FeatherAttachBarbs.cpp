@@ -610,7 +610,7 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
                                     // Try to find closest point on this shaft curve
                                     // First, we need to set the curve we want to evaluate on
                                     int querySuccess = 0;
-                                    if (shaftEvaluator->closestPointOnCurve(rootPointPos, shaftCurveIdx, localResult.get()))
+                                    if (shaftEvaluator->closestPoint(rootPointPos, localResult.get()))
                                     {
                                         float dist = (curveResult->point() - rootPointPos).length();
                                         if (dist < closestDist)
