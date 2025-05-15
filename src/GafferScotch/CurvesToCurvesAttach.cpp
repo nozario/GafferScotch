@@ -9,6 +9,7 @@
 #include "IECore/StringAlgo.h"
 #include "IECore/VectorTypedData.h"
 #include "IECore/NullObject.h"
+#include "IECore/MessageHandler.h" // For IECore::msg
 
 #include "Gaffer/Context.h"
 #include "GafferScene/ScenePlug.h"
@@ -54,15 +55,80 @@ namespace
         V3f normal;    // Normal (derived)
         V3f bitangent; // Bitangent (derived)
 
-        void orthonormalize(const V3f &upVectorHint)
+        void orthonormalize(const V3f &initialUpVectorHint)
         {
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Input tangent: " + std::to_string(tangent.x) + ", " + std::to_string(tangent.y) + ", " + std::to_string(tangent.z) );
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Input initialUpVectorHint: " + std::to_string(initialUpVectorHint.x) + ", " + std::to_string(initialUpVectorHint.y) + ", " + std::to_string(initialUpVectorHint.z) );
+
             tangent = safeNormalize(tangent);
-            // Create normal from tangent and upVectorHint
-            normal = safeNormalize(tangent.cross(upVectorHint));
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Normalized tangent: " + std::to_string(tangent.x) + ", " + std::to_string(tangent.y) + ", " + std::to_string(tangent.z) );
+
+            if (tangent.length2() < 1e-12f)
+            {
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Degenerate tangent detected. Setting default frame." );
+                this->tangent   = V3f(1.0f, 0.0f, 0.0f);
+                this->bitangent = V3f(0.0f, 1.0f, 0.0f);
+                this->normal    = V3f(0.0f, 0.0f, 1.0f);
+                return;
+            }
+
+            V3f up = safeNormalize(initialUpVectorHint);
+            if (up.length2() < 1e-12f)
+            {
+                IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Initial up vector hint was zero or tiny. Defaulting to Y-up." );
+                up = V3f(0.0f, 1.0f, 0.0f);
+            }
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Initial 'up' vector: " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
+
+            if (std::abs(tangent.dot(up)) > 0.9999f)
+            {
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Tangent and 'up' are collinear. Attempting fallback 'up'." );
+                if (std::abs(tangent.x) < 0.9f)
+                {
+                    up = V3f(1.0f, 0.0f, 0.0f);
+                    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Using X-axis as fallback 'up'." );
+                }
+                else
+                {
+                    up = V3f(0.0f, 1.0f, 0.0f);
+                    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Using Y-axis as fallback 'up'." );
+                }
+
+                if (std::abs(tangent.dot(up)) > 0.9999f) {
+                    IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Fallback 'up' still collinear. Second fallback attempt." );
+                    if (std::abs(tangent.y) > 0.9f) {
+                        up = V3f(1.0f, 0.0f, 0.0f);
+                        IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Second fallback: Using X-axis as 'up'." );
+                    } else {
+                        // No change to 'up', or could try Z-axis if needed, though current logic covers X/Y alignment
+                         IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Second fallback: 'up' remains: " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
+                    }
+                }
+            }
+
+            V3f calculatedNormal = tangent.cross(up);
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Calculated normal (before normalization): " + std::to_string(calculatedNormal.x) + ", " + std::to_string(calculatedNormal.y) + ", " + std::to_string(calculatedNormal.z) + " Length^2: " + std::to_string(calculatedNormal.length2()) );
+
+            if (calculatedNormal.length2() < 1e-12f)
+            {
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Normal from tangent.cross(up) is zero or tiny. Using fallback normal generation." );
+                if (std::abs(tangent.x) > std::abs(tangent.z)) {
+                    calculatedNormal = V3f(-tangent.y, tangent.x, 0.0f);
+                } else {
+                    calculatedNormal = V3f(0.0f, -tangent.z, tangent.y);
+                }
+                IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Fallback normal (before normalization): " + std::to_string(calculatedNormal.x) + ", " + std::to_string(calculatedNormal.y) + ", " + std::to_string(calculatedNormal.z) );
+            }
+            this->normal = safeNormalize(calculatedNormal);
+
             // Recompute bitangent to be orthogonal to both
-            bitangent = safeNormalize(normal.cross(tangent));
+            this->bitangent = safeNormalize(this->normal.cross(this->tangent));
             // Recompute normal to ensure orthogonality with new bitangent and original tangent
-            normal = safeNormalize(tangent.cross(bitangent));
+            this->normal = safeNormalize(this->tangent.cross(this->bitangent));
+
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Final tangent: " + std::to_string(this->tangent.x) + ", " + std::to_string(this->tangent.y) + ", " + std::to_string(this->tangent.z) );
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Final normal: " + std::to_string(this->normal.x) + ", " + std::to_string(this->normal.y) + ", " + std::to_string(this->normal.z) );
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Final bitangent: " + std::to_string(this->bitangent.x) + ", " + std::to_string(this->bitangent.y) + ", " + std::to_string(this->bitangent.z) );
         }
     };
 

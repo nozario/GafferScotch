@@ -9,6 +9,7 @@
 #include "IECore/StringAlgo.h"
 #include "IECore/VectorTypedData.h"
 #include "IECore/NullObject.h"
+#include "IECore/MessageHandler.h"
 
 #include "Gaffer/Context.h"
 #include "GafferScene/ScenePlug.h"
@@ -50,12 +51,77 @@ namespace
         V3f normal;
         V3f bitangent;
 
-        void orthonormalize(const V3f &upVectorHint)
+        void orthonormalize(const V3f &initialUpVectorHint)
         {
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Input tangent: " + std::to_string(tangent.x) + ", " + std::to_string(tangent.y) + ", " + std::to_string(tangent.z) );
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Input initialUpVectorHint: " + std::to_string(initialUpVectorHint.x) + ", " + std::to_string(initialUpVectorHint.y) + ", " + std::to_string(initialUpVectorHint.z) );
+
             tangent = safeNormalize(tangent);
-            normal = safeNormalize(tangent.cross(upVectorHint));
-            bitangent = safeNormalize(normal.cross(tangent));
-            normal = safeNormalize(tangent.cross(bitangent)); // Ensure strict orthogonality
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Normalized tangent: " + std::to_string(tangent.x) + ", " + std::to_string(tangent.y) + ", " + std::to_string(tangent.z) );
+
+            if (tangent.length2() < 1e-12f)
+            {
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Degenerate tangent detected. Setting default frame." );
+                this->tangent   = V3f(1.0f, 0.0f, 0.0f);
+                this->bitangent = V3f(0.0f, 1.0f, 0.0f);
+                this->normal    = V3f(0.0f, 0.0f, 1.0f);
+                return;
+            }
+
+            V3f up = safeNormalize(initialUpVectorHint);
+            if (up.length2() < 1e-12f)
+            {
+                IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Initial up vector hint was zero or tiny. Defaulting to Y-up." );
+                up = V3f(0.0f, 1.0f, 0.0f);
+            }
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Initial 'up' vector: " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
+
+            if (std::abs(tangent.dot(up)) > 0.9999f)
+            {
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Tangent and 'up' are collinear. Attempting fallback 'up'." );
+                if (std::abs(tangent.x) < 0.9f)
+                {
+                    up = V3f(1.0f, 0.0f, 0.0f);
+                    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Using X-axis as fallback 'up'." );
+                }
+                else
+                {
+                    up = V3f(0.0f, 1.0f, 0.0f);
+                    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Using Y-axis as fallback 'up'." );
+                }
+
+                if (std::abs(tangent.dot(up)) > 0.9999f) {
+                    IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Fallback 'up' still collinear. Second fallback attempt." );
+                    if (std::abs(tangent.y) > 0.9f) {
+                        up = V3f(1.0f, 0.0f, 0.0f);
+                        IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Second fallback: Using X-axis as 'up'." );
+                    } else {
+                         IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Second fallback: 'up' remains: " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
+                    }
+                }
+            }
+
+            V3f calculatedNormal = tangent.cross(up);
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Calculated normal (before normalization): " + std::to_string(calculatedNormal.x) + ", " + std::to_string(calculatedNormal.y) + ", " + std::to_string(calculatedNormal.z) + " Length^2: " + std::to_string(calculatedNormal.length2()) );
+
+            if (calculatedNormal.length2() < 1e-12f)
+            {
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Normal from tangent.cross(up) is zero or tiny. Using fallback normal generation." );
+                if (std::abs(tangent.x) > std::abs(tangent.z)) {
+                    calculatedNormal = V3f(-tangent.y, tangent.x, 0.0f);
+                } else {
+                    calculatedNormal = V3f(0.0f, -tangent.z, tangent.y);
+                }
+                IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Fallback normal (before normalization): " + std::to_string(calculatedNormal.x) + ", " + std::to_string(calculatedNormal.y) + ", " + std::to_string(calculatedNormal.z) );
+            }
+            this->normal = safeNormalize(calculatedNormal);
+
+            this->bitangent = safeNormalize(this->normal.cross(this->tangent)); 
+            this->normal = safeNormalize(this->tangent.cross(this->bitangent)); // Ensure strict orthogonality
+
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Final tangent: " + std::to_string(this->tangent.x) + ", " + std::to_string(this->tangent.y) + ", " + std::to_string(this->tangent.z) );
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Final normal: " + std::to_string(this->normal.x) + ", " + std::to_string(this->normal.y) + ", " + std::to_string(this->normal.z) );
+            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Final bitangent: " + std::to_string(this->bitangent.x) + ", " + std::to_string(this->bitangent.y) + ", " + std::to_string(this->bitangent.z) );
         }
 
         M44f toMatrix() const
