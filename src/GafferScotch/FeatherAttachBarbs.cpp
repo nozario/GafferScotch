@@ -268,7 +268,7 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
         return inputObject;
     }
 
-    IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+    IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
                 (boost::format("Just before creating output curves")));
     // Create output curves with same topology
     CurvesPrimitivePtr outputBarbs = new CurvesPrimitive(
@@ -283,7 +283,7 @@ IECore::ConstObjectPtr FeatherAttachBarbs::computeProcessedObject(const ScenePat
     }
 
     // Compute bindings
-    IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+    IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
             (boost::format("Just before computeBindings")));
     try
     {
@@ -388,7 +388,7 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
     const QuatfVectorData *barbOrientations = runTimeCast<const QuatfVectorData>(barbOrientIt->second.data.get());
 
 
-    IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+    IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
                 (boost::format("Just before calculating shaft curve offsets")));
                 
     // Calculate shaft curve offsets
@@ -403,7 +403,7 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
         offset += count;
     }
 
-    IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+    IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
                 (boost::format("Just before calculating barb curve offsets")));
     // Calculate barb curve offsets
     const std::vector<int> &barbVertsPerCurve = barbs->verticesPerCurve()->readable();
@@ -419,7 +419,7 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
     
     // CRITICAL FIX: Early return instead of continuing with the complex computation
     // This implementation is minimal and safe, simply using the input positions directly
-    IECore::msg(IECore::Msg::Info, "FeatherAttachBarbs",
+    IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
                 "Using simplified computation to avoid crashes");
     
     // For now, just return the barb curves with their original positions
