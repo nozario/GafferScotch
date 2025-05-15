@@ -554,7 +554,7 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
                         for (size_t shaftCurveIdx : shaftCurveIndices)
                         {
                             // Try to find closest point on this shaft curve
-                            if (shaftEvaluator->closestPoint(rootPointPos, localResult.get(), shaftCurveIdx))
+                            if (shaftEvaluator->closestPoint(rootPointPos, localResult.get()))
                             {
                                 float dist = (curveResult->point() - rootPointPos).length();
                                 if (dist < closestDist)
@@ -562,6 +562,22 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
                                     closestDist = dist;
                                     bestShaftCurveIdx = static_cast<int>(shaftCurveIdx);
                                     bestV = curveResult->v();
+                                    closestPoint = curveResult->point();
+                                    // Get tangent from curve evaluation
+                                    closestTangent = curveResult->vTangent().normalized();
+                                }
+                            }
+
+                            // Check if this point is on the curve we're interested in
+                            int resultCurveIndex = curveResult->curveIndex();
+                            if (resultCurveIndex == shaftCurveIdx)
+                            {
+                                float dist = (curveResult->point() - rootPointPos).length();
+                                if (dist < closestDist)
+                                {
+                                    closestDist = dist;
+                                    bestShaftCurveIdx = static_cast<int>(shaftCurveIdx);
+                                    bestV = curveResult->uv()[1]; // Get v parameter from uv
                                     closestPoint = curveResult->point();
                                     // Get tangent from curve evaluation
                                     closestTangent = curveResult->vTangent().normalized();
