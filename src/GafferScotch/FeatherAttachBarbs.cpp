@@ -417,12 +417,249 @@ void GafferScotch::FeatherAttachBarbs::computeBindings(
         offset += count;
     }
     
-    // CRITICAL FIX: Early return instead of continuing with the complex computation
-    // This implementation is minimal and safe, simply using the input positions directly
-    IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
-                "Using simplified computation to avoid crashes");
+    // Create a CurvesPrimitiveEvaluator for the shafts
+    CurvesPrimitiveEvaluatorPtr shaftEvaluator = new CurvesPrimitiveEvaluator(shafts);
+    PrimitiveEvaluator::ResultPtr shaftResult = shaftEvaluator->createResult();
     
-    // For now, just return the barb curves with their original positions
-    // This ensures the node doesn't crash but also doesn't do any actual work
-    // We're stopping here intentionally to avoid the crash
+    // Build map from hair ID to shaft curve indices
+    std::map<int, std::vector<size_t>> hairIdToShaftCurveIndices;
+    const std::vector<int> &shaftHairIdsArray = shaftHairIds->readable();
+    
+    // Hair ID is always a uniform int attribute - one per curve
+    if (shaftHairIdsArray.size() == shaftVertsPerCurve.size())
+    {
+        for (size_t i = 0; i < shaftVertsPerCurve.size(); ++i)
+        {
+            hairIdToShaftCurveIndices[shaftHairIdsArray[i]].push_back(i);
+        }
+    }
+    else
+    {
+        IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
+                    (boost::format("Hair ID attribute size mismatch: expected %d, got %d") 
+                     % shaftVertsPerCurve.size() % shaftHairIdsArray.size()).str());
+        return;
+    }
+    
+    // Prepare for barb processing
+    const std::vector<int> &barbHairIdsArray = barbHairIds->readable();
+    const std::vector<float> &curveParamsArray = curveParams->readable();
+    const std::vector<V3f> &shaftPositionsArray = shaftPositions->readable();
+    const std::vector<V3f> &barbPositionsArray = barbPositions->readable();
+    const std::vector<Quatf> &shaftOrientationsArray = shaftOrientations->readable();
+    const std::vector<Quatf> &barbOrientationsArray = barbOrientations->readable();
+    
+    // Create output arrays for binding data
+    V3fVectorDataPtr restPositionsData = new V3fVectorData;
+    V3fVectorDataPtr restNormalsData = new V3fVectorData;
+    V3fVectorDataPtr restTangentsData = new V3fVectorData;
+    V3fVectorDataPtr restBitangentsData = new V3fVectorData;
+    IntVectorDataPtr shaftCurveIndicesData = new IntVectorData;
+    FloatVectorDataPtr shaftCurveVParamsData = new FloatVectorData;
+    IntVectorDataPtr shaftHairIdsData = new IntVectorData;
+    V3fVectorDataPtr rootPointOffsetsData = new V3fVectorData;
+    
+    std::vector<V3f> &restPositions = restPositionsData->writable();
+    std::vector<V3f> &restNormals = restNormalsData->writable();
+    std::vector<V3f> &restTangents = restTangentsData->writable();
+    std::vector<V3f> &restBitangents = restBitangentsData->writable();
+    std::vector<int> &shaftCurveIndices = shaftCurveIndicesData->writable();
+    std::vector<float> &shaftCurveVParams = shaftCurveVParamsData->writable();
+    std::vector<int> &shaftHairIdsOut = shaftHairIdsData->writable();
+    std::vector<V3f> &rootPointOffsets = rootPointOffsetsData->writable();
+    
+    // Pre-allocate arrays
+    const size_t numBarbCurves = barbVertsPerCurve.size();
+    restPositions.resize(numBarbCurves);
+    restNormals.resize(numBarbCurves);
+    restTangents.resize(numBarbCurves);
+    restBitangents.resize(numBarbCurves);
+    shaftCurveIndices.resize(numBarbCurves, -1);
+    shaftCurveVParams.resize(numBarbCurves, 0.0f);
+    shaftHairIdsOut.resize(numBarbCurves, -1);
+    rootPointOffsets.resize(numBarbCurves);
+    
+    // Determine the interpolation for barb parameters
+    PrimitiveVariable::Interpolation barbHairIdInterpolation = barbHairIdIt->second.interpolation;
+    
+    // Process each barb curve to find its binding
+    const size_t numThreads = std::thread::hardware_concurrency();
+    const size_t batchSize = calculateBatchSize(numBarbCurves, numThreads);
+    
+    parallel_for(blocked_range<size_t>(0, numBarbCurves, batchSize),
+                [&](const blocked_range<size_t> &range)
+                {
+                    // Create thread-local evaluator result
+                    PrimitiveEvaluator::ResultPtr localResult = shaftEvaluator->createResult();
+                    CurvesPrimitiveEvaluator::Result *curveResult = static_cast<CurvesPrimitiveEvaluator::Result *>(localResult.get());
+                    
+                    for (size_t barbCurveIdx = range.begin(); barbCurveIdx != range.end(); ++barbCurveIdx)
+                    {
+                        // Find the root point of the barb (where curveu == 0)
+                        const size_t barbOffset = barbOffsets[barbCurveIdx];
+                        const int barbVertsCount = barbVertsPerCurve[barbCurveIdx];
+                        size_t rootPointIdx = barbOffset;
+                        
+                        // Find the point with lowest curve parameter (closest to 0)
+                        // curveParam is always a vertex float attribute
+                        float minParam = 1.0f;
+                        for (int v = 0; v < barbVertsCount; ++v)
+                        {
+                            size_t idx = barbOffset + v;
+                            if (idx < curveParamsArray.size() && curveParamsArray[idx] < minParam)
+                            {
+                                minParam = curveParamsArray[idx];
+                                rootPointIdx = idx;
+                            }
+                        }
+                        
+                        // Get hair ID for this barb - always uniform (one per curve)
+                        int barbHairId = -1;
+                        if (barbCurveIdx < barbHairIdsArray.size())
+                        {
+                            barbHairId = barbHairIdsArray[barbCurveIdx];
+                        }
+                        else
+                        {
+                            // Skip barbs with missing hair IDs
+                            continue;
+                        }
+                        
+                        // If we don't have a valid hairId, skip this barb
+                        if (barbHairId < 0 || hairIdToShaftCurveIndices.find(barbHairId) == hairIdToShaftCurveIndices.end())
+                        {
+                            continue;
+                        }
+                        
+                        // Get the root point position
+                        const V3f &rootPointPos = (rootPointIdx < barbPositionsArray.size()) ? 
+                                                   barbPositionsArray[rootPointIdx] : V3f(0);
+                        
+                        // Find the matching shaft curves for this hairId
+                        const std::vector<size_t> &shaftCurveIndices = hairIdToShaftCurveIndices[barbHairId];
+                        
+                        // If no shaft curves match, skip this barb
+                        if (shaftCurveIndices.empty())
+                        {
+                            continue;
+                        }
+                        
+                        // Find the closest point on any of the matching shaft curves
+                        float closestDist = std::numeric_limits<float>::max();
+                        int bestShaftCurveIdx = -1;
+                        float bestV = 0.0f;
+                        V3f closestPoint;
+                        V3f closestTangent;
+                        
+                        for (size_t shaftCurveIdx : shaftCurveIndices)
+                        {
+                            // Try to find closest point on this shaft curve
+                            if (shaftEvaluator->closestPoint(rootPointPos, localResult.get(), shaftCurveIdx))
+                            {
+                                float dist = (curveResult->point() - rootPointPos).length();
+                                if (dist < closestDist)
+                                {
+                                    closestDist = dist;
+                                    bestShaftCurveIdx = static_cast<int>(shaftCurveIdx);
+                                    bestV = curveResult->v();
+                                    closestPoint = curveResult->point();
+                                    // Get tangent from curve evaluation
+                                    closestTangent = curveResult->vTangent().normalized();
+                                }
+                            }
+                        }
+                        
+                        // If we found a binding point
+                        if (bestShaftCurveIdx >= 0)
+                        {
+                            // Get orientation quaternion for this shaft point
+                            Quatf orientation;
+                            
+                            // Get the vertex offset for this shaft curve
+                            size_t shaftCurveVertexOffset = shaftOffsets[bestShaftCurveIdx];
+                            int shaftCurveVerts = shaftVertsPerCurve[bestShaftCurveIdx];
+                            
+                            // Find or interpolate orientation at this point
+                            if (shaftOrientationsArray.size() == shaftPositionsArray.size()) 
+                            {
+                                // Orientation is per-vertex
+                                // Find nearest vertex for now (could do better interpolation)
+                                int nearestVertexIndex = shaftCurveVertexOffset + 
+                                                        std::min(static_cast<int>(bestV * (shaftCurveVerts - 1)),
+                                                                shaftCurveVerts - 1);
+                                                                
+                                if (nearestVertexIndex < shaftOrientationsArray.size())
+                                {
+                                    orientation = shaftOrientationsArray[nearestVertexIndex];
+                                }
+                                else 
+                                {
+                                    // Fallback to identity quaternion
+                                    orientation = Quatf();
+                                }
+                            }
+                            else if (shaftOrientationsArray.size() == shaftVertsPerCurve.size()) 
+                            {
+                                // Orientation is per-curve (uniform)
+                                if (bestShaftCurveIdx < shaftOrientationsArray.size())
+                                {
+                                    orientation = shaftOrientationsArray[bestShaftCurveIdx];
+                                }
+                                else
+                                {
+                                    // Fallback to identity quaternion
+                                    orientation = Quatf();
+                                }
+                            }
+                            else
+                            {
+                                // Fallback to identity quaternion
+                                orientation = Quatf();
+                            }
+                            
+                            // Build rest frame using orientation quaternion and tangent
+                            RestFrame restFrame;
+                            restFrame.position = closestPoint;
+                            restFrame.tangent = closestTangent;
+                            
+                            // Apply the orientation quaternion to default up vector to get normal
+                            V3f defaultNormal(0, 1, 0);
+                            restFrame.normal = orientation.rotateVector(defaultNormal);
+                            // Make sure normal is perpendicular to tangent
+                            restFrame.normal = (restFrame.normal - restFrame.tangent * restFrame.tangent.dot(restFrame.normal)).normalized();
+                            
+                            // Complete the frame with the bitangent
+                            restFrame.bitangent = restFrame.tangent.cross(restFrame.normal).normalized();
+                            
+                            // Ensure the frame is properly orthonormalized
+                            restFrame.orthonormalize();
+                            
+                            // Calculate root point offset relative to binding point
+                            V3f rootOffset = rootPointPos - closestPoint;
+                            
+                            // Store data
+                            shaftCurveIndices[barbCurveIdx] = bestShaftCurveIdx;
+                            shaftCurveVParams[barbCurveIdx] = bestV;
+                            shaftHairIdsOut[barbCurveIdx] = barbHairId;
+                            restPositions[barbCurveIdx] = restFrame.position;
+                            restNormals[barbCurveIdx] = restFrame.normal;
+                            restTangents[barbCurveIdx] = restFrame.tangent;
+                            restBitangents[barbCurveIdx] = restFrame.bitangent;
+                            rootPointOffsets[barbCurveIdx] = rootOffset;
+                        }
+                    }
+                });
+    
+    // Store all binding data as primitive variables
+    outputBarbs->variables["restPosition"] = PrimitiveVariable(PrimitiveVariable::Uniform, restPositionsData);
+    outputBarbs->variables["restNormal"] = PrimitiveVariable(PrimitiveVariable::Uniform, restNormalsData);
+    outputBarbs->variables["restTangent"] = PrimitiveVariable(PrimitiveVariable::Uniform, restTangentsData);
+    outputBarbs->variables["restBitangent"] = PrimitiveVariable(PrimitiveVariable::Uniform, restBitangentsData);
+    outputBarbs->variables["shaftCurveIndex"] = PrimitiveVariable(PrimitiveVariable::Uniform, shaftCurveIndicesData);
+    outputBarbs->variables["shaftCurveV"] = PrimitiveVariable(PrimitiveVariable::Uniform, shaftCurveVParamsData);
+    outputBarbs->variables["shaftHairId"] = PrimitiveVariable(PrimitiveVariable::Uniform, shaftHairIdsData);
+    outputBarbs->variables["rootPointOffset"] = PrimitiveVariable(PrimitiveVariable::Uniform, rootPointOffsetsData);
+    
+    IECore::msg(IECore::Msg::Warning, "FeatherAttachBarbs",
+                (boost::format("Completed barb binding - bound %d barbs") % numBarbCurves).str());
 }
