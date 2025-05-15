@@ -48,3 +48,14 @@ nodeMenu.append(
     GafferScotch.FeatherDeformBarbs,
     searchText="FeatherDeformBarbs",
 )
+nodeMenu.append(
+    "/GafferScotch/CurvesToCurvesAttach",
+    GafferScotch.CurvesToCurvesAttach,
+    searchText="CurvesToCurvesAttach",
+)
+
+nodeMenu.append(
+    "/GafferScotch/CurvesToCurvesDeform",
+    GafferScotch.CurvesToCurvesDeform,
+    searchText="CurvesToCurvesDeform",
+)

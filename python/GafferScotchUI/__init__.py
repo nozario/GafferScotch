@@ -8,6 +8,8 @@ from . import (
     CaptureMatrixWeightsUI,
     CaptureWeightsUI,
     CurvesPostProcessUI,
+    CurvesToCurvesAttachUI,
+    CurvesToCurvesDeformUI,
     FeatherAttachBarbsUI,
     FeatherDeformBarbsUI,
     MatrixDeformUI,

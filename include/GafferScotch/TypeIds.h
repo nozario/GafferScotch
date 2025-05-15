@@ -19,6 +19,9 @@ namespace GafferScotch
 
         FeatherAttachBarbsTypeId = 121008,
         FeatherDeformBarbsTypeId = 121009,
+        
+        CurvesToCurvesAttachTypeId = 121010,
+        CurvesToCurvesDeformTypeId = 121011,
 
         LastTypeId = 121499,
     };

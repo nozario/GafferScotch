@@ -11,6 +11,8 @@ try:
         CaptureMatrixWeights,
         CaptureWeights,
         CurvesPostProcess,
+        CurvesToCurvesAttach,
+        CurvesToCurvesDeform,
         FeatherAttachBarbs,
         FeatherDeformBarbs,
         MatrixDeform,
