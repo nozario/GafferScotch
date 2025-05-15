@@ -425,18 +425,6 @@ IECore::ConstObjectPtr CurvesToCurvesDeform::computeProcessedObject( const Gaffe
         }
     }
     
-    // Pass through original attributes if they exist
-    ConstCompoundObjectPtr inputAttributes = inPlug()->attributes( path );
-    if( inputAttributes && inputAttributes != outPlug()->attributesPlug()->defaultValue() )
-    {
-        outPlug()->attributesPlug()->setValue( inputAttributes );
-    }
-    else
-    {
-        outPlug()->attributesPlug()->setToDefault();
-    }
-
-
     return outputChildCurves;
 }
 
@@ -565,9 +553,12 @@ void CurvesToCurvesDeform::deformChildCurves(
                     const V3f &origP = inputPData->readable()[vtxIdx]; 
                     
                     V3f pRelativeToChildRestRoot = origP - childRestRootPos;
-                    V3f deformedPRelative = pRelativeToChildRestRoot * transformMatrix.rotation(); // Apply only rotation to the relative vector
+                    V3f deformedPRelative;
+                    transformMatrix.multDirMatrix(pRelativeToChildRestRoot, deformedPRelative); // Apply 3x3 part
                     
-                    V3f deformedChildRootPos = rootOffset * transformMatrix.rotation() + deformedFrameOnParent.position;
+                    V3f transformedRootOffset;
+                    transformMatrix.multDirMatrix(rootOffset, transformedRootOffset);
+                    V3f deformedChildRootPos = transformedRootOffset + deformedFrameOnParent.position;
 
                     outputPoints[vtxIdx] = deformedChildRootPos + deformedPRelative;
                 }

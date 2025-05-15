@@ -1,6 +1,9 @@
 #ifndef GAFFERSCOTCH_CURVESTOCURVESATTACH_H
 #define GAFFERSCOTCH_CURVESTOCURVESATTACH_H
 
+#include "GafferScotch/Export.h"
+#include "GafferScotch/TypeIds.h"
+
 #include "GafferScene/ObjectProcessor.h"
 #include "Gaffer/StringPlug.h"
 #include "Gaffer/TypedPlug.h"

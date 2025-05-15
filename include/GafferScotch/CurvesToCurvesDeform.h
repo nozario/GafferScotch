@@ -1,6 +1,9 @@
 #ifndef GAFFERSCOTCH_CURVESTOCURVESDEFORM_H
 #define GAFFERSCOTCH_CURVESTOCURVESDEFORM_H
 
+#include "GafferScotch/Export.h"
+#include "GafferScotch/TypeIds.h"
+
 #include "GafferScene/Deformer.h"
 #include "Gaffer/StringPlug.h"
 #include "Gaffer/TypedPlug.h"
@@ -53,6 +56,11 @@ protected:
     bool affectsProcessedObject( const Gaffer::Plug *input ) const override;
     void hashProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const override;
     IECore::ConstObjectPtr computeProcessedObject( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, const IECore::Object *inputObject ) const override;
+
+    // Declarations for bound methods
+    bool affectsProcessedObjectBound( const Gaffer::Plug *input ) const override;
+    void hashProcessedObjectBound( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context, IECore::MurmurHash &h ) const override;
+    Imath::Box3f computeProcessedObjectBound( const GafferScene::ScenePlug::ScenePath &path, const Gaffer::Context *context ) const override;
 
 private:
 
