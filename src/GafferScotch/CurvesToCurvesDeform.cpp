@@ -551,7 +551,9 @@ void CurvesToCurvesDeform::deformChildCurves(
     
     const bool useUpVecAttr = useUpVectorAttrPlug()->getValue();
     const std::string upVecAttrName = upVectorAttrPlug()->getValue();
-    const V3f defaultUpVector = upVectorPlug()->getValue();
+    const V3f defaultUpVectorFromPlug = upVectorPlug()->getValue();
+
+    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::upVectorSetup", std::string("Use Attribute for UpVector: ") + (useUpVecAttr ? "True" : "False") + ". Attribute name: '" + upVecAttrName + "'. Plug default: (" + std::to_string(defaultUpVectorFromPlug.x) + ", " + std::to_string(defaultUpVectorFromPlug.y) + ", " + std::to_string(defaultUpVectorFromPlug.z) + ")" );
 
     // TBB Parallelization
     const size_t numThreads = std::thread::hardware_concurrency();
@@ -586,24 +588,79 @@ void CurvesToCurvesDeform::deformChildCurves(
                 deformedFrameOnParent.position = animEvalRes->point();
                 deformedFrameOnParent.tangent = animEvalRes->vTangent();
                 
-                V3f upVectorHint = defaultUpVector;
+                V3f finalUpVectorForCurve = defaultUpVectorFromPlug;
+                std::string upVectorSourceMsg = "plug";
+
                 if (useUpVecAttr && !upVecAttrName.empty()) {
                     auto it = inputChildCurves->variables.find(upVecAttrName);
                     if (it != inputChildCurves->variables.end() && it->second.data) {
-                        if (it->second.interpolation == PrimitiveVariable::Uniform) {
-                            if (const V3fData *upData = runTimeCast<const V3fData>(it->second.data.get())) {
-                                upVectorHint = upData->readable();
+                        bool attributeSuccessfullyUsed = false;
+                        if (it->second.interpolation == PrimitiveVariable::Constant) {
+                            if (const V3fData *upData = runTimeCast<const V3fData>(it->second.data.get())) { 
+                                finalUpVectorForCurve = upData->readable();
+                                attributeSuccessfullyUsed = true;
+                                upVectorSourceMsg = "attribute '" + upVecAttrName + "' (Constant V3fData)";
+                            }
+                            else
+                            {
+                                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' (Constant) is not V3fData. Falling back to plug." );
+                            }
+                        }
+                        else if (it->second.interpolation == PrimitiveVariable::Uniform) {
+                            if (const V3fVectorData *upVecData = runTimeCast<const V3fVectorData>(it->second.data.get())) { // Uniform: one V3f per curve
+                                const std::vector<V3f> &upVectors = upVecData->readable();
+                                if (i < upVectors.size())
+                                {
+                                    finalUpVectorForCurve = upVectors[i];
+                                    attributeSuccessfullyUsed = true;
+                                    upVectorSourceMsg = "attribute '" + upVecAttrName + "' (Uniform V3fVectorData[" + std::to_string(i) + "])";
+                                }
+                                else
+                                {
+                                    IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' (Uniform V3fVectorData) size mismatch. Expected at least " + std::to_string(i + 1) + " elements, got " + std::to_string(upVectors.size()) + ". Falling back to plug." );
+                                }
+                            }
+                            else
+                            {
+                                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' (Uniform) is not V3fVectorData. Falling back to plug." );
                             }
                         } else if (it->second.interpolation == PrimitiveVariable::Vertex || it->second.interpolation == PrimitiveVariable::Varying) {
-                            // For Vertex/Varying upVector, we'd need the root point index of child curve i.
-                            // This info isn't directly passed here but could be if findRootPointIndex was called again.
-                            // Or assume the upVector is Uniform per child curve from the attach node.
-                            // For simplicity, if it's Vertex/Varying, we might fall back to default or use first vertex of child.
-                            // Let's assume for now it was baked as Uniform or we use the defaultPlug.
+                            if (const V3fVectorData *upVecData = runTimeCast<const V3fVectorData>(it->second.data.get())) {
+                                if (!upVecData->readable().empty()) { 
+                                    finalUpVectorForCurve = upVecData->readable()[childVertexOffsets[i]]; 
+                                    attributeSuccessfullyUsed = true;
+                                    upVectorSourceMsg = "attribute '" + upVecAttrName + "' (Vertex/Varying V3fVectorData[childPtxOffset:" + std::to_string(childVertexOffsets[i]) + "]) - NOTE: Using first point of child curve";
+                                     IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' (Vertex/Varying) - Using data from first point (vtx " + std::to_string(childVertexOffsets[i]) + ") of child curve due to missing rootPointVtxIdx in Deform node." );
+                                }
+                                else {
+                                    IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' (Vertex/Varying V3fVectorData) is empty. Falling back to plug." );
+                                }
+                            }
+                            else {
+                                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' (Vertex/Varying) is not V3fVectorData. Falling back to plug." );
+                            }
+                        }
+                        else
+                        {
+                            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' has unsupported interpolation '" + IECore::DataAlgo::interpolationToString( it->second.interpolation ) + "'. Falling back to plug." );
+                        }
+
+                        if (!attributeSuccessfullyUsed) {
+                            upVectorSourceMsg = "plug (fallback after trying attribute '" + upVecAttrName + "')";
                         }
                     }
+                    else
+                    {
+                         IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' not found. Using plug." );
+                    }
                 }
-                deformedFrameOnParent.orthonormalize(upVectorHint);
+                else if (useUpVecAttr) // Attribute name must be empty
+                {
+                    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::upVector", "Curve " + std::to_string(i) + ": Use attribute is enabled, but attribute name is empty. Using plug." );
+                }
+
+                IECore::msg( IECore::Msg::Detail, "CurvesToCurvesDeform::upVectorDetail", "Curve " + std::to_string(i) + ": Using up-vector from " + upVectorSourceMsg + " with value: (" + std::to_string(finalUpVectorForCurve.x) + ", " + std::to_string(finalUpVectorForCurve.y) + ", " + std::to_string(finalUpVectorForCurve.z) + ")" );
+                deformedFrameOnParent.orthonormalize(finalUpVectorForCurve);
 
                 M44f restMatrix = DeformFrame::buildMatrix(restFrameOnParent.tangent, restFrameOnParent.bitangent, restFrameOnParent.normal, restFrameOnParent.position);
                 M44f deformedMatrix = DeformFrame::buildMatrix(deformedFrameOnParent.tangent, deformedFrameOnParent.bitangent, deformedFrameOnParent.normal, deformedFrameOnParent.position);
