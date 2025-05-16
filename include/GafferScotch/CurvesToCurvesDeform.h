@@ -47,6 +47,9 @@ public:
     Gaffer::StringPlug *upVectorAttrPlug();
     const Gaffer::StringPlug *upVectorAttrPlug() const;
     
+    Gaffer::BoolPlug *translationOnlyPlug();
+    const Gaffer::BoolPlug *translationOnlyPlug() const;
+
     Gaffer::BoolPlug *cleanupBindAttributesPlug();
     const Gaffer::BoolPlug *cleanupBindAttributesPlug() const;
 

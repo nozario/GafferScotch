@@ -24,6 +24,8 @@ Gaffer.Metadata.registerNode(
     False,
     "layout:section:Settings.Up Vector:collapsed",
     False,
+    "layout:section:Settings.Deformation Mode:collapsed",
+    False,
     "layout:section:Settings.Cleanup:collapsed",
     False,
     "layout:activator:bindAttrVisible",
@@ -141,6 +143,15 @@ Gaffer.Metadata.registerNode(
             "Settings.Up Vector",
             "layout:visibilityActivator",
             "upVectorAttrVisible",
+        ],
+        "translationOnly": [
+            "description",
+            """
+            When enabled, only the translation component of the parent deformer is applied to the child curves.
+            The child curves will maintain their orientation from the rest (bind) pose.
+            """,
+            "layout:section",
+            "Settings.Deformation Mode",
         ],
         "cleanupBindAttributes": [
             "description",

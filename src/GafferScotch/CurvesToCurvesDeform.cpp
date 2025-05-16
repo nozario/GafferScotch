@@ -189,6 +189,7 @@ CurvesToCurvesDeform::CurvesToCurvesDeform( const std::string &name )
     addChild( new V3fPlug( "upVector", Plug::In, V3f( 0.0f, 1.0f, 0.0f ) ) );
     addChild( new BoolPlug( "useUpVectorAttr", Plug::In, false ) );
     addChild( new StringPlug( "upVectorAttr", Plug::In, "" ) );
+    addChild( new BoolPlug( "translationOnly", Plug::In, false ) );
     addChild( new BoolPlug( "cleanupBindAttributes", Plug::In, true ) );
 
     // Unlike ObjectProcessor, Deformer doesn't automatically pass through attributes.
@@ -275,13 +276,22 @@ const StringPlug *CurvesToCurvesDeform::upVectorAttrPlug() const
     return getChild<StringPlug>( g_firstPlugIndex + 7 );
 }
 
-BoolPlug *CurvesToCurvesDeform::cleanupBindAttributesPlug()
+BoolPlug *CurvesToCurvesDeform::translationOnlyPlug()
 {
     return getChild<BoolPlug>( g_firstPlugIndex + 8 );
 }
-const BoolPlug *CurvesToCurvesDeform::cleanupBindAttributesPlug() const
+const BoolPlug *CurvesToCurvesDeform::translationOnlyPlug() const
 {
     return getChild<BoolPlug>( g_firstPlugIndex + 8 );
+}
+
+BoolPlug *CurvesToCurvesDeform::cleanupBindAttributesPlug()
+{
+    return getChild<BoolPlug>( g_firstPlugIndex + 9 );
+}
+const BoolPlug *CurvesToCurvesDeform::cleanupBindAttributesPlug() const
+{
+    return getChild<BoolPlug>( g_firstPlugIndex + 9 );
 }
 
 void CurvesToCurvesDeform::affects( const Gaffer::Plug *input, AffectedPlugsContainer &outputs ) const
@@ -297,6 +307,7 @@ void CurvesToCurvesDeform::affects( const Gaffer::Plug *input, AffectedPlugsCont
         input == upVectorPlug() ||
         input == useUpVectorAttrPlug() ||
         input == upVectorAttrPlug() ||
+        input == translationOnlyPlug() ||
         input == cleanupBindAttributesPlug()
     )
     {
@@ -321,6 +332,7 @@ bool CurvesToCurvesDeform::affectsProcessedObject( const Gaffer::Plug *input ) c
         input == upVectorPlug() ||
         input == useUpVectorAttrPlug() ||
         input == upVectorAttrPlug() ||
+        input == translationOnlyPlug() ||
         input == cleanupBindAttributesPlug();
 }
 
@@ -385,6 +397,7 @@ void CurvesToCurvesDeform::hashProcessedObject( const GafferScene::ScenePlug::Sc
     upVectorPlug()->hash( h );
     useUpVectorAttrPlug()->hash( h );
     upVectorAttrPlug()->hash( h );
+    translationOnlyPlug()->hash( h );
     cleanupBindAttributesPlug()->hash( h );
 
     // If up-vector is from an attribute on the child, hash that attribute.
@@ -552,8 +565,12 @@ void CurvesToCurvesDeform::deformChildCurves(
     const bool useUpVecAttr = useUpVectorAttrPlug()->getValue();
     const std::string upVecAttrName = upVectorAttrPlug()->getValue();
     const V3f defaultUpVectorFromPlug = upVectorPlug()->getValue();
+    const bool translationOnly = translationOnlyPlug()->getValue();
 
     IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::upVectorSetup", std::string("Use Attribute for UpVector: ") + (useUpVecAttr ? "True" : "False") + ". Attr name: '" + upVecAttrName + "'. Plug default: (" + std::to_string(defaultUpVectorFromPlug.x) + ", " + std::to_string(defaultUpVectorFromPlug.y) + ", " + std::to_string(defaultUpVectorFromPlug.z) + ")" );
+    if (translationOnly) {
+        IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::mode", "Translation Only Mode: True");
+    }
 
     // TBB Parallelization
     const size_t numThreads = std::thread::hardware_concurrency();
@@ -638,9 +655,29 @@ void CurvesToCurvesDeform::deformChildCurves(
                 deformedFrameOnParent.orthonormalize(finalUpVectorForCurve);
 
                 M44f restMatrix = DeformFrame::buildMatrix(restFrameOnParent.tangent, restFrameOnParent.bitangent, restFrameOnParent.normal, restFrameOnParent.position);
-                M44f deformedMatrix = DeformFrame::buildMatrix(deformedFrameOnParent.tangent, deformedFrameOnParent.bitangent, deformedFrameOnParent.normal, deformedFrameOnParent.position);
-                
-                M44f transformMatrix = deformedMatrix * restMatrix.inverse();
+                M44f transformMatrix;
+
+                if (translationOnly)
+                {
+                    // Use rest orientation with the new animated position
+                    M44f effectiveDeformedMatrix = DeformFrame::buildMatrix(
+                        restFrameOnParent.tangent,    // Rest T
+                        restFrameOnParent.bitangent,  // Rest B
+                        restFrameOnParent.normal,     // Rest N
+                        deformedFrameOnParent.position  // Animated P
+                    );
+                    transformMatrix = effectiveDeformedMatrix * restMatrix.inverse();
+                }
+                else
+                {
+                    M44f deformedMatrix = DeformFrame::buildMatrix(
+                        deformedFrameOnParent.tangent,
+                        deformedFrameOnParent.bitangent,
+                        deformedFrameOnParent.normal,
+                        deformedFrameOnParent.position
+                    );
+                    transformMatrix = deformedMatrix * restMatrix.inverse();
+                }
                 
                 const size_t childStartVtx = childVertexOffsets[i];
                 const size_t numVertsOnChild = childVertsPerCurve[i];
