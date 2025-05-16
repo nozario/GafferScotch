@@ -16,6 +16,7 @@
 
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
+#include <sstream>
 
 using namespace Gaffer;
 using namespace GafferScene;
@@ -720,9 +721,23 @@ void CurvesToCurvesDeform::deformChildCurves(
                     transformMatrix = matrixUsedForDeformed * restMatrix.inverse();
                 }
 
-                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform", boost::format("Curve %d: RestMatrix:\\n%s") % i % restMatrix.toString() );
-                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform", boost::format("Curve %d: MatrixUsedForDeformed:\\n%s") % i % matrixUsedForDeformed.toString() );
-                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform", boost::format("Curve %d: TransformMatrix:\\n%s") % i % transformMatrix.toString() );
+                std::ostringstream ossRestMatrix;
+                ossRestMatrix << restMatrix;
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform",
+                    boost::format("Curve %d: RestMatrix:\n%s") % i % ossRestMatrix.str()
+                );
+
+                std::ostringstream ossMatrixUsedForDeformed;
+                ossMatrixUsedForDeformed << matrixUsedForDeformed;
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform",
+                    boost::format("Curve %d: MatrixUsedForDeformed:\n%s") % i % ossMatrixUsedForDeformed.str()
+                );
+
+                std::ostringstream ossTransformMatrix;
+                ossTransformMatrix << transformMatrix;
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform",
+                    boost::format("Curve %d: TransformMatrix:\n%s") % i % ossTransformMatrix.str()
+                );
                 
                 const size_t childStartVtx = childVertexOffsets[i];
                 const size_t numVertsOnChild = childVertsPerCurve[i];
