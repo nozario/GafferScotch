@@ -54,9 +54,10 @@ Gaffer.Metadata.registerNode(
         "curveRootAttr": [
             "description",
             """
-            The name of a vertex float or int attribute on the child curves that defines the root point
-            of each curve. The vertex with the highest positive value is considered the root.
-            If empty or no positive value found, the first point of each curve is used.
+            The name of a per-vertex float attribute on the child curves (e.g., "curveu" or a similar parametric coordinate)
+            that defines the root point of each curve. The vertex where this attribute's value is 0.0 (or closest to 0.0
+            if no exact match is found) is considered the root. If empty, or if the attribute is invalid/not found,
+            the first point of each curve is used.
             """,
             "layout:section",
             "Settings.Child Curve Root",

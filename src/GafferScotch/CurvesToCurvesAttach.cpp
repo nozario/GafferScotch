@@ -80,29 +80,52 @@ namespace
             }
             IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Initial 'up' vector: " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
 
-            if (std::abs(tangent.dot(up)) > 0.9999f)
+            if (std::abs(tangent.dot(up)) > 0.9999f) // If tangent and current 'up' are collinear
             {
-                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Tangent and 'up' are collinear. Attempting fallback 'up'." );
-                if (std::abs(tangent.x) < 0.9f)
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Tangent and initial 'up' are collinear. Selecting a new 'up'." );
+                // Select a new 'up' vector that is least aligned with the tangent.
+                // Prefer Z-axis, then X-axis, then Y-axis to break collinearity.
+                if (std::abs(tangent.z) < 0.9f) // If tangent is not strongly Z-aligned
                 {
-                    up = V3f(1.0f, 0.0f, 0.0f);
-                    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Using X-axis as fallback 'up'." );
+                    up = V3f(0.0f, 0.0f, 1.0f); // Try Z-axis
                 }
-                else
+                else if (std::abs(tangent.x) < 0.9f) // Else if tangent is not strongly X-aligned
                 {
-                    up = V3f(0.0f, 1.0f, 0.0f);
-                    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Using Y-axis as fallback 'up'." );
+                    up = V3f(1.0f, 0.0f, 0.0f); // Try X-axis
                 }
+                else // Tangent must be strongly Y-aligned (or Z and X aligned, implies Y is best remaining option)
+                {
+                    up = V3f(0.0f, 1.0f, 0.0f); // Try Y-axis
+                }
+                IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "New fallback 'up': " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
 
+                // Safety check: if somehow still collinear
                 if (std::abs(tangent.dot(up)) > 0.9999f) {
-                    IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Fallback 'up' still collinear. Second fallback attempt." );
-                    if (std::abs(tangent.y) > 0.9f) {
-                        up = V3f(1.0f, 0.0f, 0.0f);
-                        IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Second fallback: Using X-axis as 'up'." );
-                    } else {
-                        // No change to 'up', or could try Z-axis if needed, though current logic covers X/Y alignment
-                         IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Second fallback: 'up' remains: " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
+                    IECore::msg( IECore::Msg::Error, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Critical: Fallback 'up' is still collinear. Attempting direct perpendicular construction." );
+                    // As a last resort, force a frame if tangent is valid.
+                    if( tangent.length2() > 1e-12f ) { // Check if tangent is not zero
+                        if( std::abs(tangent.x) > std::abs(tangent.z) ) {
+                            up = V3f(-tangent.y, tangent.x, 0.0f); // Perpendicular in XY plane relative to tangent
+                        } else {
+                            up = V3f(0.0f, -tangent.z, tangent.y); // Perpendicular in YZ plane relative to tangent
+                        }
+                        up = safeNormalize(up);
+                        // If the new 'up' is still bad (e.g. tangent was (0,0,1), first fallback was (0,0,1), direct perp up=(0,-1,0) )
+                        // or if tangent was (1,0,0) first fallback (1,0,0), direct perp up=(-0,1,0)=(0,1,0)
+                        // This 'up' should be good unless it became zero vector itself (e.g. tangent was purely X, Y, or Z)
+                        if (up.length2() < 1e-12f || std::abs(tangent.dot(up)) > 0.9999f ) {
+                             IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Directly computed 'up' failed or still collinear. Using arbitrary axis." );
+                            // Final arbitrary fallback if direct computation failed
+                            if(std::abs(tangent.x) < 0.9f) up = V3f(1.0f,0.0f,0.0f); // Prefer X
+                            else if(std::abs(tangent.y) < 0.9f) up = V3f(0.0f,1.0f,0.0f); // Then Y
+                            else up = V3f(0.0f,0.0f,1.0f); // Then Z
+                        }
+                    } else { // tangent itself is degenerate (should have been caught earlier)
+                         this->tangent   = V3f(1.0f, 0.0f, 0.0f); // Default tangent
+                         up = V3f(0.0f, 1.0f, 0.0f); // Default up
+                         IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Tangent degenerate in critical fallback. Reset to default frame." );
                     }
+                    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Final resort 'up': " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
                 }
             }
 
@@ -349,83 +372,111 @@ size_t CurvesToCurvesAttach::findRootPointIndex(
     size_t curveIndex) const
 {
     const std::string rootAttrName = curveRootAttrPlug()->getValue();
+    const size_t defaultRootIdx = curveIndex < vertexOffsets.size() ? vertexOffsets[curveIndex] : 0;
+
     if (rootAttrName.empty() || curveIndex >= vertexOffsets.size())
     {
-        return curveIndex < vertexOffsets.size() ? vertexOffsets[curveIndex] : 0; // Default to first point
+        return defaultRootIdx; // Default to first point if no attribute or invalid curveIndex
     }
 
     auto it = curves->variables.find(rootAttrName);
     if (it == curves->variables.end() || !it->second.data)
     {
-        return vertexOffsets[curveIndex];
+        IECore::msg(
+            IECore::Msg::Warning, "CurvesToCurvesAttach::findRootPointIndex",
+            boost::format("Attribute '%s' not found on child curves. Defaulting to first point for curve %d.") % rootAttrName % curveIndex
+        );
+        return defaultRootIdx;
     }
 
+    const FloatVectorData *paramData = runTimeCast<const FloatVectorData>(it->second.data.get());
+    if (!paramData)
+    {
+        IECore::msg(
+            IECore::Msg::Warning, "CurvesToCurvesAttach::findRootPointIndex",
+            boost::format("Attribute '%s' is not FloatVectorData. Defaulting to first point for curve %d.") % rootAttrName % curveIndex
+        );
+        return defaultRootIdx;
+    }
+
+    if (it->second.interpolation != PrimitiveVariable::Vertex && it->second.interpolation != PrimitiveVariable::Varying)
+    {
+        IECore::msg(
+            IECore::Msg::Warning, "CurvesToCurvesAttach::findRootPointIndex",
+            boost::format("Attribute '%s' must have Vertex or Varying interpolation. Defaulting to first point for curve %d.") % rootAttrName % curveIndex
+        );
+        return defaultRootIdx;
+    }
+
+    const std::vector<float> &values = paramData->readable();
     const size_t startIdx = vertexOffsets[curveIndex];
     const size_t numVertsOnCurve = (curveIndex + 1 < vertexOffsets.size()) ? (vertexOffsets[curveIndex + 1] - startIdx) : (curves->variableSize(PrimitiveVariable::Vertex) - startIdx);
 
-    size_t rootIdx = startIdx;
-    float maxVal = -std::numeric_limits<float>::max(); // Initialize with a very small number
-
-    // Check for FloatVectorData
-    if (const FloatVectorData *rootData = runTimeCast<const FloatVectorData>(it->second.data.get()))
+    if (numVertsOnCurve == 0)
     {
-        const std::vector<float> &values = rootData->readable();
-        if (it->second.interpolation == PrimitiveVariable::Vertex || it->second.interpolation == PrimitiveVariable::Varying)
+        IECore::msg(
+            IECore::Msg::Warning, "CurvesToCurvesAttach::findRootPointIndex",
+            boost::format("Curve %d has no vertices. Cannot find root point.") % curveIndex
+        );
+        return 0; // Or handle as an error appropriately
+    }
+
+    size_t rootIdx = startIdx; // Default to first point of this curve
+    bool foundExactZero = false;
+    float minAbsValue = std::numeric_limits<float>::max();
+
+    for (size_t i = 0; i < numVertsOnCurve; ++i)
+    {
+        const size_t currentVertexIdx = startIdx + i;
+        if (currentVertexIdx >= values.size())
         {
-            for (size_t i = 0; i < numVertsOnCurve; ++i)
+            // This should ideally not happen if primvar sizes are correct
+            IECore::msg(
+                IECore::Msg::Warning, "CurvesToCurvesAttach::findRootPointIndex",
+                boost::format("Vertex index %d out of bounds for attribute '%s' on curve %d. Skipping remaining vertices for this curve.") % currentVertexIdx % rootAttrName % curveIndex
+            );
+            break; 
+        }
+
+        const float currentValue = values[currentVertexIdx];
+        if (std::abs(currentValue - 0.0f) < 1e-6f) // Check for exact zero (with tolerance)
+        {
+            // If we find an exact zero, and haven't found one before, or if this is an earlier vertex
+            // (prioritizing earlier vertices for multiple exact zeros)
+            if (!foundExactZero || currentVertexIdx < rootIdx)
             {
-                const size_t currentVertexIdx = startIdx + i;
-                if (currentVertexIdx < values.size() && values[currentVertexIdx] > maxVal)
-                {
-                    maxVal = values[currentVertexIdx];
-                    rootIdx = currentVertexIdx;
-                }
+                 rootIdx = currentVertexIdx;
+                 foundExactZero = true;
+                 // If we want the absolute first 0.0, we can break here.
+                 // If we want to check all 0.0s and pick the one with the smallest vertex index, we continue.
+                 // For now, let's take the first exact zero we find.
+                 break;
             }
         }
-        else if (it->second.interpolation == PrimitiveVariable::Uniform && curveIndex < values.size())
+
+        if (!foundExactZero) // Only look for closest if no exact zero has been found yet
         {
-            // If uniform, the value applies to the whole curve, so first point is effectively the root by attribute.
-            // This case might not make sense for root finding but handle defensively.
-            if (values[curveIndex] > 0.0f)
-                return startIdx; // Or some other logic for Uniform root
-        }
-    }
-    // Check for IntVectorData
-    else if (const IntVectorData *rootData = runTimeCast<const IntVectorData>(it->second.data.get()))
-    {
-        const std::vector<int> &values = rootData->readable();
-        if (it->second.interpolation == PrimitiveVariable::Vertex || it->second.interpolation == PrimitiveVariable::Varying)
-        {
-            for (size_t i = 0; i < numVertsOnCurve; ++i)
+            if (std::abs(currentValue) < minAbsValue)
             {
-                const size_t currentVertexIdx = startIdx + i;
-                if (currentVertexIdx < values.size() && static_cast<float>(values[currentVertexIdx]) > maxVal)
-                {
-                    maxVal = static_cast<float>(values[currentVertexIdx]);
-                    rootIdx = currentVertexIdx;
-                }
+                minAbsValue = std::abs(currentValue);
+                rootIdx = currentVertexIdx;
+            }
+            // If two points are equally close to zero, prefer the one with lower index
+            else if (std::abs(currentValue) == minAbsValue && currentVertexIdx < rootIdx)
+            {
+                 rootIdx = currentVertexIdx;
             }
         }
-        else if (it->second.interpolation == PrimitiveVariable::Uniform && curveIndex < values.size())
-        {
-            if (values[curveIndex] > 0)
-                return startIdx;
-        }
     }
 
-    // If maxVal is still very small, it means no point had a positive root attribute value or attr was not found/valid type.
-    // In such cases, or if rootAttrName was empty, we default to the first point of the curve.
-    if (maxVal <= 0.0f && !rootAttrName.empty()) // Check maxVal only if an attribute was specified
+    if (!foundExactZero && minAbsValue > 1e-5f) // Arbitrary threshold to warn if nothing is very close to 0
     {
-        // If an attribute was specified but no vertex had a value > 0, warn or fallback gracefully.
-        // For now, fallback to first point if no positive value found.
-        return vertexOffsets[curveIndex];
+         IECore::msg(
+            IECore::Msg::Debug, "CurvesToCurvesAttach::findRootPointIndex",
+            boost::format("No vertex with value ~0.0 for attribute '%s' on curve %d. Closest value was %f at vertex index %d (absolute index).") % rootAttrName % curveIndex % values[rootIdx] % rootIdx
+        );
     }
-    else if (rootAttrName.empty())
-    {
-        return vertexOffsets[curveIndex];
-    }
-
+    
     return rootIdx;
 }
 
@@ -695,5 +746,4 @@ IECore::ConstObjectPtr CurvesToCurvesAttach::computeProcessedObject(const Gaffer
     computeAndStoreBindings(parentDeformerCurves, childCurves, outputCurves.get());
 
     return outputCurves;
-}
 }

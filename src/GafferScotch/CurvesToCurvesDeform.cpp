@@ -76,28 +76,50 @@ namespace
             }
             IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Initial 'up' vector: " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
 
-            if (std::abs(tangent.dot(up)) > 0.9999f)
+            if (std::abs(tangent.dot(up)) > 0.9999f) // If tangent and current 'up' are collinear
             {
-                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Tangent and 'up' are collinear. Attempting fallback 'up'." );
-                if (std::abs(tangent.x) < 0.9f)
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Tangent and initial 'up' are collinear. Selecting a new 'up'." );
+                // Select a new 'up' vector that is least aligned with the tangent.
+                // Prefer Z-axis, then X-axis, then Y-axis to break collinearity.
+                if (std::abs(tangent.z) < 0.9f) // If tangent is not strongly Z-aligned
                 {
-                    up = V3f(1.0f, 0.0f, 0.0f);
-                    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Using X-axis as fallback 'up'." );
+                    up = V3f(0.0f, 0.0f, 1.0f); // Try Z-axis
                 }
-                else
+                else if (std::abs(tangent.x) < 0.9f) // Else if tangent is not strongly X-aligned
                 {
-                    up = V3f(0.0f, 1.0f, 0.0f);
-                    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Using Y-axis as fallback 'up'." );
+                    up = V3f(1.0f, 0.0f, 0.0f); // Try X-axis
                 }
+                else // Tangent must be strongly Y-aligned (or Z and X aligned, implies Y is best remaining option)
+                {
+                    up = V3f(0.0f, 1.0f, 0.0f); // Try Y-axis
+                }
+                IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "New fallback 'up': " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
 
+                // Safety check: if somehow still collinear
                 if (std::abs(tangent.dot(up)) > 0.9999f) {
-                    IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Fallback 'up' still collinear. Second fallback attempt." );
-                    if (std::abs(tangent.y) > 0.9f) {
-                        up = V3f(1.0f, 0.0f, 0.0f);
-                        IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Second fallback: Using X-axis as 'up'." );
-                    } else {
-                         IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Second fallback: 'up' remains: " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
+                    IECore::msg( IECore::Msg::Error, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Critical: Fallback 'up' is still collinear. Attempting direct perpendicular construction." );
+                    // As a last resort, force a frame if tangent is valid.
+                    if( tangent.length2() > 1e-12f ) { // Check if tangent is not zero
+                        if( std::abs(tangent.x) > std::abs(tangent.z) ) {
+                            up = V3f(-tangent.y, tangent.x, 0.0f); // Perpendicular in XY plane relative to tangent
+                        } else {
+                            up = V3f(0.0f, -tangent.z, tangent.y); // Perpendicular in YZ plane relative to tangent
+                        }
+                        up = safeNormalize(up);
+                        // If the new 'up' is still bad
+                        if (up.length2() < 1e-12f || std::abs(tangent.dot(up)) > 0.9999f ) {
+                             IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Directly computed 'up' failed or still collinear. Using arbitrary axis." );
+                            // Final arbitrary fallback if direct computation failed
+                            if(std::abs(tangent.x) < 0.9f) up = V3f(1.0f,0.0f,0.0f); // Prefer X
+                            else if(std::abs(tangent.y) < 0.9f) up = V3f(0.0f,1.0f,0.0f); // Then Y
+                            else up = V3f(0.0f,0.0f,1.0f); // Then Z
+                        }
+                    } else { // tangent itself is degenerate (should have been caught earlier)
+                         this->tangent   = V3f(1.0f, 0.0f, 0.0f); // Default tangent
+                         up = V3f(0.0f, 1.0f, 0.0f); // Default up
+                         IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Tangent degenerate in critical fallback. Reset to default frame." );
                     }
+                    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Final resort 'up': " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
                 }
             }
 
@@ -827,5 +849,4 @@ Imath::Box3f CurvesToCurvesDeform::computeProcessedObjectBound( const GafferScen
     
     // Fallback to input bound if no valid animated deformer path or object
     return Deformer::computeProcessedObjectBound( path, context );
-} 
-} 
+}
