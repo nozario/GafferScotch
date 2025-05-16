@@ -473,7 +473,7 @@ void CurvesToCurvesAttach::computeAndStoreBindings(
     const std::string upVecAttrName = upVectorAttrPlug()->getValue();
     const V3f defaultUpVectorFromPlug = upVectorPlug()->getValue();
 
-    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::upVectorSetup", std::string("Use Attribute for UpVector: ") + (useUpVecAttr ? "True" : "False") + ". Attribute name: '" + upVecAttrName + "'. Plug default: (" + std::to_string(defaultUpVectorFromPlug.x) + ", " + std::to_string(defaultUpVectorFromPlug.y) + ", " + std::to_string(defaultUpVectorFromPlug.z) + ")" );
+    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::upVectorSetup", std::string("Use Attribute for UpVector: ") + (useUpVecAttr ? "True" : "False") + ". Attr name: '" + upVecAttrName + "'. Plug default: (" + std::to_string(defaultUpVectorFromPlug.x) + ", " + std::to_string(defaultUpVectorFromPlug.y) + ", " + std::to_string(defaultUpVectorFromPlug.z) + ")" );
 
     // Optional: Parallelize this loop if performance becomes an issue
     // const size_t numThreads = std::thread::hardware_concurrency();
@@ -514,7 +514,7 @@ void CurvesToCurvesAttach::computeAndStoreBindings(
         binding.parentDeformerCurveU = evalRes->uv()[1];
 
         V3f finalUpVectorForCurve = defaultUpVectorFromPlug;
-        std::string upVectorSourceMsg = "plug";
+        std::string upVectorSource = "plug"; // Default to plug
 
         if (useUpVecAttr && !upVecAttrName.empty())
         {
@@ -528,32 +528,17 @@ void CurvesToCurvesAttach::computeAndStoreBindings(
                     {
                         finalUpVectorForCurve = upData->readable();
                         attributeSuccessfullyUsed = true;
-                        upVectorSourceMsg = "attribute '" + upVecAttrName + "' (Constant V3fData)";
-                    }
-                    else
-                    {
-                        IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' (Constant) is not V3fData. Falling back to plug." );
                     }
                 }
                 else if (it->second.interpolation == PrimitiveVariable::Uniform)
                 {
-                    if (const V3fVectorData *upVecListData = runTimeCast<const V3fVectorData>(it->second.data.get())) // Uniform: one V3f per curve
+                    if (const V3fVectorData *upVecListData = runTimeCast<const V3fVectorData>(it->second.data.get()))
                     {
-                        const std::vector<V3f> &upVectors = upVecListData->readable();
-                        if (i < upVectors.size())
+                        if (i < upVecListData->readable().size())
                         {
-                            finalUpVectorForCurve = upVectors[i];
+                            finalUpVectorForCurve = upVecListData->readable()[i];
                             attributeSuccessfullyUsed = true;
-                            upVectorSourceMsg = "attribute '" + upVecAttrName + "' (Uniform V3fVectorData[" + std::to_string(i) + "])";
                         }
-                        else
-                        {
-                            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' (Uniform V3fVectorData) size mismatch. Expected at least " + std::to_string(i + 1) + " elements, got " + std::to_string(upVectors.size()) + ". Falling back to plug." );
-                        }
-                    }
-                    else
-                    {
-                        IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' (Uniform) is not V3fVectorData. Falling back to plug." );
                     }
                 }
                 else if (it->second.interpolation == PrimitiveVariable::Vertex || it->second.interpolation == PrimitiveVariable::Varying)
@@ -564,40 +549,26 @@ void CurvesToCurvesAttach::computeAndStoreBindings(
                         {
                             finalUpVectorForCurve = upVecData->readable()[rootPointVtxIdx];
                             attributeSuccessfullyUsed = true;
-                            upVectorSourceMsg = "attribute '" + upVecAttrName + "' (Vertex/Varying V3fVectorData[" + std::to_string(rootPointVtxIdx) + "])";
-                        }
-                        else
-                        {
-                            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' (Vertex/Varying V3fVectorData) index " + std::to_string(rootPointVtxIdx) + " out of bounds for size " + std::to_string(upVecData->readable().size()) + ". Falling back to plug." );
                         }
                     }
-                    else
-                    {
-                        IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' (Vertex/Varying) is not V3fVectorData. Falling back to plug." );
-                    }
-                }
-                else
-                {
-                     IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' has unsupported interpolation '" + IECore::DataAlgo::interpolationToString( it->second.interpolation ) + "'. Falling back to plug." );
                 }
 
-                if (!attributeSuccessfullyUsed) {
-                     upVectorSourceMsg = "plug (fallback after trying attribute '" + upVecAttrName + "')";
+                if (attributeSuccessfullyUsed) {
+                    upVectorSource = "attribute ('" + upVecAttrName + "')";
+                } else {
+                    IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::upVector", "Curve " + std::to_string(i) + ": Failed to use attribute '" + upVecAttrName + "' (type/size/interp mismatch or data issue). Falling back to plug." );
+                    // finalUpVectorForCurve remains defaultUpVectorFromPlug
                 }
             }
             else
             {
-                IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' not found. Using plug." );
-                // upVectorSourceMsg remains "plug"
+                 IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' not found. Using plug." );
+                // finalUpVectorForCurve remains defaultUpVectorFromPlug
             }
         }
-        else if (useUpVecAttr) // Attribute name must be empty
-        {
-             IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::upVector", "Curve " + std::to_string(i) + ": Use attribute is enabled, but attribute name is empty. Using plug." );
-             // upVectorSourceMsg remains "plug"
-        }
+        // No specific message if useUpVecAttr is true but attr name is empty, or if useUpVecAttr is false; it just uses the plug.
 
-        IECore::msg( IECore::Msg::Detail, "CurvesToCurvesAttach::upVectorDetail", "Curve " + std::to_string(i) + ": Using up-vector from " + upVectorSourceMsg + " with value: (" + std::to_string(finalUpVectorForCurve.x) + ", " + std::to_string(finalUpVectorForCurve.y) + ", " + std::to_string(finalUpVectorForCurve.z) + ")" );
+        IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::upVectorDetail", "Curve " + std::to_string(i) + ": Final up-vector source: " + upVectorSource + ". Value: (" + std::to_string(finalUpVectorForCurve.x) + ", " + std::to_string(finalUpVectorForCurve.y) + ", " + std::to_string(finalUpVectorForCurve.z) + ")" );
         binding.restFrame.orthonormalize(finalUpVectorForCurve);
         binding.rootPointOffset = childRootP - binding.restFrame.position;
         binding.valid = true;
@@ -724,4 +695,5 @@ IECore::ConstObjectPtr CurvesToCurvesAttach::computeProcessedObject(const Gaffer
     computeAndStoreBindings(parentDeformerCurves, childCurves, outputCurves.get());
 
     return outputCurves;
+}
 }
