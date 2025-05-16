@@ -612,13 +612,24 @@ void CurvesToCurvesDeform::deformChildCurves(
                 restFrameOnParent.normal = restNormals[i];
                 restFrameOnParent.bitangent = restBitangents[i];
 
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform", boost::format("Curve %d: RestFrame P(%f,%f,%f) T(%f,%f,%f) N(%f,%f,%f) B(%f,%f,%f)")
+                    % i % restFrameOnParent.position.x % restFrameOnParent.position.y % restFrameOnParent.position.z
+                    % restFrameOnParent.tangent.x % restFrameOnParent.tangent.y % restFrameOnParent.tangent.z
+                    % restFrameOnParent.normal.x % restFrameOnParent.normal.y % restFrameOnParent.normal.z
+                    % restFrameOnParent.bitangent.x % restFrameOnParent.bitangent.y % restFrameOnParent.bitangent.z
+                );
+
                 const V3f &rootOffset = rootPointOffsets[i];
                 V3f childRestRootPos = restFrameOnParent.position + rootOffset;
 
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform", boost::format("Curve %d: childRestRootPos(%f,%f,%f) rootOffset(%f,%f,%f)")
+                    % i % childRestRootPos.x % childRestRootPos.y % childRestRootPos.z
+                    % rootOffset.x % rootOffset.y % rootOffset.z
+                );
+
                 if (!animatedParentEvaluator->pointAtV(parentCurveIndices[i], parentCurveUs[i], localAnimEvalResult.get()))
                 {
-                    // Failed to evaluate animated parent curve, skip this child curve or copy points?
-                    // For now, points for this curve remain unchanged (as they were copied)
+                    IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform", boost::format("Curve %d: Failed to evaluate animated parent curve at index %d, U %f") % i % parentCurveIndices[i] % parentCurveUs[i] );
                     continue;
                 }
                 const CurvesPrimitiveEvaluator::Result *animEvalRes = static_cast<const CurvesPrimitiveEvaluator::Result *>(localAnimEvalResult.get());
@@ -676,30 +687,42 @@ void CurvesToCurvesDeform::deformChildCurves(
                 IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::upVectorDetail", "Curve " + std::to_string(i) + ": Final up-vector source: " + upVectorSource + ". Value: (" + std::to_string(finalUpVectorForCurve.x) + ", " + std::to_string(finalUpVectorForCurve.y) + ", " + std::to_string(finalUpVectorForCurve.z) + ")" );
                 deformedFrameOnParent.orthonormalize(finalUpVectorForCurve);
 
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform", boost::format("Curve %d: DeformedFrame P(%f,%f,%f) T(%f,%f,%f) N(%f,%f,%f) B(%f,%f,%f) after orthonormalize")
+                    % i % deformedFrameOnParent.position.x % deformedFrameOnParent.position.y % deformedFrameOnParent.position.z
+                    % deformedFrameOnParent.tangent.x % deformedFrameOnParent.tangent.y % deformedFrameOnParent.tangent.z
+                    % deformedFrameOnParent.normal.x % deformedFrameOnParent.normal.y % deformedFrameOnParent.normal.z
+                    % deformedFrameOnParent.bitangent.x % deformedFrameOnParent.bitangent.y % deformedFrameOnParent.bitangent.z
+                );
+
                 M44f restMatrix = DeformFrame::buildMatrix(restFrameOnParent.tangent, restFrameOnParent.bitangent, restFrameOnParent.normal, restFrameOnParent.position);
                 M44f transformMatrix;
+                M44f matrixUsedForDeformed;
 
                 if (translationOnly)
                 {
                     // Use rest orientation with the new animated position
-                    M44f effectiveDeformedMatrix = DeformFrame::buildMatrix(
+                    matrixUsedForDeformed = DeformFrame::buildMatrix(
                         restFrameOnParent.tangent,    // Rest T
                         restFrameOnParent.bitangent,  // Rest B
                         restFrameOnParent.normal,     // Rest N
                         deformedFrameOnParent.position  // Animated P
                     );
-                    transformMatrix = effectiveDeformedMatrix * restMatrix.inverse();
+                    transformMatrix = matrixUsedForDeformed * restMatrix.inverse();
                 }
                 else
                 {
-                    M44f deformedMatrix = DeformFrame::buildMatrix(
+                    matrixUsedForDeformed = DeformFrame::buildMatrix(
                         deformedFrameOnParent.tangent,
                         deformedFrameOnParent.bitangent,
                         deformedFrameOnParent.normal,
                         deformedFrameOnParent.position
                     );
-                    transformMatrix = deformedMatrix * restMatrix.inverse();
+                    transformMatrix = matrixUsedForDeformed * restMatrix.inverse();
                 }
+
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform", boost::format("Curve %d: RestMatrix:\\n%s") % i % restMatrix.toString() );
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform", boost::format("Curve %d: MatrixUsedForDeformed:\\n%s") % i % matrixUsedForDeformed.toString() );
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform", boost::format("Curve %d: TransformMatrix:\\n%s") % i % transformMatrix.toString() );
                 
                 const size_t childStartVtx = childVertexOffsets[i];
                 const size_t numVertsOnChild = childVertsPerCurve[i];
@@ -715,8 +738,19 @@ void CurvesToCurvesDeform::deformChildCurves(
                     
                     V3f transformedRootOffset;
                     transformMatrix.multDirMatrix(rootOffset, transformedRootOffset);
-                    V3f deformedChildRootPos = transformedRootOffset + deformedFrameOnParent.position;
+                    V3f deformedChildRootPos = deformedFrameOnParent.position + transformedRootOffset;
 
+                    if (j == 0) { // Log first point of each curve
+                        IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform", boost::format("Curve %d Vtx %d: origP(%f,%f,%f) pRelativeToChildRestRoot(%f,%f,%f) deformedPRelative(%f,%f,%f) transformedRootOffset(%f,%f,%f) deformedChildRootPos(%f,%f,%f) FINAL_P(%f,%f,%f)")
+                            % i % vtxIdx
+                            % origP.x % origP.y % origP.z
+                            % pRelativeToChildRestRoot.x % pRelativeToChildRestRoot.y % pRelativeToChildRestRoot.z
+                            % deformedPRelative.x % deformedPRelative.y % deformedPRelative.z
+                            % transformedRootOffset.x % transformedRootOffset.y % transformedRootOffset.z
+                            % deformedChildRootPos.x % deformedChildRootPos.y % deformedChildRootPos.z
+                            % (deformedChildRootPos + deformedPRelative).x % (deformedChildRootPos + deformedPRelative).y % (deformedChildRootPos + deformedPRelative).z
+                        );
+                    }
                     outputPoints[vtxIdx] = deformedChildRootPos + deformedPRelative;
                 }
             }

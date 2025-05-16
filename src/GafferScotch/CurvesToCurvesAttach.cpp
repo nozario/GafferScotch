@@ -152,6 +152,16 @@ namespace
             IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Final tangent: " + std::to_string(this->tangent.x) + ", " + std::to_string(this->tangent.y) + ", " + std::to_string(this->tangent.z) );
             IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Final normal: " + std::to_string(this->normal.x) + ", " + std::to_string(this->normal.y) + ", " + std::to_string(this->normal.z) );
             IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Final bitangent: " + std::to_string(this->bitangent.x) + ", " + std::to_string(this->bitangent.y) + ", " + std::to_string(this->bitangent.z) );
+
+            // Add Warning log for final frame components
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize",
+                boost::format("Final Output Frame: T(%f,%f,%f) N(%f,%f,%f) B(%f,%f,%f) Lengths T:%f N:%f B:%f Dots T.N:%f T.B:%f N.B:%f")
+                % this->tangent.x % this->tangent.y % this->tangent.z
+                % this->normal.x % this->normal.y % this->normal.z
+                % this->bitangent.x % this->bitangent.y % this->bitangent.z
+                % this->tangent.length() % this->normal.length() % this->bitangent.length()
+                % this->tangent.dot(this->normal) % this->tangent.dot(this->bitangent) % this->normal.dot(this->bitangent)
+            );
         }
     };
 
@@ -623,6 +633,19 @@ void CurvesToCurvesAttach::computeAndStoreBindings(
         binding.restFrame.orthonormalize(finalUpVectorForCurve);
         binding.rootPointOffset = childRootP - binding.restFrame.position;
         binding.valid = true;
+
+        // Add Warning log for the computed binding restFrame
+        IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::computeAndStoreBindings",
+            boost::format("Curve %d: Computed Binding: Valid:%s P(%f,%f,%f) T(%f,%f,%f) N(%f,%f,%f) B(%f,%f,%f) RootOffset(%f,%f,%f) ParentCurveIdx:%d ParentU:%f UpVecSrc:%s UpVec(%f,%f,%f)")
+            % i % (binding.valid ? "true" : "false")
+            % binding.restFrame.position.x % binding.restFrame.position.y % binding.restFrame.position.z
+            % binding.restFrame.tangent.x % binding.restFrame.tangent.y % binding.restFrame.tangent.z
+            % binding.restFrame.normal.x % binding.restFrame.normal.y % binding.restFrame.normal.z
+            % binding.restFrame.bitangent.x % binding.restFrame.bitangent.y % binding.restFrame.bitangent.z
+            % binding.rootPointOffset.x % binding.rootPointOffset.y % binding.rootPointOffset.z
+            % binding.parentDeformerCurveIndex % binding.parentDeformerCurveU
+            % upVectorSource % finalUpVectorForCurve.x % finalUpVectorForCurve.y % finalUpVectorForCurve.z
+        );
     }
 
     // Store binding data as primvars
