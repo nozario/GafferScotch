@@ -54,11 +54,11 @@ namespace
 
         void orthonormalize(const V3f &initialUpVectorHint)
         {
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Input tangent: " + std::to_string(tangent.x) + ", " + std::to_string(tangent.y) + ", " + std::to_string(tangent.z) );
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Input initialUpVectorHint: " + std::to_string(initialUpVectorHint.x) + ", " + std::to_string(initialUpVectorHint.y) + ", " + std::to_string(initialUpVectorHint.z) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Input tangent: " + std::to_string(tangent.x) + ", " + std::to_string(tangent.y) + ", " + std::to_string(tangent.z) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Input initialUpVectorHint: " + std::to_string(initialUpVectorHint.x) + ", " + std::to_string(initialUpVectorHint.y) + ", " + std::to_string(initialUpVectorHint.z) );
 
             tangent = safeNormalize(tangent);
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Normalized tangent: " + std::to_string(tangent.x) + ", " + std::to_string(tangent.y) + ", " + std::to_string(tangent.z) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Normalized tangent: " + std::to_string(tangent.x) + ", " + std::to_string(tangent.y) + ", " + std::to_string(tangent.z) );
 
             if (tangent.length2() < 1e-12f)
             {
@@ -72,10 +72,10 @@ namespace
             V3f up = safeNormalize(initialUpVectorHint);
             if (up.length2() < 1e-12f)
             {
-                IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Initial up vector hint was zero or tiny. Defaulting to Y-up." );
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Initial up vector hint was zero or tiny. Defaulting to Y-up." );
                 up = V3f(0.0f, 1.0f, 0.0f);
             }
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Initial 'up' vector: " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Initial 'up' vector: " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
 
             if (std::abs(tangent.dot(up)) > 0.9999f) // If tangent and current 'up' are collinear
             {
@@ -94,7 +94,7 @@ namespace
                 {
                     up = V3f(0.0f, 1.0f, 0.0f); // Try Y-axis
                 }
-                IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "New fallback 'up': " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "New fallback 'up': " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
 
                 // Safety check: if somehow still collinear
                 if (std::abs(tangent.dot(up)) > 0.9999f) {
@@ -120,12 +120,12 @@ namespace
                          up = V3f(0.0f, 1.0f, 0.0f); // Default up
                          IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Tangent degenerate in critical fallback. Reset to default frame." );
                     }
-                    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Final resort 'up': " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
+                    IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Final resort 'up': " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
                 }
             }
 
             V3f calculatedNormal = tangent.cross(up);
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Calculated normal (before normalization): " + std::to_string(calculatedNormal.x) + ", " + std::to_string(calculatedNormal.y) + ", " + std::to_string(calculatedNormal.z) + " Length^2: " + std::to_string(calculatedNormal.length2()) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Calculated normal (before normalization): " + std::to_string(calculatedNormal.x) + ", " + std::to_string(calculatedNormal.y) + ", " + std::to_string(calculatedNormal.z) + " Length^2: " + std::to_string(calculatedNormal.length2()) );
 
             if (calculatedNormal.length2() < 1e-12f)
             {
@@ -135,16 +135,16 @@ namespace
                 } else {
                     calculatedNormal = V3f(0.0f, -tangent.z, tangent.y);
                 }
-                IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Fallback normal (before normalization): " + std::to_string(calculatedNormal.x) + ", " + std::to_string(calculatedNormal.y) + ", " + std::to_string(calculatedNormal.z) );
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Fallback normal (before normalization): " + std::to_string(calculatedNormal.x) + ", " + std::to_string(calculatedNormal.y) + ", " + std::to_string(calculatedNormal.z) );
             }
             this->normal = safeNormalize(calculatedNormal);
 
             this->bitangent = safeNormalize(this->normal.cross(this->tangent)); 
             this->normal = safeNormalize(this->tangent.cross(this->bitangent)); // Ensure strict orthogonality
 
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Final tangent: " + std::to_string(this->tangent.x) + ", " + std::to_string(this->tangent.y) + ", " + std::to_string(this->tangent.z) );
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Final normal: " + std::to_string(this->normal.x) + ", " + std::to_string(this->normal.y) + ", " + std::to_string(this->normal.z) );
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Final bitangent: " + std::to_string(this->bitangent.x) + ", " + std::to_string(this->bitangent.y) + ", " + std::to_string(this->bitangent.z) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Final tangent: " + std::to_string(this->tangent.x) + ", " + std::to_string(this->tangent.y) + ", " + std::to_string(this->tangent.z) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Final normal: " + std::to_string(this->normal.x) + ", " + std::to_string(this->normal.y) + ", " + std::to_string(this->normal.z) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::DeformFrame::orthonormalize", "Final bitangent: " + std::to_string(this->bitangent.x) + ", " + std::to_string(this->bitangent.y) + ", " + std::to_string(this->bitangent.z) );
         }
 
         M44f toMatrix() const
@@ -590,9 +590,9 @@ void CurvesToCurvesDeform::deformChildCurves(
     const V3f defaultUpVectorFromPlug = upVectorPlug()->getValue();
     const bool translationOnly = translationOnlyPlug()->getValue();
 
-    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::upVectorSetup", std::string("Use Attribute for UpVector: ") + (useUpVecAttr ? "True" : "False") + ". Attr name: '" + upVecAttrName + "'. Plug default: (" + std::to_string(defaultUpVectorFromPlug.x) + ", " + std::to_string(defaultUpVectorFromPlug.y) + ", " + std::to_string(defaultUpVectorFromPlug.z) + ")" );
+    IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::upVectorSetup", std::string("Use Attribute for UpVector: ") + (useUpVecAttr ? "True" : "False") + ". Attr name: '" + upVecAttrName + "'. Plug default: (" + std::to_string(defaultUpVectorFromPlug.x) + ", " + std::to_string(defaultUpVectorFromPlug.y) + ", " + std::to_string(defaultUpVectorFromPlug.z) + ")" );
     if (translationOnly) {
-        IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::mode", "Translation Only Mode: True");
+        IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::mode", "Translation Only Mode: True");
     }
 
     // TBB Parallelization
@@ -639,54 +639,58 @@ void CurvesToCurvesDeform::deformChildCurves(
                 deformedFrameOnParent.position = animEvalRes->point();
                 deformedFrameOnParent.tangent = animEvalRes->vTangent();
                 
-                V3f finalUpVectorForCurve = defaultUpVectorFromPlug;
-                std::string upVectorSource = "plug"; // Default to plug
+                V3f orientationHint = restNormals[i]; // Use the stored rest normal as the primary hint
+                std::string hintSource = "cfx:restNormal";
 
-                if (useUpVecAttr && !upVecAttrName.empty()) {
-                    auto it = inputChildCurves->variables.find(upVecAttrName);
-                    if (it != inputChildCurves->variables.end() && it->second.data) {
-                        bool attributeSuccessfullyUsed = false;
-                        if (it->second.interpolation == PrimitiveVariable::Constant) {
-                            if (const V3fData *upData = runTimeCast<const V3fData>(it->second.data.get())) { 
-                                finalUpVectorForCurve = upData->readable();
-                                attributeSuccessfullyUsed = true;
-                            }
-                        }
-                        else if (it->second.interpolation == PrimitiveVariable::Uniform) {
-                            if (const V3fVectorData *upVecData = runTimeCast<const V3fVectorData>(it->second.data.get())) { 
-                                if (i < upVecData->readable().size())
-                                {
-                                    finalUpVectorForCurve = upVecData->readable()[i];
+                if (orientationHint.length2() < 1e-12f) 
+                {
+                    IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::orthonormalizeHint", "Curve " + std::to_string(i) + ": cfx:restNormal is degenerate. Falling back to plug/attribute up-vector." );
+                    
+                    // Fallback logic: Determine finalUpVectorForCurve based on plugs/attributes
+                    V3f plugOrAttrUpVector = defaultUpVectorFromPlug;
+                    std::string plugOrAttrSource = "plug default";
+
+                    if (useUpVecAttr && !upVecAttrName.empty()) {
+                        auto it = inputChildCurves->variables.find(upVecAttrName);
+                        if (it != inputChildCurves->variables.end() && it->second.data) {
+                            bool attributeSuccessfullyUsed = false;
+                            if (it->second.interpolation == PrimitiveVariable::Constant) {
+                                if (const V3fData *upData = runTimeCast<const V3fData>(it->second.data.get())) { 
+                                    plugOrAttrUpVector = upData->readable();
                                     attributeSuccessfullyUsed = true;
                                 }
-                            }
-                        } else if (it->second.interpolation == PrimitiveVariable::Vertex || it->second.interpolation == PrimitiveVariable::Varying) {
-                            if (const V3fVectorData *upVecData = runTimeCast<const V3fVectorData>(it->second.data.get())) {
-                                if (!upVecData->readable().empty()) { 
-                                    finalUpVectorForCurve = upVecData->readable()[childVertexOffsets[i]]; 
-                                    attributeSuccessfullyUsed = true;
-                                     // Simplified: No detailed log about using first point here, covered by general fallback message if it fails.
+                            } else if (it->second.interpolation == PrimitiveVariable::Uniform) {
+                                if (const V3fVectorData *upVecData = runTimeCast<const V3fVectorData>(it->second.data.get())) { 
+                                    if (i < upVecData->readable().size()) { // Check bounds
+                                        plugOrAttrUpVector = upVecData->readable()[i];
+                                        attributeSuccessfullyUsed = true;
+                                    }
+                                }
+                            } else if (it->second.interpolation == PrimitiveVariable::Vertex || it->second.interpolation == PrimitiveVariable::Varying) {
+                                if (const V3fVectorData *upVecData = runTimeCast<const V3fVectorData>(it->second.data.get())) {
+                                    // Use the value from the first vertex of the current child curve
+                                    if (!upVecData->readable().empty() && childVertexOffsets[i] < upVecData->readable().size() ) { 
+                                        plugOrAttrUpVector = upVecData->readable()[childVertexOffsets[i]]; 
+                                        attributeSuccessfullyUsed = true;
+                                    }
                                 }
                             }
-                        }
-                        
-                        if (attributeSuccessfullyUsed) {
-                            upVectorSource = "attribute ('" + upVecAttrName + "')";
+                            
+                            if (attributeSuccessfullyUsed) {
+                                plugOrAttrSource = "attribute ('" + upVecAttrName + "')";
+                            } else {
+                                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::upVectorFallback", "Curve " + std::to_string(i) + ": Failed to use fallback attribute '" + upVecAttrName + "' (type/size/interp mismatch or data issue). Using plug default." );
+                            }
                         } else {
-                            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::upVector", "Curve " + std::to_string(i) + ": Failed to use attribute '" + upVecAttrName + "' (type/size/interp mismatch or data issue). Falling back to plug." );
-                            // finalUpVectorForCurve remains defaultUpVectorFromPlug
+                             IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::upVectorFallback", "Curve " + std::to_string(i) + ": Fallback attribute '" + upVecAttrName + "' not found. Using plug default." );
                         }
                     }
-                    else
-                    {
-                         IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' not found. Using plug." );
-                        // finalUpVectorForCurve remains defaultUpVectorFromPlug
-                    }
+                    orientationHint = plugOrAttrUpVector;
+                    hintSource = "fallback (" + plugOrAttrSource + ")";
                 }
-                // No specific message if useUpVecAttr is true but attr name is empty, or if useUpVecAttr is false; it just uses the plug.
 
-                IECore::msg( IECore::Msg::Debug, "CurvesToCurvesDeform::upVectorDetail", "Curve " + std::to_string(i) + ": Final up-vector source: " + upVectorSource + ". Value: (" + std::to_string(finalUpVectorForCurve.x) + ", " + std::to_string(finalUpVectorForCurve.y) + ", " + std::to_string(finalUpVectorForCurve.z) + ")" );
-                deformedFrameOnParent.orthonormalize(finalUpVectorForCurve);
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform::orthonormalizeHint", "Curve " + std::to_string(i) + ": Using hint from " + hintSource + " (" + std::to_string(orientationHint.x) + ", " + std::to_string(orientationHint.y) + ", " + std::to_string(orientationHint.z) + ") for orthonormalize." );
+                deformedFrameOnParent.orthonormalize(orientationHint);
 
                 IECore::msg( IECore::Msg::Warning, "CurvesToCurvesDeform", boost::format("Curve %d: DeformedFrame P(%f,%f,%f) T(%f,%f,%f) N(%f,%f,%f) B(%f,%f,%f) after orthonormalize")
                     % i % deformedFrameOnParent.position.x % deformedFrameOnParent.position.y % deformedFrameOnParent.position.z

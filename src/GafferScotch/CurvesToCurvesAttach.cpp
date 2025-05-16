@@ -57,11 +57,11 @@ namespace
 
         void orthonormalize(const V3f &initialUpVectorHint)
         {
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Input tangent: " + std::to_string(tangent.x) + ", " + std::to_string(tangent.y) + ", " + std::to_string(tangent.z) );
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Input initialUpVectorHint: " + std::to_string(initialUpVectorHint.x) + ", " + std::to_string(initialUpVectorHint.y) + ", " + std::to_string(initialUpVectorHint.z) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Input tangent: " + std::to_string(tangent.x) + ", " + std::to_string(tangent.y) + ", " + std::to_string(tangent.z) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Input initialUpVectorHint: " + std::to_string(initialUpVectorHint.x) + ", " + std::to_string(initialUpVectorHint.y) + ", " + std::to_string(initialUpVectorHint.z) );
 
             tangent = safeNormalize(tangent);
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Normalized tangent: " + std::to_string(tangent.x) + ", " + std::to_string(tangent.y) + ", " + std::to_string(tangent.z) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Normalized tangent: " + std::to_string(tangent.x) + ", " + std::to_string(tangent.y) + ", " + std::to_string(tangent.z) );
 
             if (tangent.length2() < 1e-12f)
             {
@@ -75,10 +75,10 @@ namespace
             V3f up = safeNormalize(initialUpVectorHint);
             if (up.length2() < 1e-12f)
             {
-                IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Initial up vector hint was zero or tiny. Defaulting to Y-up." );
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Initial up vector hint was zero or tiny. Defaulting to Y-up." );
                 up = V3f(0.0f, 1.0f, 0.0f);
             }
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Initial 'up' vector: " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Initial 'up' vector: " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
 
             if (std::abs(tangent.dot(up)) > 0.9999f) // If tangent and current 'up' are collinear
             {
@@ -97,7 +97,7 @@ namespace
                 {
                     up = V3f(0.0f, 1.0f, 0.0f); // Try Y-axis
                 }
-                IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "New fallback 'up': " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "New fallback 'up': " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
 
                 // Safety check: if somehow still collinear
                 if (std::abs(tangent.dot(up)) > 0.9999f) {
@@ -125,12 +125,12 @@ namespace
                          up = V3f(0.0f, 1.0f, 0.0f); // Default up
                          IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Tangent degenerate in critical fallback. Reset to default frame." );
                     }
-                    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Final resort 'up': " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
+                    IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Final resort 'up': " + std::to_string(up.x) + ", " + std::to_string(up.y) + ", " + std::to_string(up.z) );
                 }
             }
 
             V3f calculatedNormal = tangent.cross(up);
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Calculated normal (before normalization): " + std::to_string(calculatedNormal.x) + ", " + std::to_string(calculatedNormal.y) + ", " + std::to_string(calculatedNormal.z) + " Length^2: " + std::to_string(calculatedNormal.length2()) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Calculated normal (before normalization): " + std::to_string(calculatedNormal.x) + ", " + std::to_string(calculatedNormal.y) + ", " + std::to_string(calculatedNormal.z) + " Length^2: " + std::to_string(calculatedNormal.length2()) );
 
             if (calculatedNormal.length2() < 1e-12f)
             {
@@ -140,7 +140,7 @@ namespace
                 } else {
                     calculatedNormal = V3f(0.0f, -tangent.z, tangent.y);
                 }
-                IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Fallback normal (before normalization): " + std::to_string(calculatedNormal.x) + ", " + std::to_string(calculatedNormal.y) + ", " + std::to_string(calculatedNormal.z) );
+                IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Fallback normal (before normalization): " + std::to_string(calculatedNormal.x) + ", " + std::to_string(calculatedNormal.y) + ", " + std::to_string(calculatedNormal.z) );
             }
             this->normal = safeNormalize(calculatedNormal);
 
@@ -149,9 +149,9 @@ namespace
             // Recompute normal to ensure orthogonality with new bitangent and original tangent
             this->normal = safeNormalize(this->tangent.cross(this->bitangent));
 
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Final tangent: " + std::to_string(this->tangent.x) + ", " + std::to_string(this->tangent.y) + ", " + std::to_string(this->tangent.z) );
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Final normal: " + std::to_string(this->normal.x) + ", " + std::to_string(this->normal.y) + ", " + std::to_string(this->normal.z) );
-            IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Final bitangent: " + std::to_string(this->bitangent.x) + ", " + std::to_string(this->bitangent.y) + ", " + std::to_string(this->bitangent.z) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Final tangent: " + std::to_string(this->tangent.x) + ", " + std::to_string(this->tangent.y) + ", " + std::to_string(this->tangent.z) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Final normal: " + std::to_string(this->normal.x) + ", " + std::to_string(this->normal.y) + ", " + std::to_string(this->normal.z) );
+            IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize", "Final bitangent: " + std::to_string(this->bitangent.x) + ", " + std::to_string(this->bitangent.y) + ", " + std::to_string(this->bitangent.z) );
 
             // Add Warning log for final frame components
             IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::AttachFrame::orthonormalize",
@@ -482,7 +482,7 @@ size_t CurvesToCurvesAttach::findRootPointIndex(
     if (!foundExactZero && minAbsValue > 1e-5f) // Arbitrary threshold to warn if nothing is very close to 0
     {
          IECore::msg(
-            IECore::Msg::Debug, "CurvesToCurvesAttach::findRootPointIndex",
+            IECore::Msg::Warning, "CurvesToCurvesAttach::findRootPointIndex",
             boost::format("No vertex with value ~0.0 for attribute '%s' on curve %d. Closest value was %f at vertex index %d (absolute index).") % rootAttrName % curveIndex % values[rootIdx] % rootIdx
         );
     }
@@ -534,7 +534,7 @@ void CurvesToCurvesAttach::computeAndStoreBindings(
     const std::string upVecAttrName = upVectorAttrPlug()->getValue();
     const V3f defaultUpVectorFromPlug = upVectorPlug()->getValue();
 
-    IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::upVectorSetup", std::string("Use Attribute for UpVector: ") + (useUpVecAttr ? "True" : "False") + ". Attr name: '" + upVecAttrName + "'. Plug default: (" + std::to_string(defaultUpVectorFromPlug.x) + ", " + std::to_string(defaultUpVectorFromPlug.y) + ", " + std::to_string(defaultUpVectorFromPlug.z) + ")" );
+    IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::upVectorSetup", std::string("Use Attribute for UpVector: ") + (useUpVecAttr ? "True" : "False") + ". Attr name: '" + upVecAttrName + "'. Plug default: (" + std::to_string(defaultUpVectorFromPlug.x) + ", " + std::to_string(defaultUpVectorFromPlug.y) + ", " + std::to_string(defaultUpVectorFromPlug.z) + ")" );
 
     // Optional: Parallelize this loop if performance becomes an issue
     // const size_t numThreads = std::thread::hardware_concurrency();
@@ -623,13 +623,13 @@ void CurvesToCurvesAttach::computeAndStoreBindings(
             }
             else
             {
-                 IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' not found. Using plug." );
+                 IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::upVector", "Curve " + std::to_string(i) + ": Attribute '" + upVecAttrName + "' not found. Using plug." );
                 // finalUpVectorForCurve remains defaultUpVectorFromPlug
             }
         }
         // No specific message if useUpVecAttr is true but attr name is empty, or if useUpVecAttr is false; it just uses the plug.
 
-        IECore::msg( IECore::Msg::Debug, "CurvesToCurvesAttach::upVectorDetail", "Curve " + std::to_string(i) + ": Final up-vector source: " + upVectorSource + ". Value: (" + std::to_string(finalUpVectorForCurve.x) + ", " + std::to_string(finalUpVectorForCurve.y) + ", " + std::to_string(finalUpVectorForCurve.z) + ")" );
+        IECore::msg( IECore::Msg::Warning, "CurvesToCurvesAttach::upVectorDetail", "Curve " + std::to_string(i) + ": Final up-vector source: " + upVectorSource + ". Value: (" + std::to_string(finalUpVectorForCurve.x) + ", " + std::to_string(finalUpVectorForCurve.y) + ", " + std::to_string(finalUpVectorForCurve.z) + ")" );
         binding.restFrame.orthonormalize(finalUpVectorForCurve);
         binding.rootPointOffset = childRootP - binding.restFrame.position;
         binding.valid = true;
